@@ -17,6 +17,11 @@ pub struct Diagnostic {
     pub message: String,
     /// Source location of the issue.
     pub span: Span,
+    /// The file `span` lies in, when it is not the file being validated: an
+    /// imported file reached by the import-graph walk. `None` means the
+    /// validated file itself.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub file: Option<String>,
     /// Optional suggested fix for LSP code actions.
     pub fix: Option<Fix>,
 }
@@ -60,6 +65,7 @@ impl Diagnostic {
             rule_id: rule_id.into(),
             message: message.into(),
             span,
+            file: None,
             fix: None,
         }
     }
@@ -71,6 +77,7 @@ impl Diagnostic {
             rule_id: rule_id.into(),
             message: message.into(),
             span,
+            file: None,
             fix: None,
         }
     }
@@ -82,8 +89,15 @@ impl Diagnostic {
             rule_id: rule_id.into(),
             message: message.into(),
             span,
+            file: None,
             fix: None,
         }
+    }
+
+    /// Records the file this diagnostic's span lies in (see [`Diagnostic::file`]).
+    pub fn in_file(mut self, file: impl Into<String>) -> Self {
+        self.file = Some(file.into());
+        self
     }
 
     /// Attaches a fix suggestion to this diagnostic.

@@ -147,11 +147,15 @@ form back to `.cant` text. `cleo cant migrate` uses them.
 `cant-core`'s validator (`crates/cant-core/src/validate/`) numbers 42 rules:
 S01–S13 (scope, imports, permissions), P01–P07 (pipeline purity), T01–T07
 (types), H01–H04 (hooks) and W01–W11 (workflow limits), plus hierarchy rules.
-S04 has no implementation, so 41 of the 42 are emitted. `cleo cant validate`
-passes the file path to the validator, so it also walks the file's imports
-and runs the cross-file rules S03 (circular imports), S11 (import depth) and
-S12 (permission escalation). `cantValidateDocumentNative(content)` without a
-`filePath` cannot resolve imports and skips those three.
+All 42 are emitted. `cleo cant validate` passes the file path to the
+validator, so it also walks the file's imports and runs the cross-file rules
+S03 (circular imports), S04 (import target existence), S11 (import depth) and
+S12 (permission escalation). A diagnostic raised in an imported file names
+that file in `file` with its own line/col, and `compileBundle` reports it at
+that file. `cantValidateDocumentNative(content)` without a `filePath` cannot
+resolve imports and skips those four. An addon without the `cantValidateFile`
+export predates the import walk: `validateDocument` returns
+`importRulesRun: false` and `cleo cant validate` warns.
 
 ## Architecture
 

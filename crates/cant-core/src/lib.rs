@@ -230,7 +230,7 @@ pub fn parse_document(
 /// This is the primary entry point for consumers who want to lint a `.cant` file.
 /// It calls [`validate::validate`] internally, running all rule modules
 /// (scope, pipeline purity, types, hooks, workflows). The cross-file import
-/// rules S03, S11 and S12 need the document's file location; use
+/// rules S03, S04, S11 and S12 need the document's file location; use
 /// [`validate_document_file`] to run them too.
 ///
 /// # Arguments
@@ -248,8 +248,10 @@ pub fn validate_document(doc: &dsl::ast::CantDocument) -> Vec<validate::diagnost
 /// Validates a parsed [`CantDocument`](dsl::ast::CantDocument) read from `file`.
 ///
 /// Runs every rule [`validate_document`] runs plus the cross-file import
-/// rules (S03 circular imports, S11 import depth, S12 permission escalation),
-/// which need the file's location to resolve its imports. Calls
+/// rules (S03 circular imports, S04 import target existence, S11 import
+/// depth, S12 permission escalation), which need the file's location to
+/// resolve its imports. A diagnostic raised in an imported file names that
+/// file in [`validate::diagnostic::Diagnostic::file`]. Calls
 /// [`validate::validate_file`].
 ///
 /// # Arguments

@@ -17,6 +17,7 @@ import {
   cantExecutePipelineNative,
   cantParseDocumentNative,
   cantValidateDocumentNative,
+  cantValidateFileNative,
   type NativeDiagnostic,
   type NativeParseError,
   type NativePipelineResult,
@@ -51,6 +52,12 @@ export interface CantValidationResult {
   warningCount: number;
   /** All diagnostics emitted by the 42-rule validator. */
   diagnostics: NativeDiagnostic[];
+  /**
+   * Whether the cross-file import rules (S03, S04, S11, S12) ran. `false`
+   * when the loaded cant-napi addon predates the import-graph entry point;
+   * only the single-document rules ran then.
+   */
+  importRulesRun: boolean;
 }
 
 /** Result of {@link listSections}. */
@@ -101,10 +108,13 @@ export async function parseDocument(filePath: string): Promise<CantDocumentResul
 }
 
 /**
- * Validate a `.cant` file with cant-core's validator: the 41 implemented
- * numbered rules (S04 has no validator) plus the hierarchy lints. Imports
- * resolve relative to `filePath`, so the cross-file rules S03 (circular
- * imports), S11 (import depth) and S12 (permission escalation) run too.
+ * Validate a `.cant` file with cant-core's validator: the 42 numbered rules
+ * plus the hierarchy lints. Imports resolve relative to `filePath`, so the
+ * cross-file rules S03 (circular imports), S04 (import target existence),
+ * S11 (import depth) and S12 (permission escalation) run too, and a
+ * diagnostic raised in an imported file names that file in `file`. With an
+ * addon that predates the import-graph entry point, only the
+ * single-document rules run and `importRulesRun` is `false`.
  *
  * @param filePath - Absolute path to the `.cant` file.
  * @returns A {@link CantValidationResult} with all diagnostics.
@@ -113,7 +123,8 @@ export async function validateDocument(filePath: string): Promise<CantValidation
   // Normalize CRLF → LF so the Rust validator sees consistent line endings
   // on Windows runners that check out files with core.autocrlf=true.
   const content = (await readFile(filePath, 'utf-8')).replace(/\r\n/g, '\n');
-  const result = cantValidateDocumentNative(content, filePath);
+  const graphResult = cantValidateFileNative(content, filePath);
+  const result = graphResult ?? cantValidateDocumentNative(content);
   return {
     file: filePath,
     valid: result.valid,
@@ -121,6 +132,7 @@ export async function validateDocument(filePath: string): Promise<CantValidation
     errorCount: result.errorCount,
     warningCount: result.warningCount,
     diagnostics: result.diagnostics,
+    importRulesRun: graphResult !== null,
   };
 }
 

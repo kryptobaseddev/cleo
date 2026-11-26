@@ -34,8 +34,8 @@ The implementation lives in these crates and packages:
 
 **Specified here but not implemented**: `choice`/`option`, `throw`, and reusable `block`
 definitions and block calls. The parser has no rule and the AST no variant for them, so the
-rules that depend on them (W12, W13, P08) have no validator. S04 (import target existence) is
-also not checked. These items are marked where they appear.
+rules that depend on them (W12, W13, P08) have no validator. These items are marked where
+they appear.
 
 **Implemented but not specified here**: `team` and `tool` blocks (`dsl/team.rs`,
 `dsl/tool.rs`), prose block values (`key: |` followed by indented text, `dsl/prose_block.rs`),
@@ -44,15 +44,15 @@ the frontmatter kinds `message`, `protocol`, `lifecycle`, `team`, `tool`, `model
 `validate/hierarchy.rs`: TEAM-001, TEAM-002, TEAM-003, TIER-001, TIER-002, JIT-001, MM-001,
 MM-002.
 
-**Validation rules**: the validator defines 41 of the 42 numbered rules in Section 4:
-S01–S03, S05–S13, P01–P07, T01–T07, H01–H04 and W01–W11 (counted from the rule-id string
-literals under `crates/cant-core/src/validate/`), plus the eight hierarchy rules above.
-S04 is never defined.
+**Validation rules**: the validator defines all 42 numbered rules in Section 4:
+S01–S13, P01–P07, T01–T07, H01–H04 and W01–W11 (counted from the rule-id string literals
+under `crates/cant-core/src/validate/`), plus the eight hierarchy rules above.
 
 `cleo cant validate <file>` runs all of them. The cross-file rules S03 (circular imports),
-S11 (import depth) and S12 (permission escalation) need the file's location, so they run
-only through `validate_file` (`crates/cant-core/src/validate/mod.rs`, exposed as
-`cant_core::validate_document_file` and the optional `filePath` argument of
+S04 (import target existence), S11 (import depth) and S12 (permission escalation) need the
+file's location, so they run only through `validate_file`
+(`crates/cant-core/src/validate/mod.rs`, exposed as `cant_core::validate_document_file`,
+the napi entry point `cantValidateFile` and the optional `filePath` argument of
 `cantValidateDocument`). It walks the import graph from the file
 (`scope::check_import_graph`): `./` and `../` specifiers resolve relative to the importing
 file, `@name` and bare specifiers to `.cleo/skills/<name>.cant` under the project root, and
@@ -60,13 +60,18 @@ a specifier without `.cant` also tries `<specifier>.cant` (Section 6.2). Contain
 (Section 6.4) is checked before the filesystem is touched: an import whose normalized path
 leaves the project root is refused with S09, an absolute one (including `@/abs`) with S10,
 and a file whose real path leaves the root through a symlink with S10; a refused import is
-never read. An import that does not resolve or parse is skipped, since S04 is not
-implemented; `node_modules` lookup is not implemented. S12 checks each imported file's
+never read. An import that resolves to no file is reported with S04; one whose file does not
+parse is skipped; `node_modules` lookup is not implemented. A diagnostic raised in an
+imported file (an S12 on its agent, or an S03/S04/S09/S10 on one of its own imports)
+names that file in the diagnostic's `file` field and carries that file's own line/col;
+`compileBundle` reports it at that file. An addon without the `cantValidateFile` export
+predates the walk: `validateDocument` then runs only the single-document rules, sets
+`importRulesRun: false`, and `cleo cant validate` warns (`W_CANT_IMPORT_RULES_NOT_RUN`). S12 checks each imported file's
 agents against the importing file's permission context: the permissions its own agents
 hold, or, for a file that defines no agents, the context it inherited from its importer,
 so `main (tasks: read) -> mid (no agents) -> worker (tasks: write)` is refused. A root file
 without agents sets no context. The single-document `validate()` cannot resolve imports and
-runs every rule except S03, S11 and S12. Limits use the defaults in `ValidationLimits`
+runs every rule except S03, S04, S11 and S12. Limits use the defaults in `ValidationLimits`
 (`validate/context.rs`); `.cleo/config.json` is not read (see Appendix B).
 
 **Runtime**: only pipelines execute (Section 7.1). The TypeScript `WorkflowExecutor` was
@@ -1655,8 +1660,8 @@ pub struct TextEdit {
 
 This section defines 42 numbered validation rules organized into five categories: Scope (S),
 Pipeline Purity (P), Types (T), Hooks (H), and Workflows (W), plus three rules (W12, W13, P08)
-for constructs the parser does not implement. `cant-core` emits 41 of the 42 (all but S04;
-S03, S11 and S12 need the file's location, see Implementation Status);
+for constructs the parser does not implement. `cant-core` emits all 42 (S03, S04, S11 and
+S12 need the file's location, see Implementation Status);
 W12, W13 and P08 have no validator. See [Implementation Status](#implementation-status).
 
 For each rule, the specification provides:
@@ -1757,7 +1762,8 @@ file B (directly or transitively) imports file A, the parser MUST reject the cyc
 
 **Severity**: Error
 
-**Status**: Not implemented. No validator emits S04.
+**Status**: Implemented in the import-graph walk (`scope::check_import_graph`); it needs the
+file's location, so the single-document `validate()` does not run it.
 
 **Description**: The target file of an `@import` statement MUST exist on the filesystem at
 the resolved path. See Section 6 for the resolution algorithm.

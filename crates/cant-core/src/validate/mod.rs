@@ -29,18 +29,19 @@ use diagnostic::Diagnostic;
 /// Runs every single-document validation rule against `doc` and returns all
 /// diagnostics.
 ///
-/// The cross-file import rules (S03 circular imports, S11 import depth and
-/// S12 permission escalation) need the file `doc` was read from to resolve
+/// The cross-file import rules (S03 circular imports, S04 import target
+/// existence, S11 import depth and S12 permission escalation) need the file `doc` was read from to resolve
 /// its imports; use [`validate_file`] to run them as well.
 pub fn validate(doc: &CantDocument) -> Vec<Diagnostic> {
     run_rules(doc, None)
 }
 
 /// Runs every validation rule against `doc`, read from `file`, including the
-/// cross-file import rules S03, S11 and S12.
+/// cross-file import rules S03, S04, S11 and S12.
 ///
 /// Imports are resolved from `file` (see [`scope::check_import_graph`]), so
-/// S11 sees the real import chain and a cyclic import is refused with S03.
+/// S11 sees the real import chain, a cyclic import is refused with S03 and a
+/// missing one with S04.
 pub fn validate_file(doc: &CantDocument, file: &Path) -> Vec<Diagnostic> {
     run_rules(doc, Some(file))
 }
@@ -60,7 +61,7 @@ fn run_rules(doc: &CantDocument, file: Option<&Path>) -> Vec<Diagnostic> {
     diags.extend(scope::check_import_path_traversal(doc));
     diags.extend(scope::check_import_symlink_escape(doc));
     if let Some(file) = file {
-        // S03 + S11 + S12 over the resolved import graph.
+        // S03 + S04 + S11 + S12 over the resolved import graph.
         diags.extend(scope::check_import_graph(doc, file, &mut ctx));
     }
     diags.extend(scope::check_permission_values(doc));
