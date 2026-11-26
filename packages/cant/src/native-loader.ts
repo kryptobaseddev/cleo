@@ -330,10 +330,13 @@ let legacyFilePathSupport: boolean | null = null;
  * @remarks
  * Addons from v2026.11.17 (T14603) honour it but lack `cantValidateFile`
  * (so S04 and `NativeDiagnostic.file` are absent); older ones ignore it
- * silently. A probe tells them apart without touching the filesystem: a
- * root-file import of `@/…` names an absolute path, which only the
- * import-graph walk refuses (S10; the single-document check sees no leading
- * `/`). The answer is cached for the process.
+ * silently. A probe tells them apart: a root-file import of `@/…` names an
+ * absolute path, which only the import-graph walk refuses (S10; the
+ * single-document check sees no leading `/`). The probe reads no file
+ * contents; a walking addon does read-only metadata lookups for it
+ * (`canonicalize` of the probe path and `.cleo`/`.git` checks on its
+ * ancestors to find the project root). The answer is cached for the
+ * process.
  *
  * @returns `true` when import rules run through `cantValidateDocument`.
  */

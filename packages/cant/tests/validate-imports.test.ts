@@ -41,6 +41,7 @@ describe('import-graph validation (T14642)', () => {
     const main = write('missing/main.cant', '@import "./nowhere.cant"\n');
     const result = await validateDocument(main);
     expect(result.importRulesRun).toBe(true);
+    expect(result.importRuleCoverage).toBe('full');
     const s04 = result.diagnostics.filter((d) => d.ruleId === 'S04');
     expect(s04).toHaveLength(1);
     expect(s04[0]?.message).toContain("Import target './nowhere.cant' does not exist");

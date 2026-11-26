@@ -34,7 +34,9 @@ interface MigrateModule {
 
 interface CantDocumentModule {
   parseDocument: (filePath: string) => Promise<unknown>;
-  validateDocument: (filePath: string) => Promise<{ importRulesRun?: boolean }>;
+  validateDocument: (
+    filePath: string,
+  ) => Promise<{ importRulesRun?: boolean; importRuleCoverage?: 'full' | 'partial' | 'none' }>;
   listSections: (filePath: string, kind: string) => Promise<unknown>;
   executePipeline: (filePath: string, pipelineName: string) => Promise<unknown>;
 }
@@ -129,6 +131,15 @@ const cantValidateCommand = defineCommand({
           message:
             'The loaded cant-napi binary cannot walk imports (it predates T14603): the import rules ' +
             '(S03, S04, S11, S12) were not run. Rebuild it: pnpm --filter @cleocode/cant build:napi',
+          severity: 'warn',
+        });
+      } else if (result.importRuleCoverage === 'partial') {
+        pushWarning({
+          code: 'W_CANT_IMPORT_RULES_PARTIAL',
+          message:
+            'The loaded cant-napi binary has no import-graph entry point (cantValidateFile): S03, S11 ' +
+            'and S12 ran, but the S04 missing-import check and imported-file diagnostic locations are ' +
+            'unavailable. Upgrade @cleocode/cant (or rebuild: pnpm --filter @cleocode/cant build:napi) to get them.',
           severity: 'warn',
         });
       }

@@ -155,7 +155,8 @@ that file in `file` with its own line/col, and `compileBundle` reports it at
 that file. `cantValidateDocumentNative(content)` without a `filePath` cannot
 resolve imports and skips those four. An addon without the `cantValidateFile`
 export gets the path through `cantValidateDocument`: a v2026.11.17 addon still
-runs S03, S11 and S12 (no S04, no `file`); an older one ignores it, so
+runs S03, S11 and S12 (no S04, no `file`; `importRuleCoverage: 'partial'`,
+and `cleo cant validate` warns `W_CANT_IMPORT_RULES_PARTIAL`); an older one ignores it, so
 `validateDocument` returns `importRulesRun: false` and `cleo cant validate`
 warns.
 

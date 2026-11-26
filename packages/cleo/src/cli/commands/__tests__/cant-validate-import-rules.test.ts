@@ -18,6 +18,7 @@ import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 /** Warnings pending when the command emitted its result. */
 let warningsAtOutput: Warning[] = [];
 let importRulesRun = true;
+let importRuleCoverage: 'full' | 'partial' | 'none' = 'full';
 
 vi.mock('../../renderers/index.js', () => ({
   cliError: vi.fn(),
@@ -37,6 +38,7 @@ vi.mock('@cleocode/cant', () => ({
     warningCount: 0,
     diagnostics: [],
     importRulesRun,
+    importRuleCoverage,
   })),
   listSections: vi.fn(),
   executePipeline: vi.fn(),
@@ -61,12 +63,12 @@ async function validateCommand(): Promise<CommandDef> {
   return typeof cmd === 'function' ? await cmd() : cmd;
 }
 
-/** Runs `cleo cant validate <file>` and returns the warnings it left. */
+/** Runs `cleo cant validate <file>` and returns the import-rule warnings it left. */
 async function runValidate(): Promise<Warning[]> {
   const cmd = await validateCommand();
   if (!cmd.run) throw new Error('cant validate has no run function');
   await cmd.run({ args: { _: [file], file }, rawArgs: [file], cmd } as never);
-  return warningsAtOutput.filter((w) => w.code === 'W_CANT_IMPORT_RULES_NOT_RUN');
+  return warningsAtOutput.filter((w) => w.code.startsWith('W_CANT_IMPORT_RULES_'));
 }
 
 describe('cleo cant validate (T14642)', () => {
@@ -85,13 +87,26 @@ describe('cleo cant validate (T14642)', () => {
 
   it('warns once when the binary lacks the import-graph entry point', async () => {
     importRulesRun = false;
+    importRuleCoverage = 'none';
     const warnings = await runValidate();
     expect(warnings).toHaveLength(1);
+    expect(warnings[0]?.code).toBe('W_CANT_IMPORT_RULES_NOT_RUN');
     expect(warnings[0]?.message).toContain('import rules (S03, S04, S11, S12) were not run');
   });
 
-  it('does not warn when the import rules ran', async () => {
+  it('warns once, narrower, when the binary walks imports but lacks cantValidateFile', async () => {
     importRulesRun = true;
+    importRuleCoverage = 'partial';
+    const warnings = await runValidate();
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]?.code).toBe('W_CANT_IMPORT_RULES_PARTIAL');
+    expect(warnings[0]?.message).toContain('S04 missing-import check');
+    expect(warnings[0]?.message).toContain('imported-file diagnostic locations');
+  });
+
+  it('does not warn when every import rule ran', async () => {
+    importRulesRun = true;
+    importRuleCoverage = 'full';
     expect(await runValidate()).toHaveLength(0);
   });
 });

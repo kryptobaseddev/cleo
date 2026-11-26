@@ -41,6 +41,7 @@ describe('validateDocument with an addon lacking cantValidateFile', () => {
     const result = await validateDocument(file);
     expect(validateDocumentNative).toHaveBeenCalledWith(content, file);
     expect(result.importRulesRun).toBe(true);
+    expect(result.importRuleCoverage).toBe('partial');
   });
 
   it('reports importRulesRun false only when the old entry point ignores filePath', async () => {
@@ -50,5 +51,6 @@ describe('validateDocument with an addon lacking cantValidateFile', () => {
     const result = await validateDocument(file);
     expect(validateDocumentNative).toHaveBeenCalledWith(content, file);
     expect(result.importRulesRun).toBe(false);
+    expect(result.importRuleCoverage).toBe('none');
   });
 });

@@ -67,7 +67,9 @@ names that file in the diagnostic's `file` field and carries that file's own lin
 `compileBundle` reports it at that file. An addon without the `cantValidateFile` export
 gets `cantValidateDocument(content, filePath)`: one from v2026.11.17 still runs S03, S11 and
 S12 (no S04, no `file`); an older one ignores the path, so `validateDocument` sets
-`importRulesRun: false` and `cleo cant validate` warns (`W_CANT_IMPORT_RULES_NOT_RUN`). S12 checks each imported file's
+`importRulesRun: false` and `cleo cant validate` warns (`W_CANT_IMPORT_RULES_NOT_RUN`); on a
+v2026.11.17 addon it warns that S04 and imported-file locations are unavailable
+(`W_CANT_IMPORT_RULES_PARTIAL`, `importRuleCoverage: 'partial'`). S12 checks each imported file's
 agents against the importing file's permission context: the permissions its own agents
 hold, or, for a file that defines no agents, the context it inherited from its importer,
 so `main (tasks: read) -> mid (no agents) -> worker (tasks: write)` is refused. A root file
