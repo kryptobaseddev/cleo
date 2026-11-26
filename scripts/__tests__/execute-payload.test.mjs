@@ -200,6 +200,38 @@ describe('converge — the shared propagation loop (T13328)', () => {
     });
   });
 
+  it('stops at its deadline even when an attempt never returns (T14646)', async () => {
+    let calls = 0;
+    const started = Date.now();
+    const out = await converge(
+      async () => (++calls === 1 ? { settled: false, value: 'first' } : new Promise(() => {})),
+      { timeoutMs: 200, intervalMs: 10 },
+    );
+    expect(out).toMatchObject({ settled: false, timedOut: true, attempts: 2, value: 'first' });
+    expect(Date.now() - started).toBeLessThan(2_000);
+  });
+
+  it('a registry fetch that hangs cannot hold verifyAll past its budget (T14646)', async () => {
+    const started = Date.now();
+    /** @type {Array<AbortSignal | undefined>} */
+    const signals = [];
+    const results = await verifyAll(['core'], '2026.9.2', {
+      // Ignores its abort signal too: the deadline holds without the fetch's help.
+      fetchImpl: (_url, init) => {
+        signals.push(init?.signal);
+        return new Promise(() => {});
+      },
+      timeoutMs: 200,
+      intervalMs: 10,
+    });
+    expect(Date.now() - started).toBeLessThan(2_000);
+    expect(results[0]).toMatchObject({
+      ok: false,
+      reason: 'no registry answer before the deadline',
+    });
+    expect(signals[0], 'every registry fetch carries its own timeout').toBeInstanceOf(AbortSignal);
+  });
+
   it('a settled first attempt never waits', async () => {
     const clock = fakeClock();
     const out = await converge(async () => ({ settled: true, value: 'ok' }), clock);

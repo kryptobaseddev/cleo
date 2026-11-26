@@ -691,15 +691,21 @@ jobs:
     name: Publish
     needs: [build-verify, prebuild, cant-napi]
     runs-on: ubuntu-latest
-    # gh#1479 recorded a single @cleocode/cleo publish taking 55m33s (npm
-    # accepted it; the registry sat on it). 60 minutes left ~4 minutes for the
-    # other 17 packages, the GitHub Release and the stage/verify steps. Stable
-    # releases publish twice: ~110m for two slow calls, plus 30m for the
-    # candidate registry check (T14630), 15m for the candidate install/soak,
-    # plus 30m for the stable dependency wait (T14615) is ~185m. 210 leaves
-    # ~25m for sibling packages, staging and the GitHub Release; a healthy
-    # publish finishes in minutes.
-    timeout-minutes: 210
+    # T14646: every wait in the Publish step is bounded, so a pathological run
+    # fails with its gate's own message before this timeout kills the job.
+    # Worst case of a stable release (candidate, then release), in minutes:
+    #   candidate publish   63  PUBLISH_BUDGET_S (60) + one npm view after
+    #                           the deadline and the kill grace (3)
+    #   candidate registry  30  BLOCKING_GATE_BUDGET (a hard deadline;
+    #                           each fetch is bounded too, execute-payload.mjs)
+    #   candidate soak      45  soakWorstCaseMs() in release-canary-soak.mjs
+    #   release publish     63  as above; the stable dependency gate's 30
+    #   dependency gate     30  pauses the publish budget
+    #   other steps         20  checkout, install, downloads, GitHub Release
+    #   total              251  < 270. release-rc-gate.test.mjs recomputes it.
+    # gh#1479 recorded a single publish taking 55m33s; a healthy release
+    # finishes in minutes.
+    timeout-minutes: 270
     env:
       VERSION: ${{ needs.build-verify.outputs.version }}
     # T14192: supervisor-attach runs whenever the GitHub Release exists, even
@@ -931,9 +937,17 @@ jobs:
           # fails the job on lag alone. Wait up to 30 min, backing off
           # 15s -> 60s between polls; every poll logs each package's stalled rung.
           BLOCKING_GATE_BUDGET=(POSTDEPLOY_TIMEOUT_MS=1800000 POSTDEPLOY_BACKOFF=2 POSTDEPLOY_MAX_INTERVAL_MS=60000)
+          # T14646: one deadline bounds every `pnpm publish` of a
+          # publish_release call (all six waves), so a publish npm sits on
+          # fails here with its package named instead of running into the job
+          # timeout. gh#1479's slowest call took 55m33s. Every `npm view` is a
+          # registry fetch bounded by NPM_VIEW_TIMEOUT_S on its own.
+          PUBLISH_BUDGET_S=3600
+          NPM_VIEW_TIMEOUT_S=60
           publish_release() {
             local VERSION="$1"
             local TAG="$2"
+            PUBLISH_DEADLINE=$(( $(date +%s) + PUBLISH_BUDGET_S ))
             PUBLISH_ARGS="--tag $TAG --access public --no-git-checks --provenance"
             # Publishes run in background subshells, which cannot append to a
             # parent array; failures are collected in a file instead.
@@ -947,7 +961,7 @@ jobs:
             already_published() {
               local pkg="$1"
               local published_version
-              published_version=$(npm view "@cleocode/$pkg@$VERSION" version 2>/dev/null || true)
+              published_version=$(timeout -k 10 "$NPM_VIEW_TIMEOUT_S" npm view "@cleocode/$pkg@$VERSION" version 2>/dev/null || true)
               [[ "$published_version" == "$VERSION" ]]
             }
 
@@ -1007,10 +1021,22 @@ jobs:
               # surface immediately; only TLOG_CREATE_ENTRY_ERROR retries.
               PUBLISH_EXIT=0
               PUBLISH_OUTPUT=""
+              local left
               for attempt in 1 2 3; do
                 PUBLISH_EXIT=0
-                PUBLISH_OUTPUT=$(pnpm publish $PUBLISH_ARGS 2>&1) || PUBLISH_EXIT=$?
+                left=$(( PUBLISH_DEADLINE - $(date +%s) ))
+                if (( left <= 0 )); then
+                  PUBLISH_EXIT=124
+                  PUBLISH_OUTPUT="publish budget (${PUBLISH_BUDGET_S}s) for v$VERSION spent before attempt $attempt"
+                  break
+                fi
+                PUBLISH_OUTPUT=$(timeout -k 30 "$left" pnpm publish $PUBLISH_ARGS 2>&1) || PUBLISH_EXIT=$?
                 if [[ $PUBLISH_EXIT -eq 0 ]]; then
+                  break
+                fi
+                # timeout(1): 124 = killed at the deadline, 137 = needed SIGKILL.
+                if [[ $PUBLISH_EXIT -eq 124 || $PUBLISH_EXIT -eq 137 ]]; then
+                  PUBLISH_OUTPUT+=$'\n'"pnpm publish killed: the ${PUBLISH_BUDGET_S}s publish budget for v$VERSION ran out"
                   break
                 fi
                 if echo "$PUBLISH_OUTPUT" | grep -qi "TLOG_CREATE_ENTRY_ERROR\|rekor.sigstore.dev.*aborted\|tlog entry"; then
@@ -1031,6 +1057,10 @@ jobs:
                 if already_published "$npm_name"; then
                   PUBLISH_OUTCOME=SKIP-RACE
                   echo "✓ SKIP-RACE: @cleocode/$npm_name@$VERSION was published concurrently or pre-exists"
+                elif [[ $PUBLISH_EXIT -eq 124 || $PUBLISH_EXIT -eq 137 ]]; then
+                  PUBLISH_OUTCOME=FAIL-TIMEOUT
+                  echo "::error::@cleocode/$npm_name was not published within the ${PUBLISH_BUDGET_S}s publish budget (T14646)"
+                  echo "$npm_name" >> "$FAILED_LOG"
                 elif echo "$PUBLISH_OUTPUT" | grep -qi "cannot publish over the previously published"; then
                   # 403 "cannot publish over" — version exists but registry cache missed our pre-check
                   PUBLISH_OUTCOME=SKIP-CONFLICT
@@ -1119,12 +1149,16 @@ jobs:
             # with the BLOCKING_GATE_BUDGET defined above (T14615).
             local STABLE_DEPENDENCY_EXIT=0
             if [[ "$TAG" == "latest" && "$PUBLISH_HALTED" == "0" ]]; then
+              local gate_started
+              gate_started=$(date +%s)
               env "${BLOCKING_GATE_BUDGET[@]}" node scripts/execute-payload.mjs \
                 --version "$VERSION" --dist-tag "$TAG" --before-package cleo \
                 --output-dir /tmp/stable-dependencies || {
                   STABLE_DEPENDENCY_EXIT=$?
                   PUBLISH_HALTED=1
                 }
+              # The gate has its own budget; it does not spend the CLI's publish budget.
+              PUBLISH_DEADLINE=$(( PUBLISH_DEADLINE + $(date +%s) - gate_started ))
             fi
             # Wave 6 — the CLI depends on playbooks + runtime (wave 5).
             publish_pkg cleo
@@ -1188,7 +1222,7 @@ jobs:
 
           # A re-run after the release itself published skips the candidate:
           # `latest` already carries this version.
-          FINAL_ON_NPM=$(npm view "@cleocode/cleo@$VERSION" version 2>/dev/null || true)
+          FINAL_ON_NPM=$(timeout -k 10 "$NPM_VIEW_TIMEOUT_S" npm view "@cleocode/cleo@$VERSION" version 2>/dev/null || true)
           if [[ -n "$RC_VERSION" && "$FINAL_ON_NPM" != "$VERSION" ]]; then
             echo "=== Release candidate $RC_VERSION -> canary ==="
             scripts/release-sync-versions.sh "$RC_VERSION"

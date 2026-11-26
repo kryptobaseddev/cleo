@@ -64,7 +64,7 @@ import {
 import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { converge, REGISTRY } from './execute-payload.mjs';
+import { converge, FETCH_TIMEOUT_MS, REGISTRY } from './execute-payload.mjs';
 import { isMain } from './lib/is-main.mjs';
 import { sandboxEnvironment } from './lib/sandbox-env.mjs';
 
@@ -435,6 +435,27 @@ export const SOAK_CHECKS = Object.freeze([
 ]);
 
 /**
+ * The longest the soak can run (T14646): every command check at its own
+ * timeout, and the install retried through `converge`, which starts no attempt
+ * after INSTALL_CONVERGE_MS but cannot interrupt the synchronous one in flight,
+ * so the install adds one more full INSTALL_TIMEOUT_MS. release.yml's Publish
+ * job budget is checked against this number (release-rc-gate.test.mjs).
+ *
+ * @param {readonly SoakCheck[]} [checks]
+ * @returns {number} Milliseconds.
+ */
+export function soakWorstCaseMs(checks = SOAK_CHECKS) {
+  const ctx = /** @type {SoakContext} */ ({ version: '', root: '', prefix: '', bin: '' });
+  let total = 0;
+  for (const check of checks) {
+    if (!check.command) continue;
+    const timeoutMs = check.command(ctx)[2] ?? CLI_TIMEOUT_MS;
+    total += check.pending ? INSTALL_CONVERGE_MS + timeoutMs : timeoutMs;
+  }
+  return total;
+}
+
+/**
  * Describe a command that did not exit 0.
  *
  * @param {RunResult} result
@@ -598,6 +619,7 @@ export function parseArgs(argv) {
 export async function resolveTag(tag, fetchImpl = fetch) {
   const res = await fetchImpl(`${REGISTRY}/-/package/@cleocode%2fcleo/dist-tags`, {
     headers: { accept: 'application/json' },
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
   });
   if (!res.ok) throw new Error(`dist-tags HTTP ${res.status}`);
   const tags = await res.json();
