@@ -31,6 +31,7 @@ let dir: string;
 let graph: BrainGraph;
 let brokenGraph: BrainGraph;
 let partialGraph: BrainGraph;
+let tasksKindGraph: BrainGraph;
 let unopenableGraph: BrainGraph;
 
 beforeAll(async () => {
@@ -115,6 +116,7 @@ beforeAll(async () => {
       ('observation:O-1', 'src/a.ts::run', 'code_reference', 0.6),
       ('decision:D-1', 'pattern:P-1', 'informed_by', 0.8),
       ('learning:L-1', 'decision:D-1', 'supersedes', 0.5),
+      ('learning:L-1', 'observation:O-9', 'related', 0.5),
       ('observation:O-1', 'task:T9', 'applies_to', 0.7);
     DROP TABLE brain_decisions;
     DROP TABLE tasks_sessions;
@@ -124,6 +126,29 @@ beforeAll(async () => {
   partialGraph = getAllSubstrates({
     limit: 500,
     projectCtx: { projectPath: partialRoot, brainDbPath: partialStore, tasksDbPath: partialStore },
+  });
+
+  // A store whose tasks_tasks query fails while tasks_sessions loads: an edge
+  // to an unloaded task is dropped, the healthy session kind still loads.
+  const tasksKindRoot = join(dir, 'tasks-kind');
+  mkdirSync(join(tasksKindRoot, '.cleo'), { recursive: true });
+  const tasksKindStore = join(tasksKindRoot, '.cleo', 'cleo.db');
+  const tasksKind = getDualScopeNativeDb(await openDualScopeDbAtPath('project', tasksKindStore));
+  tasksKind.exec(`
+    INSERT INTO tasks_sessions (id, name, status) VALUES ('ses_seed_00000001', 'seed', 'active');
+    INSERT INTO brain_observations (id, type, title) VALUES ('O-1', 'discovery', 'Seeded observation');
+    INSERT INTO brain_page_edges (from_id, to_id, edge_type, weight) VALUES
+      ('observation:O-1', 'task:T9', 'applies_to', 0.7);
+    DROP TABLE tasks_tasks;
+  `);
+  _resetDualScopeDbCache();
+  tasksKindGraph = getAllSubstrates({
+    limit: 500,
+    projectCtx: {
+      projectPath: tasksKindRoot,
+      brainDbPath: tasksKindStore,
+      tasksDbPath: tasksKindStore,
+    },
   });
 
   // A project store that exists but is not a database.
@@ -221,15 +246,32 @@ describe('getAllSubstrates() over the consolidated cleo.db (T14583)', () => {
     const edges = partialGraph.edges.map((e) => `${e.source}|${e.type}|${e.target}`);
     expect(edges.some((e) => e.includes('brain:D-1'))).toBe(false);
     expect(partialGraph.nodes.some((n) => n.id === 'brain:D-1')).toBe(false);
-    expect(partialGraph.nodes.some((n) => n.meta?.isStub && n.substrate === 'brain')).toBe(false);
-    expect(edges).not.toContain('brain:O-1|applies_to|tasks:T9');
-    expect(partialGraph.nodes.some((n) => n.id === 'tasks:T9')).toBe(false);
-    expect(partialGraph.errors?.tasks).toMatch(
-      /dropped 1 edge\(s\) whose tasks target did not load$/,
-    );
     expect(partialGraph.errors?.brain).toMatch(
-      /dropped 2 edge\(s\) whose brain endpoint did not load/,
+      /dropped 2 edge\(s\) whose decision endpoint did not load because its node query failed/,
     );
+  });
+
+  it('keeps edges to absent targets of a healthy kind beside a failed kind (T14659)', () => {
+    const edges = partialGraph.edges.map((e) => `${e.source}|${e.type}|${e.target}`);
+    // brain: decisions failed, observations loaded; O-9 is simply absent.
+    expect(edges).toContain('brain:L-1|related|brain:O-9');
+    expect(partialGraph.nodes.find((n) => n.id === 'brain:O-9')?.meta?.isStub).toBe(true);
+    // tasks: sessions failed, tasks loaded; T9 is simply absent.
+    expect(edges).toContain('brain:O-1|applies_to|tasks:T9');
+    expect(partialGraph.nodes.find((n) => n.id === 'tasks:T9')?.meta?.isStub).toBe(true);
+    expect(partialGraph.errors?.tasks).toMatch(/^tasks_sessions: .*no such table/i);
+    expect(partialGraph.errors?.tasks).not.toMatch(/dropped/);
+  });
+
+  it('drops an edge to an unloaded target of a failed kind beside a healthy kind (T14659)', () => {
+    const edges = tasksKindGraph.edges.map((e) => `${e.source}|${e.type}|${e.target}`);
+    expect(edges).not.toContain('brain:O-1|applies_to|tasks:T9');
+    expect(tasksKindGraph.nodes.some((n) => n.id === 'tasks:T9')).toBe(false);
+    expect(tasksKindGraph.nodes.some((n) => n.id === 'tasks:ses_seed_00000001')).toBe(true);
+    expect(tasksKindGraph.errors?.tasks).toMatch(
+      /^tasks_tasks: .*; dropped 1 edge\(s\) whose task target did not load because its node query failed$/,
+    );
+    expect(tasksKindGraph.counts.edges.cross).toBe(0);
   });
 
   it('reports a failed nexus stub read (T14656)', () => {

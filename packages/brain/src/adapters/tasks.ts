@@ -9,9 +9,21 @@
  * Node IDs are prefixed with "tasks:" to prevent collisions.
  */
 
-import { allTyped, readProjectStore, substrateResult, tryQuery } from '../db-connections.js';
+import {
+  allTyped,
+  readProjectStore,
+  substrateResult,
+  tryNodeQuery,
+  tryQuery,
+} from '../db-connections.js';
 import { resolveDefaultProjectContext } from '../project-context.js';
-import type { BrainEdge, BrainNode, BrainQueryOptions, BrainSubstrateResult } from '../types.js';
+import type {
+  BrainEdge,
+  BrainNode,
+  BrainNodeKind,
+  BrainQueryOptions,
+  BrainSubstrateResult,
+} from '../types.js';
 
 /** Raw row from `tasks_tasks`. */
 interface TaskRow {
@@ -73,12 +85,13 @@ export function getTasksSubstrate(options: BrainQueryOptions = {}): BrainSubstra
   const nodes: BrainNode[] = [];
   const edges: BrainEdge[] = [];
   const errors: string[] = [];
+  const failedKinds = new Set<BrainNodeKind>();
 
   readProjectStore(
     ctx,
     (db) => {
       // Tasks (prioritised by severity, then recency)
-      const taskRows = tryQuery(errors, 'tasks_tasks', () =>
+      const taskRows = tryNodeQuery(errors, failedKinds, 'task', 'tasks_tasks', () =>
         allTyped<TaskRow>(
           db.prepare(
             `SELECT id, title, status, priority, type, parent_id, created_at
@@ -118,7 +131,7 @@ export function getTasksSubstrate(options: BrainQueryOptions = {}): BrainSubstra
       }
 
       // Sessions (most recent)
-      const sessionRows = tryQuery(errors, 'tasks_sessions', () =>
+      const sessionRows = tryNodeQuery(errors, failedKinds, 'session', 'tasks_sessions', () =>
         allTyped<SessionRow>(
           db.prepare(
             `SELECT id, status, started_at, ended_at
@@ -215,5 +228,5 @@ export function getTasksSubstrate(options: BrainQueryOptions = {}): BrainSubstra
     (message) => errors.push(message),
   );
 
-  return substrateResult(nodes, edges, errors);
+  return substrateResult(nodes, edges, errors, failedKinds);
 }

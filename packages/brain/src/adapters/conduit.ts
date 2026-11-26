@@ -9,9 +9,15 @@
  * Node IDs are prefixed with "conduit:" to prevent collisions.
  */
 
-import { allTyped, readProjectStore, substrateResult, tryQuery } from '../db-connections.js';
+import { allTyped, readProjectStore, substrateResult, tryNodeQuery } from '../db-connections.js';
 import { resolveDefaultProjectContext } from '../project-context.js';
-import type { BrainEdge, BrainNode, BrainQueryOptions, BrainSubstrateResult } from '../types.js';
+import type {
+  BrainEdge,
+  BrainNode,
+  BrainNodeKind,
+  BrainQueryOptions,
+  BrainSubstrateResult,
+} from '../types.js';
 
 /** Raw row from `conduit_messages`. */
 interface MessageRow {
@@ -41,12 +47,13 @@ export function getConduitSubstrate(options: BrainQueryOptions = {}): BrainSubst
   const nodes: BrainNode[] = [];
   const edges: BrainEdge[] = [];
   const errors: string[] = [];
+  const failedKinds = new Set<BrainNodeKind>();
 
   readProjectStore(
     ctx,
     (db) => {
       // Most recent messages
-      const msgRows = tryQuery(errors, 'conduit_messages', () =>
+      const msgRows = tryNodeQuery(errors, failedKinds, 'message', 'conduit_messages', () =>
         allTyped<MessageRow>(
           db.prepare(
             `SELECT id, content, from_agent_id, to_agent_id,
@@ -105,5 +112,5 @@ export function getConduitSubstrate(options: BrainQueryOptions = {}): BrainSubst
     (message) => errors.push(message),
   );
 
-  return substrateResult(nodes, edges, errors);
+  return substrateResult(nodes, edges, errors, failedKinds);
 }

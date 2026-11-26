@@ -18,6 +18,7 @@ import type {
   BrainEdge,
   BrainGraph,
   BrainNode,
+  BrainNodeKind,
   BrainQueryOptions,
   BrainSubstrate,
   BrainSubstrateResult,
@@ -54,8 +55,8 @@ const ADAPTER_MAP: Record<BrainSubstrate, (options: BrainQueryOptions) => BrainS
  * @param ctx - Project whose `cleo.db` code graph resolves nexus stubs.
  * @param errors - Collects a failed nexus stub read, so the stubs it would
  *   have recovered are never dropped silently (T14656).
- * @param failedSubstrates - Substrates whose read failed: their missing targets
- *   get no query-less stub, since the node may exist but failed to load (T14658).
+ * @param isFailedTarget - True for a target whose kind's node query failed: it
+ *   gets no query-less stub, since the node may exist but failed to load (T14659).
  * @returns Array of stub BrainNode objects for missing targets.
  */
 function loadStubNodesForEdgeTargets(
@@ -63,7 +64,7 @@ function loadStubNodesForEdgeTargets(
   edges: BrainEdge[],
   ctx: ProjectContext,
   errors: string[],
-  failedSubstrates: ReadonlySet<BrainSubstrate>,
+  isFailedTarget: (nodeId: string) => boolean,
 ): BrainNode[] {
   // Collect all target IDs referenced by edges but not yet loaded
   const missingTargetIds = new Set<string>();
@@ -140,9 +141,9 @@ function loadStubNodesForEdgeTargets(
   // without DB queries — they are rare as cross-substrate edge targets.
   for (const [substrate, nodeIds] of stubsBySubstrate) {
     if (substrate === 'nexus') continue; // already handled above
-    if (failedSubstrates.has(substrate)) continue; // never fake a node that failed to load
 
     for (const nodeId of nodeIds) {
+      if (isFailedTarget(nodeId)) continue; // never fake a node that failed to load
       const rawId = nodeId.replace(new RegExp(`^${substrate}:`), '');
       stubs.push({
         id: nodeId,
@@ -160,6 +161,29 @@ function loadStubNodesForEdgeTargets(
 }
 
 /**
+ * Returns the kind of a query-less stub target when its ID alone settles it.
+ *
+ * Brain IDs carry no kind; the brain adapter drops its own failed-kind
+ * endpoints, so a missing brain target is never judged here.
+ *
+ * @param substrate - The target's substrate.
+ * @param rawId - The target ID without its substrate prefix.
+ * @returns The target's kind, or null when the ID does not determine it.
+ */
+function stubTargetKind(substrate: BrainSubstrate, rawId: string): BrainNodeKind | null {
+  switch (substrate) {
+    case 'tasks':
+      return rawId.startsWith('ses_') ? 'session' : 'task';
+    case 'conduit':
+      return 'message';
+    case 'agent-registry':
+      return 'agent';
+    default:
+      return null;
+  }
+}
+
+/**
  * Queries all five substrates and merges the results into a unified BrainGraph.
  *
  * When `options.substrates` is provided, only those substrates are queried.
@@ -172,8 +196,10 @@ function loadStubNodesForEdgeTargets(
  * that would otherwise be silently dropped.
  *
  * Stub nodes carry `meta.isStub: true` for optional UI differentiation. A
- * substrate whose read failed gets no query-less stubs: an edge to one of its
- * unloaded nodes is dropped and counted in that substrate's error (T14658).
+ * target whose kind's node query failed gets no query-less stub: its edge is
+ * dropped and counted in that substrate's error (T14658). A missing target of
+ * a kind that loaded is stubbed as before, even when another query of its
+ * substrate failed (T14659).
  * A substrate whose read failed is named in `errors` with the SQL error, so a
  * broken query never passes for an empty substrate (T14647). Each query is
  * caught on its own, so one failure never skips a substrate's other queries;
@@ -200,13 +226,15 @@ export function getAllSubstrates(options: BrainQueryOptions = {}): BrainGraph {
   >;
 
   const errors: Partial<Record<BrainSubstrate, string>> = {};
+  const failedKinds = new Map<BrainSubstrate, ReadonlySet<BrainNodeKind>>();
 
   for (const substrate of substrates) {
     const adapter = ADAPTER_MAP[substrate];
     if (!adapter) continue;
 
-    const { nodes, edges, error } = adapter({ ...options, limit });
+    const { nodes, edges, error, failedKinds: kinds } = adapter({ ...options, limit });
     if (error !== undefined) errors[substrate] = error;
+    if (kinds !== undefined) failedKinds.set(substrate, new Set(kinds));
 
     allNodes.push(...nodes);
     allEdges.push(...edges);
@@ -236,13 +264,21 @@ export function getAllSubstrates(options: BrainQueryOptions = {}): BrainGraph {
   // within the requested set — never inject nodes from excluded substrates, as that
   // would violate the caller's filter contract.
   const requestedSubstrateSet = options.substrates ? new Set<string>(options.substrates) : null;
+  /** The kind of `nodeId` when that kind's node query failed, else null. */
+  const failedTargetKind = (nodeId: string): BrainNodeKind | null => {
+    const sep = nodeId.indexOf(':');
+    const substrate = nodeId.slice(0, sep) as BrainSubstrate;
+    const kind = stubTargetKind(substrate, nodeId.slice(sep + 1));
+    return kind !== null && failedKinds.get(substrate)?.has(kind) ? kind : null;
+  };
+  const isFailedTarget = (nodeId: string): boolean => failedTargetKind(nodeId) !== null;
   const stubErrors: string[] = [];
   const stubNodes = loadStubNodesForEdgeTargets(
     seenIds,
     allEdges,
     options.projectCtx ?? resolveDefaultProjectContext(),
     stubErrors,
-    new Set(Object.keys(errors) as BrainSubstrate[]),
+    isFailedTarget,
   );
   // A failed stub read is a nexus read failure; it joins any nexus adapter error.
   for (const message of stubErrors) {
@@ -260,20 +296,26 @@ export function getAllSubstrates(options: BrainQueryOptions = {}): BrainGraph {
     }
   }
 
-  // An edge into a failed substrate whose target did not load got no stub:
-  // drop it and count it under that substrate's error (T14658).
-  const droppedBySubstrate = new Map<BrainSubstrate, number>();
+  // An edge whose unloaded target is of a failed kind got no stub: drop it and
+  // count it under that substrate's error (T14658, T14659).
+  const dropped = new Map<
+    string,
+    { substrate: BrainSubstrate; kind: BrainNodeKind; count: number }
+  >();
   const edges = allEdges.filter((edge) => {
-    if (seenIds.has(edge.target)) return true;
-    const target = edge.target.slice(0, edge.target.indexOf(':')) as BrainSubstrate;
-    if (target === 'nexus' || errors[target] === undefined) return true;
-    droppedBySubstrate.set(target, (droppedBySubstrate.get(target) ?? 0) + 1);
+    const kind = seenIds.has(edge.target) ? null : failedTargetKind(edge.target);
+    if (kind === null) return true;
+    const substrate = edge.target.slice(0, edge.target.indexOf(':')) as BrainSubstrate;
+    const key = `${substrate}:${kind}`;
+    const entry = dropped.get(key) ?? { substrate, kind, count: 0 };
+    entry.count += 1;
+    dropped.set(key, entry);
     edgeCounts[edge.substrate] -= 1;
     return false;
   });
-  for (const [substrate, count] of droppedBySubstrate) {
+  for (const { substrate, kind, count } of dropped.values()) {
     errors[substrate] =
-      `${errors[substrate]}; dropped ${count} edge(s) whose ${substrate} target did not load`;
+      `${errors[substrate]}; dropped ${count} edge(s) whose ${kind} target did not load because its node query failed`;
   }
 
   const truncated = uniqueNodes.length >= limit;
