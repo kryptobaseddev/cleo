@@ -22,8 +22,7 @@
  * @task T14583 (read the global cleo.db)
  */
 
-import { getErrorMessage } from '@cleocode/contracts/errors.js';
-import { allTyped, readGlobalStore } from '../db-connections.js';
+import { allTyped, readGlobalStore, substrateResult, tryQuery } from '../db-connections.js';
 import type { BrainEdge, BrainNode, BrainQueryOptions, BrainSubstrateResult } from '../types.js';
 
 /** Raw row from `agent_registry_agents`. */
@@ -49,14 +48,15 @@ export function getAgentRegistrySubstrate(options: BrainQueryOptions = {}): Brai
 
   const nodes: BrainNode[] = [];
   const edges: BrainEdge[] = [];
-  let error: string | undefined;
+  const errors: string[] = [];
 
-  readGlobalStore((db) => {
-    try {
+  readGlobalStore(
+    (db) => {
       // created_at is ISO text; a legacy epoch-seconds integer is converted too.
-      const agentRows = allTyped<AgentRow>(
-        db.prepare(
-          `SELECT agent_id, name, status,
+      const agentRows = tryQuery(errors, 'agent_registry_agents', () =>
+        allTyped<AgentRow>(
+          db.prepare(
+            `SELECT agent_id, name, status,
                   CASE WHEN typeof(created_at) = 'integer'
                     THEN strftime('%Y-%m-%dT%H:%M:%S', created_at, 'unixepoch')
                     ELSE strftime('%Y-%m-%dT%H:%M:%S', created_at)
@@ -65,8 +65,9 @@ export function getAgentRegistrySubstrate(options: BrainQueryOptions = {}): Brai
            WHERE is_active = 1
            ORDER BY created_at DESC
            LIMIT ?`,
+          ),
+          perSubstrateLimit,
         ),
-        perSubstrateLimit,
       );
 
       for (const row of agentRows) {
@@ -83,12 +84,9 @@ export function getAgentRegistrySubstrate(options: BrainQueryOptions = {}): Brai
           },
         });
       }
-    } catch (err) {
-      // Keep the partial results, but report the failure instead of
-      // returning a silently short substrate (T14647).
-      error = getErrorMessage(err);
-    }
-  });
+    },
+    (message) => errors.push(message),
+  );
 
-  return error === undefined ? { nodes, edges } : { nodes, edges, error };
+  return substrateResult(nodes, edges, errors);
 }

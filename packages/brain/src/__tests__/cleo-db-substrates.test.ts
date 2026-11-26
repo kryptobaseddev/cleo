@@ -6,13 +6,15 @@
  * real migrated one; the test seeds rows and asserts each substrate's nodes and
  * edges come back. A second store with a dropped table proves a failed adapter
  * read is reported in `graph.errors`, never returned as a silently empty
- * substrate (T14647).
+ * substrate (T14647). Further stores prove each query fails on its own, and
+ * that a failed nexus stub read and an unopenable store are reported (T14656).
  *
  * @task T14583
  * @task T14647
+ * @task T14656
  */
 
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -28,6 +30,8 @@ import type { BrainGraph } from '../types.js';
 let dir: string;
 let graph: BrainGraph;
 let brokenGraph: BrainGraph;
+let partialGraph: BrainGraph;
+let unopenableGraph: BrainGraph;
 
 beforeAll(async () => {
   dir = mkdtempSync(join(tmpdir(), 'cleo-brain-t14583-'));
@@ -95,6 +99,42 @@ beforeAll(async () => {
     limit: 500,
     projectCtx: { projectPath: brokenRoot, brainDbPath: brokenStore, tasksDbPath: brokenStore },
   });
+
+  // A store missing brain_decisions and nexus_nodes: the other brain queries
+  // still return, and the nexus stub read for the code_reference edge fails.
+  const partialRoot = join(dir, 'partial');
+  mkdirSync(join(partialRoot, '.cleo'), { recursive: true });
+  const partialStore = join(partialRoot, '.cleo', 'cleo.db');
+  const partial = getDualScopeNativeDb(await openDualScopeDbAtPath('project', partialStore));
+  partial.exec(`
+    INSERT INTO brain_observations (id, type, title) VALUES ('O-1', 'discovery', 'Seeded observation');
+    INSERT INTO brain_patterns (id, type, pattern, context) VALUES ('P-1', 'workflow', 'Seeded pattern', 'ctx');
+    INSERT INTO brain_learnings (id, insight, source, confidence) VALUES ('L-1', 'Seeded learning', 'test', 0.9);
+    INSERT INTO brain_page_edges (from_id, to_id, edge_type, weight) VALUES
+      ('learning:L-1', 'observation:O-1', 'derived_from', 0.9),
+      ('observation:O-1', 'src/a.ts::run', 'code_reference', 0.6);
+    DROP TABLE brain_decisions;
+    DROP TABLE nexus_nodes;
+  `);
+  _resetDualScopeDbCache();
+  partialGraph = getAllSubstrates({
+    limit: 500,
+    projectCtx: { projectPath: partialRoot, brainDbPath: partialStore, tasksDbPath: partialStore },
+  });
+
+  // A project store that exists but is not a database.
+  const unopenableRoot = join(dir, 'unopenable');
+  mkdirSync(join(unopenableRoot, '.cleo'), { recursive: true });
+  const unopenableStore = join(unopenableRoot, '.cleo', 'cleo.db');
+  writeFileSync(unopenableStore, 'not a sqlite database, just text '.repeat(200));
+  unopenableGraph = getAllSubstrates({
+    limit: 500,
+    projectCtx: {
+      projectPath: unopenableRoot,
+      brainDbPath: unopenableStore,
+      tasksDbPath: unopenableStore,
+    },
+  });
 });
 
 afterAll(() => {
@@ -160,5 +200,28 @@ describe('getAllSubstrates() over the consolidated cleo.db (T14583)', () => {
   it('reports a failed adapter read instead of a silently empty substrate (T14647)', () => {
     expect(brokenGraph.errors?.nexus).toMatch(/no such table/i);
     expect(Object.keys(brokenGraph.errors ?? {})).toEqual(['nexus']);
+  });
+
+  it('keeps the other queries of an adapter when one query fails (T14656)', () => {
+    const ids = new Set(partialGraph.nodes.map((n) => n.id));
+    for (const id of ['brain:O-1', 'brain:P-1', 'brain:L-1']) {
+      expect(ids.has(id), id).toBe(true);
+    }
+    const edges = new Set(partialGraph.edges.map((e) => `${e.source}|${e.type}|${e.target}`));
+    expect(edges.has('brain:L-1|derived_from|brain:O-1')).toBe(true);
+    expect(partialGraph.errors?.brain).toMatch(/^brain_decisions: .*no such table/i);
+    expect(partialGraph.errors?.brain).not.toMatch(/brain_patterns|brain_learnings/);
+  });
+
+  it('reports a failed nexus stub read (T14656)', () => {
+    expect(partialGraph.errors?.nexus).toMatch(/nexus_nodes \(stubs\): .*no such table/i);
+  });
+
+  it('reports an unopenable store for every project substrate (T14656)', () => {
+    for (const substrate of ['brain', 'tasks', 'conduit', 'nexus'] as const) {
+      expect(unopenableGraph.errors?.[substrate], substrate).toMatch(/^store cannot be opened: /);
+    }
+    expect(unopenableGraph.errors?.['agent-registry']).toBeUndefined();
+    expect(unopenableGraph.nodes.every((n) => n.substrate === 'agent-registry')).toBe(true);
   });
 });

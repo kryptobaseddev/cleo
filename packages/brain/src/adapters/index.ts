@@ -12,7 +12,7 @@ export { getConduitSubstrate } from './conduit.js';
 export { getNexusSubstrate } from './nexus.js';
 export { getTasksSubstrate } from './tasks.js';
 
-import { allTyped, readProjectStore } from '../db-connections.js';
+import { allTyped, readProjectStore, tryQuery } from '../db-connections.js';
 import { type ProjectContext, resolveDefaultProjectContext } from '../project-context.js';
 import type {
   BrainEdge,
@@ -52,12 +52,15 @@ const ADAPTER_MAP: Record<BrainSubstrate, (options: BrainQueryOptions) => BrainS
  * @param loadedNodeIds - Set of already-loaded node IDs (substrate-prefixed).
  * @param edges - All edges collected from substrates (may reference unloaded targets).
  * @param ctx - Project whose `cleo.db` code graph resolves nexus stubs.
+ * @param errors - Collects a failed nexus stub read, so the stubs it would
+ *   have recovered are never dropped silently (T14656).
  * @returns Array of stub BrainNode objects for missing targets.
  */
 function loadStubNodesForEdgeTargets(
   loadedNodeIds: Set<string>,
   edges: BrainEdge[],
   ctx: ProjectContext,
+  errors: string[],
 ): BrainNode[] {
   // Collect all target IDs referenced by edges but not yet loaded
   const missingTargetIds = new Set<string>();
@@ -92,19 +95,22 @@ function loadStubNodesForEdgeTargets(
   // Load stubs for nexus targets (most common cross-substrate case)
   const nexusStubs = stubsBySubstrate.get('nexus');
   if (nexusStubs && nexusStubs.length > 0) {
-    readProjectStore(ctx, (db) => {
-      try {
+    readProjectStore(
+      ctx,
+      (db) => {
         const rawNexusIds = nexusStubs.map((id) => id.replace(/^nexus:/, ''));
         const placeholders = rawNexusIds.map(() => '?').join(',');
 
         // Query minimal node data: id, kind, name
-        const stubRows = allTyped<{ id: string; kind: string; name: string }>(
-          db.prepare(
-            `SELECT id, kind, COALESCE(name, label) AS name
+        const stubRows = tryQuery(errors, 'nexus_nodes (stubs)', () =>
+          allTyped<{ id: string; kind: string; name: string }>(
+            db.prepare(
+              `SELECT id, kind, COALESCE(name, label) AS name
              FROM main.nexus_nodes
              WHERE id IN (${placeholders})`,
+            ),
+            ...rawNexusIds,
           ),
-          ...rawNexusIds,
         );
 
         for (const row of stubRows) {
@@ -122,10 +128,9 @@ function loadStubNodesForEdgeTargets(
             meta: { nexus_kind: row.kind, isStub: true },
           });
         }
-      } catch {
-        // Silently continue on error; stubs are supplemental
-      }
-    });
+      },
+      (message) => errors.push(message),
+    );
   }
 
   // For other substrates (tasks, brain, conduit, signaldock), create minimal stubs
@@ -164,7 +169,9 @@ function loadStubNodesForEdgeTargets(
  *
  * Stub nodes carry `meta.isStub: true` for optional UI differentiation.
  * A substrate whose read failed is named in `errors` with the SQL error, so a
- * broken query never passes for an empty substrate (T14647).
+ * broken query never passes for an empty substrate (T14647). Each query is
+ * caught on its own, so one failure never skips a substrate's other queries;
+ * an unopenable store and a failed nexus stub read are reported too (T14656).
  *
  * @param options - Query options forwarded to each substrate adapter.
  * @returns Merged BrainGraph across all requested substrates, with stub nodes for unresolved edge targets.
@@ -223,11 +230,18 @@ export function getAllSubstrates(options: BrainQueryOptions = {}): BrainGraph {
   // within the requested set — never inject nodes from excluded substrates, as that
   // would violate the caller's filter contract.
   const requestedSubstrateSet = options.substrates ? new Set<string>(options.substrates) : null;
+  const stubErrors: string[] = [];
   const stubNodes = loadStubNodesForEdgeTargets(
     seenIds,
     allEdges,
     options.projectCtx ?? resolveDefaultProjectContext(),
+    stubErrors,
   );
+  // A failed stub read is a nexus read failure; it joins any nexus adapter error.
+  for (const message of stubErrors) {
+    if (errors.nexus?.includes(message)) continue;
+    errors.nexus = errors.nexus === undefined ? message : `${errors.nexus}; ${message}`;
+  }
   for (const stubNode of stubNodes) {
     if (!seenIds.has(stubNode.id)) {
       // Skip stubs from substrates not in the requested set

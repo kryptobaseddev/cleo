@@ -9,8 +9,7 @@
  * Node IDs are prefixed with "tasks:" to prevent collisions.
  */
 
-import { getErrorMessage } from '@cleocode/contracts/errors.js';
-import { allTyped, readProjectStore } from '../db-connections.js';
+import { allTyped, readProjectStore, substrateResult, tryQuery } from '../db-connections.js';
 import { resolveDefaultProjectContext } from '../project-context.js';
 import type { BrainEdge, BrainNode, BrainQueryOptions, BrainSubstrateResult } from '../types.js';
 
@@ -73,14 +72,16 @@ export function getTasksSubstrate(options: BrainQueryOptions = {}): BrainSubstra
 
   const nodes: BrainNode[] = [];
   const edges: BrainEdge[] = [];
-  let error: string | undefined;
+  const errors: string[] = [];
 
-  readProjectStore(ctx, (db) => {
-    try {
+  readProjectStore(
+    ctx,
+    (db) => {
       // Tasks (prioritised by severity, then recency)
-      const taskRows = allTyped<TaskRow>(
-        db.prepare(
-          `SELECT id, title, status, priority, type, parent_id, created_at
+      const taskRows = tryQuery(errors, 'tasks_tasks', () =>
+        allTyped<TaskRow>(
+          db.prepare(
+            `SELECT id, title, status, priority, type, parent_id, created_at
          FROM main.tasks_tasks
          WHERE status NOT IN ('archived', 'cancelled')
          ORDER BY
@@ -89,8 +90,9 @@ export function getTasksSubstrate(options: BrainQueryOptions = {}): BrainSubstra
            END,
            created_at DESC
          LIMIT ?`,
+          ),
+          Math.ceil(perSubstrateLimit * 0.8),
         ),
-        Math.ceil(perSubstrateLimit * 0.8),
       );
 
       const taskIds = new Set<string>();
@@ -116,14 +118,16 @@ export function getTasksSubstrate(options: BrainQueryOptions = {}): BrainSubstra
       }
 
       // Sessions (most recent)
-      const sessionRows = allTyped<SessionRow>(
-        db.prepare(
-          `SELECT id, status, started_at, ended_at
+      const sessionRows = tryQuery(errors, 'tasks_sessions', () =>
+        allTyped<SessionRow>(
+          db.prepare(
+            `SELECT id, status, started_at, ended_at
          FROM main.tasks_sessions
          ORDER BY started_at DESC
          LIMIT ?`,
+          ),
+          Math.ceil(perSubstrateLimit * 0.2),
         ),
-        Math.ceil(perSubstrateLimit * 0.2),
       );
 
       const sessionIds = new Set<string>();
@@ -160,15 +164,17 @@ export function getTasksSubstrate(options: BrainQueryOptions = {}): BrainSubstra
       // Task relations
       if (taskIds.size > 0) {
         const placeholders = [...taskIds].map(() => '?').join(',');
-        const relRows = allTyped<TaskRelationRow>(
-          db.prepare(
-            `SELECT task_id, related_to, relation_type
+        const relRows = tryQuery(errors, 'tasks_task_relations', () =>
+          allTyped<TaskRelationRow>(
+            db.prepare(
+              `SELECT task_id, related_to, relation_type
            FROM main.tasks_task_relations
            WHERE task_id IN (${placeholders})
              AND related_to IN (${placeholders})`,
+            ),
+            ...taskIds,
+            ...taskIds,
           ),
-          ...taskIds,
-          ...taskIds,
         );
 
         for (const row of relRows) {
@@ -182,15 +188,17 @@ export function getTasksSubstrate(options: BrainQueryOptions = {}): BrainSubstra
         }
 
         // Task dependencies
-        const depRows = allTyped<TaskDepRow>(
-          db.prepare(
-            `SELECT task_id, depends_on
+        const depRows = tryQuery(errors, 'tasks_task_dependencies', () =>
+          allTyped<TaskDepRow>(
+            db.prepare(
+              `SELECT task_id, depends_on
            FROM main.tasks_task_dependencies
            WHERE task_id IN (${placeholders})
              AND depends_on IN (${placeholders})`,
+            ),
+            ...taskIds,
+            ...taskIds,
           ),
-          ...taskIds,
-          ...taskIds,
         );
 
         for (const row of depRows) {
@@ -203,12 +211,9 @@ export function getTasksSubstrate(options: BrainQueryOptions = {}): BrainSubstra
           });
         }
       }
-    } catch (err) {
-      // Keep the partial results, but report the failure instead of
-      // returning a silently short substrate (T14647).
-      error = getErrorMessage(err);
-    }
-  });
+    },
+    (message) => errors.push(message),
+  );
 
-  return error === undefined ? { nodes, edges } : { nodes, edges, error };
+  return substrateResult(nodes, edges, errors);
 }
