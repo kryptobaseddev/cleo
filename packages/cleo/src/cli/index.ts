@@ -310,6 +310,11 @@ async function startCli(): Promise<void> {
   }
 
   if (!isHelpOrVersion) {
+    // T14605 — start the pino file logger (`.cleo/logs/cleo.log`) once per
+    // process, before anything logs. Without it every `getLogger()` returns
+    // the stderr warn fallback and info/debug lines are dropped. Started
+    // before `--quiet` below so quiet mode still silences it (T9933).
+    await startCliFileLogger();
     // T9933 — propagate --quiet to the logger subsystem BEFORE startup
     // maintenance so the pino fallback logger emits at level=silent instead
     // of writing WARN-level entries to stderr during migration checks etc.
@@ -671,7 +676,7 @@ async function runMainWithLafsEnvelope(
       // LAFS envelope and returns, relying on the event loop draining so the
       // process exits rc:0. Process-lifetime worker threads (the BRAIN
       // single-writer worker behind `cleo memory observe` / brain.db writes, and
-      // the pino-roll log transport) own a `MessagePort` that keeps the loop
+      // the embedding queue) own a `MessagePort` that keeps the loop
       // alive forever — so without coordinated teardown the command printed its
       // success envelope and then HUNG (rc:124). Tear those down here, AFTER the
       // envelope has been written, so the loop drains and the process exits.
@@ -739,6 +744,25 @@ async function runMainWithLafsEnvelope(
  * `cleo show`, `cleo next`, and all memory commands no longer pay the cost
  * of opening two additional SQLite databases they never use.
  */
+/**
+ * Start the pino file logger (`.cleo/<logging.filePath>`, default
+ * `.cleo/logs/cleo.*.log`) for this process (T14605) through core's
+ * `startProjectFileLogger`, which reports its own failures on stderr.
+ * Outside a project nothing starts and `getLogger()` keeps its stderr warn
+ * fallback. Every module it loads is already on the command path (gate 39).
+ * Never throws: logging must not fail a command, but a failure is visible.
+ */
+async function startCliFileLogger(): Promise<void> {
+  try {
+    const { startProjectFileLogger } = await import('@cleocode/core/logger');
+    await startProjectFileLogger();
+  } catch (error) {
+    process.stderr.write(
+      `[cleo] File logger not started: ${error instanceof Error ? error.message : String(error)}\n`,
+    );
+  }
+}
+
 /** Commands that start the lazy merge sweep (T14101): the ones agents already run. */
 const MERGE_SWEEP_COMMANDS = new Set(['briefing', 'next', 'current', 'show', 'release']);
 

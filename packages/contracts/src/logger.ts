@@ -35,8 +35,8 @@ export interface LoggerConfig {
   level: string;
   /** Path to the primary log file, relative to the `.cleo` directory. */
   filePath: string;
-  /** Maximum bytes per log file before pino-roll rotates to a new file. */
+  /** Maximum bytes per log file before startup rotation starts a new file. */
   maxFileSize: number;
-  /** Maximum number of rotated log files to retain before pino-roll deletes oldest. */
+  /** Older rotated log files kept besides the active one; startup deletes the rest. */
   maxFiles: number;
 }
