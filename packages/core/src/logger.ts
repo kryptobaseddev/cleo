@@ -1,9 +1,10 @@
 /**
  * Centralized pino logger factory for CLEO.
  *
- * Singleton pattern. Writes in-thread through pino's own async destination
- * (sonic-boom): no transport worker thread, so a CLI call pays no extra thread
- * or memory for it (T14605). Rotation and retention run once at startup and
+ * Singleton pattern. Writes in-thread and synchronously through pino's own
+ * destination (sonic-boom): no transport worker thread, so a CLI call pays no
+ * extra thread or memory for it (T14605), and no line is ever buffered, so
+ * neither an exit hook nor a signal listener is needed to keep it (T14644). Rotation and retention run once at startup and
  * keep pino-roll's file naming (`cleo.YYYY-MM-DD.N.log`).
  * Custom formatters for uppercase level labels and ISO timestamps.
  * Context via child loggers (getLogger('subsystem')).
@@ -39,7 +40,6 @@ type LogDestination = ReturnType<typeof pino.destination>;
 let rootLogger: pino.Logger | null = null;
 let currentLogDir: string | null = null;
 let currentDestination: LogDestination | null = null;
-let removeSignalFlush: (() => void) | null = null;
 let quietMode = false;
 
 /**
@@ -47,7 +47,10 @@ let quietMode = false;
  *
  * When quiet=true:
  *   - The stderr fallback `getLogger()` returns silent-level loggers.
- *   - If the root logger is initialized, its level is set to 'silent'.
+ *   - If the root logger is initialized, its level is set to 'silent'; a
+ *     logger started later starts at 'silent'.
+ *   - The logger's start-up warnings (unknown level, start failure) are not
+ *     written to stderr (T14644).
  *
  * Critical CLI errors that route through `cliError()` and `process.exit()`
  * are emitted via direct stderr writes outside this subsystem and are NOT
@@ -202,23 +205,28 @@ export function initLogger(
   // An unknown level makes pino throw; fall back before anything is opened.
   let level = config.level;
   if (!isLogLevel(level)) {
-    process.stderr.write(
-      `[cleo:logger] Unknown logging.level "${level}"; using "${LOGGER_CONFIG_DEFAULTS.level}"\n`,
-    );
+    if (!quietMode) {
+      process.stderr.write(
+        `[cleo:logger] Unknown logging.level "${level}"; using "${LOGGER_CONFIG_DEFAULTS.level}"\n`,
+      );
+    }
     level = LOGGER_CONFIG_DEFAULTS.level;
   }
+  if (quietMode) level = 'silent';
 
-  // Rotate once, then append in-thread. The fd is opened synchronously so the
-  // destination is ready at once: pino's exit hook (registered for every
-  // `sync: false` destination) flushes pending lines on a normal exit, which
-  // needs an open fd.
+  // Rotate once, then append in-thread and synchronously (T14644): every line
+  // is on disk when the call returns, so a signal's default action (which
+  // runs no `exit` handler) loses nothing. A buffered destination needed a
+  // SIGINT/SIGTERM listener to flush, and a JS listener only runs when the
+  // event loop does, so Ctrl-C during a synchronous wait (Atomics.wait, a long
+  // SQLite call) waited for that work to end.
   mkdirSync(currentLogDir, { recursive: true });
   const activeFile = rotateLogAtStartup(dest, config.maxFileSize, config.maxFiles);
   const fd = openSync(activeFile, 'a');
   let destination: LogDestination;
   let logger: pino.Logger;
   try {
-    destination = pino.destination({ dest: fd, sync: false });
+    destination = pino.destination({ dest: fd, sync: true });
 
     // Build base object: projectHash and platform info appear in every log entry.
     // Pino merges base with pid/hostname by default; we add our fields alongside.
@@ -248,8 +256,6 @@ export function initLogger(
   }
   currentDestination = destination;
   rootLogger = logger;
-  removeSignalFlush?.();
-  removeSignalFlush = flushOnTerminatingSignals(destination);
 
   // Warn after logger is initialized so the message goes to the log file
   if (!projectHash) {
@@ -264,38 +270,6 @@ export function initLogger(
 /** Whether `level` names a pino level (`silent` included). */
 function isLogLevel(level: string): boolean {
   return level === 'silent' || Object.hasOwn(pino.levels.values, level);
-}
-
-/** Signals whose default action ends the process before pino's exit hook runs. */
-const TERMINATING_SIGNALS = ['SIGINT', 'SIGTERM'] as const;
-
-/**
- * Flush buffered log lines when SIGINT or SIGTERM arrives (T14605). Node runs
- * no `exit` handlers on a signal's default action, so pino's exit hook never
- * fires and buffered lines would be lost. The handler flushes, removes itself
- * and, when no other listener handles the signal, re-raises it so the process
- * still dies by that signal with the usual exit status.
- *
- * @param destination - The destination to flush.
- * @returns A function that removes the handlers.
- */
-function flushOnTerminatingSignals(destination: LogDestination): () => void {
-  const handlers = TERMINATING_SIGNALS.map((signal) => {
-    const handler = (): void => {
-      try {
-        destination.flushSync();
-      } catch {
-        // Nothing to flush, or the fd is gone: the signal still proceeds.
-      }
-      process.removeListener(signal, handler);
-      if (process.listenerCount(signal) === 0) process.kill(process.pid, signal);
-    };
-    process.on(signal, handler);
-    return { signal, handler };
-  });
-  return () => {
-    for (const { signal, handler } of handlers) process.removeListener(signal, handler);
-  };
 }
 
 /**
@@ -392,8 +366,9 @@ export type ProjectFileLoggerStart =
  * Start the file logger for the current project: the CLI startup path
  * (T14605). Resolves the project root and its `.cleo` directory, reads
  * `projectHash`, and calls {@link startFileLogger}. Outside a project it
- * starts nothing. Any other failure is written to stderr once, as one
- * `[cleo] File logger not started: …` line, and returned, so a broken path
+ * starts nothing. Any other failure is written to stderr once (unless
+ * {@link setLoggerQuiet} is on), as one `[cleo] File logger not started: …`
+ * line, and returned, so a broken path
  * or config cannot silently disable logging. Never throws.
  *
  * The modules it needs are imported lazily: they are already loaded on every
@@ -427,7 +402,7 @@ export async function startProjectFileLogger(): Promise<ProjectFileLoggerStart> 
     return { status: 'started', cleoDir };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    process.stderr.write(`[cleo] File logger not started: ${message}\n`);
+    if (!quietMode) process.stderr.write(`[cleo] File logger not started: ${message}\n`);
     return { status: 'failed', error: message };
   }
 }
@@ -467,16 +442,13 @@ export function getLogDir(): string | null {
 /**
  * Flush and close the logger. Call during graceful shutdown.
  *
- * Buffered lines are written synchronously before this returns its
- * Promise, which resolves once the log file is closed. Callers that cannot
- * await may fire-and-forget: the flush has already happened, and pino's exit
- * hook flushes any line logged later on a normal exit.
+ * Every line is already on disk (the destination writes synchronously); the
+ * Promise resolves once the log file is closed. Callers that cannot await
+ * may fire-and-forget.
  */
 export function closeLogger(): Promise<void> {
   return new Promise<void>((resolve) => {
     const destination = currentDestination;
-    removeSignalFlush?.();
-    removeSignalFlush = null;
     rootLogger = null;
     currentLogDir = null;
     currentDestination = null;
@@ -484,8 +456,7 @@ export function closeLogger(): Promise<void> {
       resolve();
       return;
     }
-    // Write every buffered line synchronously, then close the fd once any
-    // in-flight async write lands ('close'). The unref'd fallback keeps a
+    // Flush defensively, then close the fd ('close'). The unref'd fallback keeps a
     // missing 'close' from stalling shutdown.
     destination.once('close', () => resolve());
     setTimeout(resolve, 100).unref();

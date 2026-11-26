@@ -310,19 +310,19 @@ async function startCli(): Promise<void> {
   }
 
   if (!isHelpOrVersion) {
-    // T14605 — start the pino file logger (`.cleo/logs/cleo.log`) once per
-    // process, before anything logs. Without it every `getLogger()` returns
-    // the stderr warn fallback and info/debug lines are dropped. Started
-    // before `--quiet` below so quiet mode still silences it (T9933).
-    await startCliFileLogger();
-    // T9933 — propagate --quiet to the logger subsystem BEFORE startup
-    // maintenance so the pino fallback logger emits at level=silent instead
-    // of writing WARN-level entries to stderr during migration checks etc.
+    // T9933 — propagate --quiet to the logger subsystem BEFORE the file
+    // logger starts and before startup maintenance, so the logger's start-up
+    // warnings (T14644) and the pino fallback stay off stderr.
     // Only runs on the non-fast-path; --help/--version with --quiet stays cheap.
-    if (rawOpts['quiet'] === true) {
+    const quiet = rawOpts['quiet'] === true;
+    if (quiet) {
       const { setLoggerQuiet } = await import('@cleocode/core/logger');
       setLoggerQuiet(true);
     }
+    // T14605 — start the pino file logger (`.cleo/logs/cleo.log`) once per
+    // process, before anything logs. Without it every `getLogger()` returns
+    // the stderr warn fallback and info/debug lines are dropped.
+    await startCliFileLogger(quiet);
     // T13137 — tell an installed CLI that a newer release (or a hotfix) exists:
     // one stderr line from a cached dist-tags check that a detached child
     // refreshes daily. Never stdout, never waits on the network, never throws.
@@ -750,13 +750,17 @@ async function runMainWithLafsEnvelope(
  * `startProjectFileLogger`, which reports its own failures on stderr.
  * Outside a project nothing starts and `getLogger()` keeps its stderr warn
  * fallback. Every module it loads is already on the command path (gate 39).
- * Never throws: logging must not fail a command, but a failure is visible.
+ * Never throws: logging must not fail a command, but a failure is visible
+ * unless `--quiet` asked for a silent stderr.
+ *
+ * @param quiet - `--quiet` was passed: write no failure line.
  */
-async function startCliFileLogger(): Promise<void> {
+async function startCliFileLogger(quiet: boolean): Promise<void> {
   try {
     const { startProjectFileLogger } = await import('@cleocode/core/logger');
     await startProjectFileLogger();
   } catch (error) {
+    if (quiet) return;
     process.stderr.write(
       `[cleo] File logger not started: ${error instanceof Error ? error.message : String(error)}\n`,
     );
