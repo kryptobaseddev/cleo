@@ -2567,7 +2567,9 @@ jobs:
     # failed on Graviton, Raspberry Pi and Docker on Apple Silicon while every
     # x64 check stayed green. This installs the packed CLI on linux/arm64 and
     # runs `cleo --version`, on dependency changes and nightly, so that drift
-    # fails here instead of in a user's install.
+    # fails here instead of in a user's install. T14637: tree-sitter@0.25.1
+    # ships a linux-arm64 prebuild, so the smoke now requires every optional
+    # native dependency and parses a file with `cleo code outline`.
     name: Packed CLI Install (linux/arm64)
     needs: [ biome, changes ]
     if: needs.changes.outputs.install_deps == 'true' && needs.changes.outputs.version_only != 'true' && needs.changes.outputs.draft != 'true'
@@ -2589,7 +2591,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Build release JavaScript
         run: pnpm run build
-      - name: Install the packed CLI and run cleo --version
+      - name: Install the packed CLI, run cleo --version and a code parse
         run: node scripts/packed-install-smoke.mjs --install-only
       - name: Retain manifest and diagnostics
         if: failure()

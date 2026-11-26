@@ -3,7 +3,8 @@
  * Retained packed-install CLI smoke (T12273). Workspace packages come from local
  * tarballs; third-party dependencies may use npm's registry. Studio task readback and local embedding require actual installed execution.
  * Provider workflows and publication remain unassessed.
- * `--install-only` (T14629) stops after the installed `cleo --version` check.
+ * `--install-only` (T14629) stops after the installed `cleo --version` check and,
+ * since T14637, a `cleo code outline` tree-sitter parse.
  */
 import { execFileSync } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
@@ -1739,10 +1740,30 @@ syncBuiltinESMExports();
             .optionalDependencies ?? {},
         ).map((name) => [name, existsSync(join(app, 'node_modules', name, 'package.json'))]),
       );
+      // T14637: tree-sitter@0.25.1 and every grammar ship a prebuild for each release
+      // platform, so a skipped one is a regression, and a parse proves the binding loads.
+      const skipped = Object.entries(manifest.optionalNative)
+        .filter(([, installed]) => !installed)
+        .map(([name]) => name);
+      if (skipped.length)
+        throw new Error(`Optional native dependencies skipped: ${skipped.join(', ')}`);
+      const sample = join(root, 'code-parse-sample.ts');
+      writeFileSync(
+        sample,
+        'export function packedSmokeGreet(name: string): string {\n  return name;\n}\n',
+      );
+      const outline = await runPackedCommand(
+        process.execPath,
+        [binary, '--human', 'code', 'outline', sample],
+        { cwd: root, env, timeout: 60_000, systemdControl },
+      );
+      if (!outline.includes('function packedSmokeGreet'))
+        throw new Error(`cleo code outline did not report the parsed function: ${outline}`);
+      manifest.coverage.codeParse = 'verified-tree-sitter-outline';
       manifest.status = 'verified-packed-install';
       save();
       console.log(
-        `[packed-smoke] Installed CLI version verified on ${process.platform}/${process.arch} (${version}); optional native: ${JSON.stringify(manifest.optionalNative)}. Evidence: ${root}`,
+        `[packed-smoke] Installed CLI version verified on ${process.platform}/${process.arch} (${version}); optional native: ${JSON.stringify(manifest.optionalNative)}; cleo code outline parsed ${sample}. Evidence: ${root}`,
       );
       return;
     }
