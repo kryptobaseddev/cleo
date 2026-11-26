@@ -890,6 +890,11 @@ export interface RunConsolidationResult {
     merged: number;
     /** Near-duplicate pair merges rolled back on failure (T14639). */
     mergeFailed: number;
+    /**
+     * Near-duplicate pairs left unmerged because their `supersedes` edge
+     * already exists (T14640, T14648).
+     */
+    mergeSkipped: number;
     /** Why the merge step failed, or its first rolled-back pair (T14639). */
     mergeError?: string;
     pruned: number;
@@ -1267,6 +1272,7 @@ export async function runConsolidation(
       ran: sleepResult.ran,
       merged: sleepResult.mergeDuplicates.merged,
       mergeFailed: sleepResult.mergeDuplicates.failed ?? 0,
+      mergeSkipped: sleepResult.mergeDuplicates.skipped ?? 0,
       ...(sleepResult.mergeDuplicates.error !== undefined
         ? { mergeError: sleepResult.mergeDuplicates.error }
         : {}),

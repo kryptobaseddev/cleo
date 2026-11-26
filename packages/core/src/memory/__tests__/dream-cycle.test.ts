@@ -408,6 +408,31 @@ describe('Dream Cycle — T734 sleep consolidation Step 10 (real SQLite, no mock
   });
 
   // =========================================================================
+  // SC-2b: the merge step's skipped, failed and error counts reach the output
+  // =========================================================================
+  it('SC-2b: triggerManualDream reports mergeSkipped and mergeFailed (T14648)', async () => {
+    await initBrainDb(tempDir);
+    const { runSleepConsolidation } = await import('../sleep-consolidation.js');
+    vi.mocked(runSleepConsolidation).mockResolvedValueOnce({
+      ran: true,
+      mergeDuplicates: { merged: 1, llmDecisions: 0, failed: 2, skipped: 3, error: 'boom' },
+      pruneStale: { pruned: 0, preserved: 0 },
+      strengthenPatterns: { synthesized: 0, patternsGenerated: 0 },
+      generateInsights: { clustersProcessed: 0, insightsStored: 0 },
+    });
+
+    const { triggerManualDream } = await import('../dream-cycle.js');
+    const result = await triggerManualDream(tempDir);
+
+    expect(result.sleepConsolidation).toMatchObject({
+      merged: 1,
+      mergeFailed: 2,
+      mergeSkipped: 3,
+      mergeError: 'boom',
+    });
+  });
+
+  // =========================================================================
   // SC-3: Step 10 is best-effort — crash does NOT abort the dream cycle
   // =========================================================================
   it('SC-3: dream cycle completes even when sleep consolidation throws', async () => {
