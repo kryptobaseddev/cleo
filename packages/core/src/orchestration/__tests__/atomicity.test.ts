@@ -245,6 +245,37 @@ describe('checkAtomicity — worker role', () => {
     expect(countScopedFiles(['src/foo.tsx', 'src/foo.test.tsx'])).toBe(1);
   });
 
+  it('T14661 — paths are normalised, and nested __tests__ and tests/ or test/ mirror trees pair', () => {
+    // AC1: a leading ./, backslashes and duplicate slashes do not break pairing.
+    expect(countScopedFiles(['./src/foo.ts', 'src/foo.test.ts'])).toBe(1);
+    expect(countScopedFiles(['src/foo.ts', './src//__tests__/foo.test.ts'])).toBe(1);
+    expect(countScopedFiles(['src\\foo.ts', 'src\\foo.test.ts'])).toBe(1);
+
+    // AC2: a nested __tests__/<rel>/ test pairs with <rel>/ of the __tests__ parent.
+    expect(countScopedFiles(['pkg/src/sub/foo.mts', 'pkg/src/__tests__/sub/foo.test.ts'])).toBe(1);
+    // AC2: tests/ and test/ trees mirror <root>/src/<rel>/ or <root>/<rel>/.
+    expect(countScopedFiles(['pkg/src/sub/bar.js', 'pkg/tests/sub/bar.test.js'])).toBe(1);
+    expect(countScopedFiles(['pkg/sub/baz.tsx', 'pkg/test/sub/baz.spec.tsx'])).toBe(1);
+    expect(countScopedFiles(['pkg/src/qux.ts', 'pkg/test/qux.test.ts'])).toBe(1);
+
+    // Three sources plus their tests in these layouts stay within the limit.
+    const mirrored = [
+      './pkg/src/sub/foo.mts',
+      'pkg/src/__tests__/sub/foo.test.ts',
+      'pkg/src/sub/bar.js',
+      'pkg/tests/sub/bar.test.js',
+      'pkg/sub/baz.tsx',
+      'pkg/test/sub/baz.spec.tsx',
+    ];
+    expect(
+      checkAtomicity({ taskId: 'T330', role: 'worker', declaredFiles: mirrored }).allowed,
+    ).toBe(true);
+
+    // A mirror tree pairs only with its own rel path, not an unrelated directory.
+    expect(countScopedFiles(['pkg/src/other/bar.js', 'pkg/tests/sub/bar.test.js'])).toBe(2);
+    expect(countScopedFiles(['other/src/sub/bar.js', 'pkg/tests/sub/bar.test.js'])).toBe(2);
+  });
+
   it('treats acFiles alias the same as declaredFiles', () => {
     const aliasResult = checkAtomicity({
       taskId: 'T306',
