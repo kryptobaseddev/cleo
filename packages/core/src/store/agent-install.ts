@@ -36,6 +36,7 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import {
   existsSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
   renameSync,
   unlinkSync,
@@ -292,6 +293,33 @@ function writeBytesAtomic(path: string, bytes: Buffer): void {
   }
 }
 
+/**
+ * How many `<agent>.cant.bak-<instant>` copies of a replaced file an install
+ * keeps; older ones are removed (T14655).
+ */
+export const AGENT_CANT_BACKUPS_KEPT = 3;
+
+/**
+ * Remove all but the newest {@link AGENT_CANT_BACKUPS_KEPT} `.bak-<instant>`
+ * copies of `path`. The instant is an ISO-8601 stamp, so name order is age
+ * order. Best-effort: a failure leaves extra backups, never loses the file.
+ *
+ * @param path - The installed `.cant` file whose backups to prune.
+ */
+function pruneBackups(path: string): void {
+  const prefix = `${basename(path)}.bak-`;
+  try {
+    const backups = readdirSync(dirname(path))
+      .filter((name) => name.startsWith(prefix))
+      .sort();
+    for (const name of backups.slice(0, -AGENT_CANT_BACKUPS_KEPT)) {
+      unlinkSync(join(dirname(path), name));
+    }
+  } catch {
+    // best-effort: extra backups are harmless
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Atomic install pipeline
 // ---------------------------------------------------------------------------
@@ -486,6 +514,7 @@ export function installAgentFromCant(
     }
 
     db.exec('COMMIT');
+    if (didWriteFile) pruneBackups(destinationPath);
 
     // Populate an AgentRegistryExtendedFields-shaped view for observability
     // (currently consumed only by callers that log install events).

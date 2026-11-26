@@ -471,6 +471,38 @@ describe('W2-3 installAgentFromCant — real sqlite + real .cant', () => {
     }
   });
 
+  // T14655: repeated force installs keep only the newest backups.
+  it('prunes .bak-<instant> backups to the newest AGENT_CANT_BACKUPS_KEPT', async () => {
+    const { AGENT_CANT_BACKUPS_KEPT, installAgentFromCant } = await import('../agent-install.js');
+    const db = env.openDb();
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      const srcDir = join(env.projectRoot, 'sources');
+      const base = {
+        targetTier: 'global',
+        installedFrom: 'manual',
+        globalCantDir: env.globalCantDir,
+      } as const;
+      const total = AGENT_CANT_BACKUPS_KEPT + 3;
+      for (let v = 0; v <= total; v++) {
+        vi.setSystemTime(new Date(Date.UTC(2026, 10, 26, 0, 0, v)));
+        const src = writeSource(srcDir, 'fixture-agent.cant', `${FIXTURE_MINIMAL_CANT}# v${v}\n`);
+        installAgentFromCant(db, { ...base, cantSource: src, force: v > 0 });
+      }
+      const backups = readdirSync(env.globalCantDir)
+        .filter((f) => f.startsWith('fixture-agent.cant.bak-'))
+        .sort();
+      expect(backups).toHaveLength(AGENT_CANT_BACKUPS_KEPT);
+      // The newest backup holds the bytes the last install replaced.
+      expect(readFileSync(join(env.globalCantDir, backups.at(-1) ?? ''), 'utf8')).toBe(
+        `${FIXTURE_MINIMAL_CANT}# v${total - 1}\n`,
+      );
+    } finally {
+      vi.useRealTimers();
+      db.close();
+    }
+  });
+
   // T14600: install --global, create --global, the seed and the resolver share
   // one directory, so a globally installed agent resolves by id.
   it('installs globally into the shared directory and resolves the agent by id', async () => {

@@ -133,6 +133,9 @@ export interface DiagnoseResult {
  * @param options.migrateHierarchyDefaults  Remove zero sibling caps with a backup and notice, restoring profile defaults
  * @param options.agentMbxRunner  Runner for the `agentmbx` CLI used to record the lead mailbox (T14448).
  *   Tests inject a fake; default is the real CLI.
+ * @param options.cantParses  Whether a `.cant` file parses with the current CANT grammar. Core does not
+ *   depend on `@cleocode/cant`, so the CLI supplies it; with it the agent registry sync reports
+ *   unparseable agents (D-007) and refreshes unedited seeds from their packaged templates (T14655).
  * @param options.cwd  Project directory override
  */
 export async function runUpgrade(
@@ -145,6 +148,7 @@ export async function runUpgrade(
     projectName?: string;
     migrateHierarchyDefaults?: boolean;
     agentMbxRunner?: MbxRunner;
+    cantParses?: (cantPath: string) => Promise<boolean>;
     cwd?: string;
   } = {},
 ): Promise<UpgradeResult> {
@@ -1254,7 +1258,11 @@ export async function runUpgrade(
         );
       }
       try {
-        const report = await buildDoctorReport(sdDb, { projectRoot: projectRootForMaint });
+        const doctorOptions = {
+          projectRoot: projectRootForMaint,
+          cantParses: options.cantParses,
+        };
+        const report = await buildDoctorReport(sdDb, doctorOptions);
         if (report.findings.length === 0) {
           actions.push({
             action: 'agent_registry_sync',
@@ -1273,6 +1281,21 @@ export async function runUpgrade(
               `repaired: ${reconciled.repaired.length > 0 ? reconciled.repaired.join(', ') : '(none)'}; ` +
               `skipped: ${reconciled.skipped.length > 0 ? reconciled.skipped.join(', ') : '(none)'}`,
           });
+          // T14655: an agent that still does not parse (edited, or no packaged
+          // template) was left alone; name it with the command that fixes it.
+          if (report.findings.some((f) => f.code === 'D-007' || f.code === 'D-012')) {
+            const after = await buildDoctorReport(sdDb, doctorOptions);
+            for (const f of after.findings) {
+              if (f.code !== 'D-007' && f.code !== 'D-012') continue;
+              actions.push({
+                action: 'agent_cant_parse',
+                status: 'skipped',
+                details: `[${f.code}] ${f.subject}: ${f.message}`,
+                reason: f.message,
+                ...(f.fixCommand ? { fix: f.fixCommand } : {}),
+              });
+            }
+          }
         }
       } finally {
         sdDb.close();
@@ -1517,7 +1540,10 @@ export async function runUpgrade(
         );
       }
       try {
-        const report = await buildDoctorReport(sdDb, { projectRoot: getProjectRoot(options.cwd) });
+        const report = await buildDoctorReport(sdDb, {
+          projectRoot: getProjectRoot(options.cwd),
+          cantParses: options.cantParses,
+        });
         actions.push({
           action: 'agent_registry_sync',
           status: 'preview',

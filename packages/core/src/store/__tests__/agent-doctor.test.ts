@@ -14,8 +14,10 @@
  * @epic T889
  */
 
+import { createHash } from 'node:crypto';
 import {
   appendFileSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -491,7 +493,10 @@ describe('W2-7 buildDoctorReport + reconcileDoctor — real sqlite + real .cant'
         const d007 = report.findings.filter((f) => f.code === 'D-007');
         expect(d007).toHaveLength(1);
         expect(d007[0]?.message).toContain('edited after install');
-        expect(d007[0]?.fixCommand).toBe(`cleo agent install ${cantPath} --force`);
+        // T14655: the fix installs the packaged template, never the same broken bytes.
+        expect(d007[0]?.fixCommand).toBe(
+          `cleo agent install ${join(tpl, 'doctor-fixture.cant')} --force`,
+        );
 
         const result = await reconcileDoctor(db, d007, { templatesDir: tpl });
         expect(result.skipped).toEqual(['D-007']);
@@ -561,6 +566,60 @@ describe('W2-7 buildDoctorReport + reconcileDoctor — real sqlite + real .cant'
         expect(readFileSync(cantPath, 'utf8')).toBe(OLD_SEED);
       } finally {
         db.close();
+      }
+    });
+
+    // T14655: a seed installed before seed_sha256 existed (NULL) is unedited
+    // when its bytes match a packaged template version that once shipped.
+    it('refreshes a NULL-digest seed whose bytes match a shipped template version', async () => {
+      const { installAgentFromCant } = await import('../agent-install.js');
+      const { buildDoctorReport, reconcileDoctor } = await import('../agent-doctor.js');
+      const db = env.openDb();
+      try {
+        const src = writeCant(join(env.projectRoot, 'old'), 'doctor-fixture.cant', OLD_SEED);
+        const tpl = join(env.projectRoot, 'templates');
+        writeCant(tpl, 'doctor-fixture.cant', NEW_TEMPLATE);
+        const { cantPath } = installAgentFromCant(db, {
+          cantSource: src,
+          targetTier: 'project',
+          installedFrom: 'seed',
+          projectRoot: env.projectRoot,
+        });
+        const historicalSeedDigests = {
+          'doctor-fixture': [createHash('sha256').update(OLD_SEED).digest('hex')],
+        };
+        const opts = {
+          projectRoot: env.projectRoot,
+          globalCantDir: env.globalCantDir,
+          homeDir: env.homeDir,
+          templatesDir: tpl,
+          cantParses,
+          historicalSeedDigests,
+        };
+        const report = await buildDoctorReport(db, opts);
+        expect(report.findings.find((f) => f.code === 'D-007')?.fixCommand).toBe(
+          'cleo agent doctor --repair',
+        );
+        const result = await reconcileDoctor(db, report.findings, {
+          templatesDir: tpl,
+          historicalSeedDigests,
+        });
+        expect(result.repaired).toContain('D-007');
+        expect(readFileSync(cantPath, 'utf8')).toBe(NEW_TEMPLATE);
+        expect((await buildDoctorReport(db, opts)).findings).toHaveLength(0);
+      } finally {
+        db.close();
+      }
+    });
+
+    it('ships a digest list naming only packaged templates, as sha256 hex', async () => {
+      const { HISTORICAL_SEED_SHA256 } = await import('../agent-doctor.js');
+      const { resolveAgentTemplates } = await import('../../agents/resolveAgentTemplates.js');
+      const templatesDir = resolveAgentTemplates();
+      expect(templatesDir).not.toBeNull();
+      for (const [agentId, digests] of Object.entries(HISTORICAL_SEED_SHA256)) {
+        expect(existsSync(join(templatesDir ?? '', `${agentId}.cant`))).toBe(true);
+        for (const digest of digests) expect(digest).toMatch(/^[0-9a-f]{64}$/);
       }
     });
 
