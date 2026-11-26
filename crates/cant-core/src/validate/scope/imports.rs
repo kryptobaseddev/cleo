@@ -9,8 +9,7 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Component, Path, PathBuf};
 
-use crate::dsl::ast::CantDocument;
-use crate::dsl::ast::Section;
+use crate::dsl::ast::{CantDocument, ImportStatement, Section};
 use crate::dsl::span::Span;
 
 use crate::validate::context::ValidationContext;
@@ -139,6 +138,9 @@ pub fn check_circular_import(path: &str, ctx: &ValidationContext, span: Span) ->
 
 // ── Import graph walk: S03, S11, S12 across files ──────────────────
 
+/// Permissions held by an import context, by domain.
+type PermissionContext = HashMap<String, Vec<String>>;
+
 /// Walks the import graph rooted at `file` and runs the cross-file import
 /// rules on every edge: S03 (circular chain), S11 (chain depth) and S12
 /// (permission escalation).
@@ -149,12 +151,17 @@ pub fn check_circular_import(path: &str, ctx: &ValidationContext, span: Span) ->
 /// `.cleo/skills/<name>.cant` under the project root (the nearest ancestor
 /// holding `.cleo/`, else `.git/`). A specifier without a `.cant` suffix also
 /// tries `<specifier>.cant`. Imports that do not resolve or do not parse are
-/// skipped here: S04 (target existence) is not implemented, and S09/S10 are
-/// checked on the import strings themselves.
+/// skipped here: S04 (target existence) is not implemented.
 ///
-/// S12 compares the agents of each imported file with the permissions held
-/// by the agents of the file importing it. A file that defines no agents has
-/// no permission context to escalate, so its imports are not checked.
+/// Containment (Section 6.4) is checked before the filesystem is touched: a
+/// specifier whose normalized path leaves the project root is refused with
+/// S09, an absolute one with S10, and a file whose real path (after symlinks)
+/// leaves the root with S10. A refused import is never read.
+///
+/// S12 compares the agents of each imported file with the permission context
+/// of the file importing it: the permissions its own agents hold, or, for a
+/// file that defines no agents, the context it inherited from its importer.
+/// The root file without agents sets no context.
 ///
 /// The `import_chain` of `ctx` holds the resolution stack (root first) while
 /// the walk runs and is restored before returning.
@@ -173,19 +180,22 @@ pub fn check_import_graph(
         diags: Vec::new(),
     };
     let saved_chain = std::mem::take(&mut walk.ctx.import_chain);
-    walk.visit(doc, &root_file);
+    walk.visit(doc, &root_file, None);
     walk.ctx.import_chain = saved_chain;
     walk.diags
 }
 
 /// State of one import-graph walk.
 struct ImportWalk<'a> {
-    /// Directory `@name` and bare specifiers resolve under.
+    /// Directory every import must resolve within; `@name` and bare
+    /// specifiers resolve under its `.cleo/skills/`.
     project_root: PathBuf,
     /// Context whose `import_chain` is the live resolution stack.
     ctx: &'a mut ValidationContext,
-    /// Files whose whole subgraph was already walked (diamond imports).
-    finished: HashSet<PathBuf>,
+    /// (file, permission context) pairs whose whole subgraph was already
+    /// walked (diamond imports). The context is part of the key because an
+    /// agentless file's imports are checked against what it inherited.
+    finished: HashSet<(PathBuf, String)>,
     /// S11 is reported once per walk, at the first chain over the limit.
     depth_reported: bool,
     /// Collected diagnostics.
@@ -194,7 +204,9 @@ struct ImportWalk<'a> {
 
 impl ImportWalk<'_> {
     /// Visits `file` (already parsed as `doc`) and recurses into its imports.
-    fn visit(&mut self, doc: &CantDocument, file: &Path) {
+    ///
+    /// `inherited` is the permission context of the importing file.
+    fn visit(&mut self, doc: &CantDocument, file: &Path, inherited: Option<&PermissionContext>) {
         self.ctx.import_chain.push(self.display(file));
 
         if self.ctx.import_chain.len() as u32 > self.ctx.limits.max_import_depth {
@@ -206,14 +218,16 @@ impl ImportWalk<'_> {
             return;
         }
 
-        let context_permissions = agent_permissions(doc);
+        let context = agent_permissions(doc).or_else(|| inherited.cloned());
+        let context_key = context_key(context.as_ref());
         let base_dir = file.parent().map(Path::to_path_buf).unwrap_or_default();
+        let is_root_file = self.ctx.import_chain.len() == 1;
 
         for section in &doc.sections {
             let Section::Import(imp) = section else {
                 continue;
             };
-            let Some(target) = self.resolve(&imp.path, &base_dir) else {
+            let Some(target) = self.resolve(imp, &base_dir, file, is_root_file) else {
                 continue;
             };
 
@@ -228,7 +242,7 @@ impl ImportWalk<'_> {
                 continue;
             };
 
-            if let Some(allowed) = &context_permissions {
+            if let Some(allowed) = &context {
                 for section in &imported.sections {
                     if let Section::Agent(agent) = section {
                         self.diags.extend(check_permission_escalation(
@@ -240,28 +254,83 @@ impl ImportWalk<'_> {
                 }
             }
 
-            if !self.finished.contains(&target) {
-                self.visit(&imported, &target);
+            let child_key = (target.clone(), context_key.clone());
+            if !self.finished.contains(&child_key) {
+                self.visit(&imported, &target, context.as_ref());
             }
         }
 
         self.ctx.import_chain.pop();
-        self.finished.insert(file.to_path_buf());
+        self.finished.insert((file.to_path_buf(), context_key));
     }
 
-    /// Resolves an import specifier to an existing file, or `None`.
-    fn resolve(&self, specifier: &str, base_dir: &Path) -> Option<PathBuf> {
-        let candidate = if specifier.starts_with("./") || specifier.starts_with("../") {
-            base_dir.join(specifier)
+    /// Resolves an import to an existing file inside the project root.
+    ///
+    /// Returns `None` for an import that does not resolve, and for one that
+    /// escapes the project root, which is reported (S09/S10) and never read.
+    /// On the root file, escapes the string checks
+    /// [`check_import_path_traversal`] and [`check_import_symlink_escape`]
+    /// already report are not reported twice.
+    fn resolve(
+        &mut self,
+        imp: &ImportStatement,
+        base_dir: &Path,
+        importer: &Path,
+        is_root_file: bool,
+    ) -> Option<PathBuf> {
+        let specifier = imp.path.as_str();
+        let relative = specifier.starts_with("./") || specifier.starts_with("../");
+        let name = specifier.strip_prefix('@').unwrap_or(specifier);
+
+        // S10: an absolute specifier is never relative to the project root.
+        if Path::new(name).is_absolute() {
+            if !(is_root_file && specifier.starts_with('/')) {
+                self.refuse("S10", "is an absolute path", imp, importer);
+            }
+            return None;
+        }
+
+        // S09: containment by lexical normalization, before any filesystem access.
+        let candidate = if relative {
+            normalize_lexically(&base_dir.join(specifier))
         } else {
-            let name = specifier.strip_prefix('@').unwrap_or(specifier);
-            self.project_root.join(".cleo").join("skills").join(name)
+            normalize_lexically(&self.project_root.join(".cleo").join("skills").join(name))
         };
+        if !candidate.starts_with(&self.project_root) {
+            if !(is_root_file && path_escapes_root(specifier)) {
+                self.refuse("S09", "resolves outside the project root", imp, importer);
+            }
+            return None;
+        }
+
         let with_ext = PathBuf::from(format!("{}.cant", candidate.display()));
-        [candidate, with_ext]
-            .into_iter()
-            .find(|p| p.is_file())
-            .map(|p| canonical_or_normalized(&p))
+        let found = [candidate, with_ext].into_iter().find(|p| p.is_file())?;
+
+        // S10: the real path, after symlinks, must stay inside the root.
+        let real = canonical_or_normalized(&found);
+        if !real.starts_with(&self.project_root) {
+            self.refuse(
+                "S10",
+                "follows a symlink that resolves outside the project root",
+                imp,
+                importer,
+            );
+            return None;
+        }
+        Some(real)
+    }
+
+    /// Records an S09/S10 refusal for an import that was not read.
+    fn refuse(&mut self, rule: &str, why: &str, imp: &ImportStatement, importer: &Path) {
+        let importer = self.display(importer);
+        self.diags.push(Diagnostic::error(
+            rule,
+            format!(
+                "Import '{}' in '{importer}' {why}. Imports MUST resolve within the project directory; the import was not read.",
+                imp.path
+            ),
+            imp.span,
+        ));
     }
 
     /// Displays a resolved path relative to the project root when possible.
@@ -281,10 +350,11 @@ fn read_document(path: &Path) -> Option<CantDocument> {
 
 /// Collects the permissions held by the agents of `doc`, by domain.
 ///
-/// Returns `None` when `doc` defines no agents (no permission context).
-fn agent_permissions(doc: &CantDocument) -> Option<HashMap<String, Vec<String>>> {
+/// Returns `None` when `doc` defines no agents (no permission context of
+/// its own).
+fn agent_permissions(doc: &CantDocument) -> Option<PermissionContext> {
     let mut found_agent = false;
-    let mut held: HashMap<String, Vec<String>> = HashMap::new();
+    let mut held = PermissionContext::new();
     for section in &doc.sections {
         if let Section::Agent(agent) = section {
             found_agent = true;
@@ -301,19 +371,28 @@ fn agent_permissions(doc: &CantDocument) -> Option<HashMap<String, Vec<String>>>
     found_agent.then_some(held)
 }
 
-/// Canonicalizes `path`, falling back to lexical normalization when the
-/// filesystem cannot (for example under WASI without `realpath`).
-fn canonical_or_normalized(path: &Path) -> PathBuf {
-    if let Ok(p) = std::fs::canonicalize(path) {
-        return p;
-    }
-    let absolute = if path.is_absolute() {
-        path.to_path_buf()
-    } else {
-        std::env::current_dir().unwrap_or_default().join(path)
+/// A deterministic key for a permission context (`None` = no context).
+fn context_key(context: Option<&PermissionContext>) -> String {
+    let Some(context) = context else {
+        return String::from("-");
     };
+    let mut entries: Vec<String> = context
+        .iter()
+        .map(|(domain, access)| {
+            let mut access = access.clone();
+            access.sort();
+            format!("{domain}:{}", access.join(","))
+        })
+        .collect();
+    entries.sort();
+    entries.join(";")
+}
+
+/// Normalizes `.` and `..` components of an absolute path without touching
+/// the filesystem.
+fn normalize_lexically(path: &Path) -> PathBuf {
     let mut out = PathBuf::new();
-    for component in absolute.components() {
+    for component in path.components() {
         match component {
             Component::CurDir => {}
             Component::ParentDir => {
@@ -323,6 +402,19 @@ fn canonical_or_normalized(path: &Path) -> PathBuf {
         }
     }
     out
+}
+
+/// Canonicalizes `path`, falling back to lexical normalization when the
+/// filesystem cannot (for example under WASI without `realpath`).
+fn canonical_or_normalized(path: &Path) -> PathBuf {
+    if let Ok(p) = std::fs::canonicalize(path) {
+        return p;
+    }
+    if path.is_absolute() {
+        normalize_lexically(path)
+    } else {
+        normalize_lexically(&std::env::current_dir().unwrap_or_default().join(path))
+    }
 }
 
 /// Finds the project root above `file`: the nearest ancestor directory

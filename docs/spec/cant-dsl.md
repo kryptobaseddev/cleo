@@ -56,11 +56,16 @@ only through `validate_file` (`crates/cant-core/src/validate/mod.rs`, exposed as
 `cantValidateDocument`). It walks the import graph from the file
 (`scope::check_import_graph`): `./` and `../` specifiers resolve relative to the importing
 file, `@name` and bare specifiers to `.cleo/skills/<name>.cant` under the project root, and
-a specifier without `.cant` also tries `<specifier>.cant` (Section 6.2). An import that does
-not resolve or parse is skipped, since S04 is not implemented; `node_modules` lookup is not
-implemented. S12 checks each imported file's agents against the permissions held by the
-agents of the file importing it; a file that defines no agents has no permission context,
-so its imports are not checked. The single-document `validate()` cannot resolve imports and
+a specifier without `.cant` also tries `<specifier>.cant` (Section 6.2). Containment
+(Section 6.4) is checked before the filesystem is touched: an import whose normalized path
+leaves the project root is refused with S09, an absolute one (including `@/abs`) with S10,
+and a file whose real path leaves the root through a symlink with S10; a refused import is
+never read. An import that does not resolve or parse is skipped, since S04 is not
+implemented; `node_modules` lookup is not implemented. S12 checks each imported file's
+agents against the importing file's permission context: the permissions its own agents
+hold, or, for a file that defines no agents, the context it inherited from its importer,
+so `main (tasks: read) -> mid (no agents) -> worker (tasks: write)` is refused. A root file
+without agents sets no context. The single-document `validate()` cannot resolve imports and
 runs every rule except S03, S11 and S12. Limits use the defaults in `ValidationLimits`
 (`validate/context.rs`); `.cleo/config.json` is not read (see Appendix B).
 

@@ -174,3 +174,135 @@ fn import_chain_over_the_limit_is_reported_with_s11() {
     }
     assert!(!rule_ids(&validate_path(&shallow.join("chain-0.cant"))).contains(&"S11"));
 }
+
+#[test]
+fn escalation_through_an_agentless_file_is_reported_with_s12() {
+    let dir = project("agentless-mid");
+    let main = write(
+        &dir,
+        "main.cant",
+        "@import \"./mid.cant\"\n\nagent coordinator:\n  model: opus\n  permissions:\n    tasks: read\n",
+    );
+    write(&dir, "mid.cant", "@import \"./worker.cant\"\n");
+    write(
+        &dir,
+        "worker.cant",
+        "agent worker:\n  model: opus\n  permissions:\n    tasks: write\n",
+    );
+
+    let diags = validate_path(&main);
+    let s12: Vec<_> = diags.iter().filter(|d| d.rule_id == "S12").collect();
+    assert_eq!(s12.len(), 1, "diagnostics: {diags:#?}");
+    assert!(s12[0].message.contains("'tasks: write'"));
+    assert!(s12[0].message.contains("in imported file 'worker.cant'"));
+}
+
+/// A project directory inside a sandbox, with a file OUTSIDE the project
+/// that would be reported (S12 escalation and an S03 cycle back into the
+/// project) if the walk ever read it.
+fn sandbox(name: &str) -> (PathBuf, PathBuf) {
+    let base = project(name);
+    let proj = base.join("proj");
+    std::fs::create_dir_all(proj.join(".cleo")).unwrap();
+    write(
+        &base,
+        "outside.cant",
+        "@import \"./proj/main.cant\"\n\nagent evil:\n  model: opus\n  permissions:\n    tasks: read, write, execute\n",
+    );
+    (base, proj)
+}
+
+const COORDINATOR: &str = "\nagent coordinator:\n  model: opus\n  permissions:\n    tasks: read\n";
+
+/// Asserts the outside file was not read: neither its S12 escalation nor
+/// its S03 cycle back into the project is reported.
+fn assert_outside_not_read(diags: &[Diagnostic]) {
+    let ids = rule_ids(diags);
+    assert!(
+        !ids.contains(&"S12") && !ids.contains(&"S03"),
+        "outside file was read: {diags:#?}"
+    );
+}
+
+#[test]
+fn parent_traversal_escape_is_refused_unread() {
+    let (_base, proj) = sandbox("escape-dotdot");
+    let main = write(
+        &proj,
+        "main.cant",
+        &format!("@import \"./mid.cant\"\n{COORDINATOR}"),
+    );
+    write(&proj, "mid.cant", "@import \"../outside.cant\"\n");
+
+    let diags = validate_path(&main);
+    let s09: Vec<_> = diags.iter().filter(|d| d.rule_id == "S09").collect();
+    assert_eq!(s09.len(), 1, "diagnostics: {diags:#?}");
+    assert!(s09[0].message.contains("in 'mid.cant'"));
+    assert_outside_not_read(&diags);
+
+    // From the root file itself: reported once (by the string check), unread.
+    let root = write(
+        &proj,
+        "root.cant",
+        &format!("@import \"../outside.cant\"\n{COORDINATOR}"),
+    );
+    let diags = validate_path(&root);
+    assert_eq!(rule_ids(&diags).iter().filter(|r| **r == "S09").count(), 1);
+    assert_outside_not_read(&diags);
+}
+
+#[test]
+fn skill_scope_escape_is_refused_unread() {
+    let (_base, proj) = sandbox("escape-skill");
+    let main = write(
+        &proj,
+        "main.cant",
+        &format!("@import \"@../../../outside\"\n{COORDINATOR}"),
+    );
+    let diags = validate_path(&main);
+    assert!(rule_ids(&diags).contains(&"S09"), "diagnostics: {diags:#?}");
+    assert_outside_not_read(&diags);
+}
+
+#[test]
+fn absolute_import_is_refused_unread() {
+    let (base, proj) = sandbox("escape-absolute");
+    let outside = base.join("outside.cant").canonicalize().unwrap();
+    let main = write(
+        &proj,
+        "main.cant",
+        &format!(
+            "@import \"./mid.cant\"\n@import \"@{}\"\n{COORDINATOR}",
+            outside.display()
+        ),
+    );
+    write(
+        &proj,
+        "mid.cant",
+        &format!("@import \"{}\"\n", outside.display()),
+    );
+
+    let diags = validate_path(&main);
+    let s10: Vec<_> = diags.iter().filter(|d| d.rule_id == "S10").collect();
+    assert_eq!(s10.len(), 2, "diagnostics: {diags:#?}");
+    assert!(s10.iter().any(|d| d.message.contains("in 'mid.cant'")));
+    assert_outside_not_read(&diags);
+}
+
+#[cfg(unix)]
+#[test]
+fn symlink_escape_is_refused_unread() {
+    let (base, proj) = sandbox("escape-symlink");
+    std::os::unix::fs::symlink(base.join("outside.cant"), proj.join("link.cant")).unwrap();
+    let main = write(
+        &proj,
+        "main.cant",
+        &format!("@import \"./link.cant\"\n{COORDINATOR}"),
+    );
+
+    let diags = validate_path(&main);
+    let s10: Vec<_> = diags.iter().filter(|d| d.rule_id == "S10").collect();
+    assert_eq!(s10.len(), 1, "diagnostics: {diags:#?}");
+    assert!(s10[0].message.contains("symlink"));
+    assert_outside_not_read(&diags);
+}

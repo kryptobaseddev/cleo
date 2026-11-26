@@ -1540,7 +1540,7 @@ jobs:
       # of skipping the TypeScript half. Runs only when the worktree_napi scope
       # changed, as the job did.
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        if: ${{ !cancelled() && needs.changes.outputs.worktree_napi == 'true' && needs.changes.outputs.draft != 'true' }}
+        if: ${{ !cancelled() && (needs.changes.outputs.worktree_napi == 'true' || needs.changes.outputs.cant_napi == 'true') && needs.changes.outputs.draft != 'true' }}
       - name: "Worktrunk Core Tests (T14130): Build @cleocode/paths (the TypeScript side of the parity test)"
         if: ${{ !cancelled() && needs.changes.outputs.worktree_napi == 'true' && needs.changes.outputs.draft != 'true' }}
         run: pnpm --filter @cleocode/paths run build
@@ -1549,6 +1549,13 @@ jobs:
         env:
           WORKTRUNK_REQUIRE_TS_PARITY: '1'
         run: cargo test -p worktrunk-core --locked
+      # T14603: the cant-core crate tests (validator rules, parser, renderer,
+      # the cross-file import walk in tests/validate_imports.rs). The cant-napi
+      # build only compiles cant-core, so without this step no CI job ran its
+      # Rust tests. Runs only when the cant_napi scope (crates/cant-*) changed.
+      - name: "CANT Core Tests (T14603): cargo test -p cant-core"
+        if: ${{ !cancelled() && needs.changes.outputs.cant_napi == 'true' && needs.changes.outputs.draft != 'true' }}
+        run: cargo test -p cant-core --locked
 
   contracts-dep-lint:
     name: Contracts Dep Lint
