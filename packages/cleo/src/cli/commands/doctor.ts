@@ -38,7 +38,6 @@ import { doctorDepCyclesCommand } from './doctor-dep-cycles.js';
 import { doctorExodusCommand } from './doctor-exodus.js';
 import { doctorExodusResidueCommand } from './doctor-exodus-residue.js';
 import { doctorFkCheckCommand } from './doctor-fk-check.js';
-import { doctorGateTextCommand } from './doctor-gate-text.js';
 import { doctorGlobalDeliveryCommand } from './doctor-global-delivery.js';
 import { doctorGoalRuntimeCommand } from './doctor-goal-runtime.js';
 import { doctorHeavyCommandHookCommand } from './doctor-heavy-command-hook.js';
@@ -309,8 +308,9 @@ export const doctorCommand = defineCommand({
     'acceptance-drift': doctorAcceptanceDriftCommand,
     // T12790 — evidence bindings whose AC row is gone (no FK): report + --fix (audited)
     'ac-bindings': doctorAcBindingsCommand,
-    // T14635 — text acceptance stored as typed gate JSON (dry run; --apply converts)
-    'gate-text': doctorGateTextCommand,
+    // T14635 — text acceptance stored as typed gate JSON (dry run; --apply converts).
+    // Loaded on dispatch so it adds nothing to `cleo doctor`'s startup graph (gate 39).
+    'gate-text': async () => (await import('./doctor-gate-text.js')).doctorGateTextCommand,
     // T12886 — stored task dependency cycles + repair plan (read-only)
     'dep-cycles': doctorDepCyclesCommand,
     // T14096 — parent/child type-matrix violations: plan, --apply with a receipt, --rollback
