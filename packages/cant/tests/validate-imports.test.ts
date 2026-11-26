@@ -13,6 +13,7 @@ import { dirname, join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { compileBundle } from '../src/bundle';
 import { validateDocument } from '../src/document';
+import { cantLegacyEntryPointWalksImports } from '../src/native-loader';
 
 let dir: string;
 
@@ -32,6 +33,10 @@ beforeAll(() => {
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
 
 describe('import-graph validation (T14642)', () => {
+  it('detects that the current addon walks imports through cantValidateDocument', () => {
+    expect(cantLegacyEntryPointWalksImports()).toBe(true);
+  });
+
   it('reports a missing import with S04 naming it', async () => {
     const main = write('missing/main.cant', '@import "./nowhere.cant"\n');
     const result = await validateDocument(main);

@@ -127,7 +127,7 @@ const cantValidateCommand = defineCommand({
         pushWarning({
           code: 'W_CANT_IMPORT_RULES_NOT_RUN',
           message:
-            'The loaded cant-napi binary predates the import-graph entry point: the import rules ' +
+            'The loaded cant-napi binary cannot walk imports (it predates T14603): the import rules ' +
             '(S03, S04, S11, S12) were not run. Rebuild it: pnpm --filter @cleocode/cant build:napi',
           severity: 'warn',
         });

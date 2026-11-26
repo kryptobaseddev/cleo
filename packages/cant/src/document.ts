@@ -15,6 +15,7 @@
 import { readFile } from 'node:fs/promises';
 import {
   cantExecutePipelineNative,
+  cantLegacyEntryPointWalksImports,
   cantParseDocumentNative,
   cantValidateDocumentNative,
   cantValidateFileNative,
@@ -53,9 +54,10 @@ export interface CantValidationResult {
   /** All diagnostics emitted by the 42-rule validator. */
   diagnostics: NativeDiagnostic[];
   /**
-   * Whether the cross-file import rules (S03, S04, S11, S12) ran. `false`
-   * when the loaded cant-napi addon predates the import-graph entry point;
-   * only the single-document rules ran then.
+   * Whether the cross-file import rules ran. `false` only when the loaded
+   * cant-napi addon cannot walk imports at all (it predates T14603); only the
+   * single-document rules ran then. An addon from v2026.11.17 runs S03, S11
+   * and S12 (`true`) but not S04, and sets no diagnostic `file`.
    */
   importRulesRun: boolean;
 }
@@ -112,9 +114,11 @@ export async function parseDocument(filePath: string): Promise<CantDocumentResul
  * plus the hierarchy lints. Imports resolve relative to `filePath`, so the
  * cross-file rules S03 (circular imports), S04 (import target existence),
  * S11 (import depth) and S12 (permission escalation) run too, and a
- * diagnostic raised in an imported file names that file in `file`. With an
- * addon that predates the import-graph entry point, only the
- * single-document rules run and `importRulesRun` is `false`.
+ * diagnostic raised in an imported file names that file in `file`. An addon
+ * without the `cantValidateFile` entry point falls back to
+ * `cantValidateDocument(content, filePath)`: one from v2026.11.17 still runs
+ * S03, S11 and S12; an older one ignores the path, and `importRulesRun` is
+ * then `false`.
  *
  * @param filePath - Absolute path to the `.cant` file.
  * @returns A {@link CantValidationResult} with all diagnostics.
@@ -124,7 +128,7 @@ export async function validateDocument(filePath: string): Promise<CantValidation
   // on Windows runners that check out files with core.autocrlf=true.
   const content = (await readFile(filePath, 'utf-8')).replace(/\r\n/g, '\n');
   const graphResult = cantValidateFileNative(content, filePath);
-  const result = graphResult ?? cantValidateDocumentNative(content);
+  const result = graphResult ?? cantValidateDocumentNative(content, filePath);
   return {
     file: filePath,
     valid: result.valid,
@@ -132,7 +136,7 @@ export async function validateDocument(filePath: string): Promise<CantValidation
     errorCount: result.errorCount,
     warningCount: result.warningCount,
     diagnostics: result.diagnostics,
-    importRulesRun: graphResult !== null,
+    importRulesRun: graphResult !== null || cantLegacyEntryPointWalksImports(),
   };
 }
 

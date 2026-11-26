@@ -10,8 +10,11 @@ summary: "cleo cant validate reports missing imports (S04), reports diagnostics 
 - A diagnostic raised in an imported file (S12 on its agent, S03/S04/S09/S10
   on its own imports) carries that file's path in `file` with its own
   line/col, through the napi binding and `compileBundle`'s `sourcePath`.
-- New napi entry point `cantValidateFile(content, filePath)`. An addon without
-  it ignores `filePath` silently, so `validateDocument` then runs only the
-  single-document rules, returns `importRulesRun: false`, and
-  `cleo cant validate` warns once (`W_CANT_IMPORT_RULES_NOT_RUN`).
+- New napi entry point `cantValidateFile(content, filePath)`. Without it,
+  `validateDocument` passes the path to `cantValidateDocument`: a v2026.11.17
+  addon still runs S03, S11 and S12; an older addon ignores the path, so
+  `validateDocument` returns `importRulesRun: false` and `cleo cant validate`
+  warns once (`W_CANT_IMPORT_RULES_NOT_RUN`).
+- `caamp pi cant` validation keeps the imported file in each diagnostic and
+  names it in the install refusal.
 - `cleo cant validate --help` now says all 42 numbered rules run.

@@ -321,6 +321,33 @@ export function cantValidateFileNative(
   return native.cantValidateFile(content, filePath);
 }
 
+let legacyFilePathSupport: boolean | null = null;
+
+/**
+ * Whether the loaded addon's `cantValidateDocument` honours its `filePath`
+ * argument, i.e. walks imports and runs S03, S11 and S12.
+ *
+ * @remarks
+ * Addons from v2026.11.17 (T14603) honour it but lack `cantValidateFile`
+ * (so S04 and `NativeDiagnostic.file` are absent); older ones ignore it
+ * silently. A probe tells them apart without touching the filesystem: a
+ * root-file import of `@/…` names an absolute path, which only the
+ * import-graph walk refuses (S10; the single-document check sees no leading
+ * `/`). The answer is cached for the process.
+ *
+ * @returns `true` when import rules run through `cantValidateDocument`.
+ */
+export function cantLegacyEntryPointWalksImports(): boolean {
+  if (legacyFilePathSupport === null) {
+    const probe = requireNative().cantValidateDocument(
+      '@import "@/cant-import-graph-probe"\n',
+      join(__dirname, 'cant-import-graph-probe.cant'),
+    );
+    legacyFilePathSupport = probe.diagnostics.some((d) => d.ruleId === 'S10');
+  }
+  return legacyFilePathSupport;
+}
+
 /**
  * A single agent profile extracted from a `.cant` document.
  *

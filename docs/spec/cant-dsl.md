@@ -65,8 +65,9 @@ parse is skipped; `node_modules` lookup is not implemented. A diagnostic raised 
 imported file (an S12 on its agent, or an S03/S04/S09/S10 on one of its own imports)
 names that file in the diagnostic's `file` field and carries that file's own line/col;
 `compileBundle` reports it at that file. An addon without the `cantValidateFile` export
-predates the walk: `validateDocument` then runs only the single-document rules, sets
-`importRulesRun: false`, and `cleo cant validate` warns (`W_CANT_IMPORT_RULES_NOT_RUN`). S12 checks each imported file's
+gets `cantValidateDocument(content, filePath)`: one from v2026.11.17 still runs S03, S11 and
+S12 (no S04, no `file`); an older one ignores the path, so `validateDocument` sets
+`importRulesRun: false` and `cleo cant validate` warns (`W_CANT_IMPORT_RULES_NOT_RUN`). S12 checks each imported file's
 agents against the importing file's permission context: the permissions its own agents
 hold, or, for a file that defines no agents, the context it inherited from its importer,
 so `main (tasks: read) -> mid (no agents) -> worker (tasks: write)` is refused. A root file

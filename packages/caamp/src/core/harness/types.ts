@@ -282,6 +282,12 @@ export interface CantValidationDiagnostic {
   line: number;
   /** 1-based column number where the diagnostic was emitted. */
   col: number;
+  /**
+   * The file `line`/`col` refer to when it is not the validated file: an
+   * imported file the import-graph walk reached. Absent for the validated
+   * file itself.
+   */
+  file?: string;
   /** Severity bucket from cant-core (`error`, `warning`, `info`, `hint`). */
   severity: 'error' | 'warning' | 'info' | 'hint';
 }
