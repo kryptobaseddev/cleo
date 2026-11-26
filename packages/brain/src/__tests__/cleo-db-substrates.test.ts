@@ -31,7 +31,9 @@ let dir: string;
 let graph: BrainGraph;
 let brokenGraph: BrainGraph;
 let partialGraph: BrainGraph;
+let tasksKindGraph: BrainGraph;
 let unopenableGraph: BrainGraph;
+let unopenableGlobalGraph: BrainGraph;
 
 beforeAll(async () => {
   dir = mkdtempSync(join(tmpdir(), 'cleo-brain-t14583-'));
@@ -112,14 +114,42 @@ beforeAll(async () => {
     INSERT INTO brain_learnings (id, insight, source, confidence) VALUES ('L-1', 'Seeded learning', 'test', 0.9);
     INSERT INTO brain_page_edges (from_id, to_id, edge_type, weight) VALUES
       ('learning:L-1', 'observation:O-1', 'derived_from', 0.9),
-      ('observation:O-1', 'src/a.ts::run', 'code_reference', 0.6);
+      ('observation:O-1', 'src/a.ts::run', 'code_reference', 0.6),
+      ('decision:D-1', 'pattern:P-1', 'informed_by', 0.8),
+      ('learning:L-1', 'decision:D-1', 'supersedes', 0.5),
+      ('learning:L-1', 'observation:O-9', 'related', 0.5),
+      ('observation:O-1', 'task:T9', 'applies_to', 0.7);
     DROP TABLE brain_decisions;
+    DROP TABLE tasks_sessions;
     DROP TABLE nexus_nodes;
   `);
   _resetDualScopeDbCache();
   partialGraph = getAllSubstrates({
     limit: 500,
     projectCtx: { projectPath: partialRoot, brainDbPath: partialStore, tasksDbPath: partialStore },
+  });
+
+  // A store whose tasks_tasks query fails while tasks_sessions loads: an edge
+  // to an unloaded task is dropped, the healthy session kind still loads.
+  const tasksKindRoot = join(dir, 'tasks-kind');
+  mkdirSync(join(tasksKindRoot, '.cleo'), { recursive: true });
+  const tasksKindStore = join(tasksKindRoot, '.cleo', 'cleo.db');
+  const tasksKind = getDualScopeNativeDb(await openDualScopeDbAtPath('project', tasksKindStore));
+  tasksKind.exec(`
+    INSERT INTO tasks_sessions (id, name, status) VALUES ('ses_seed_00000001', 'seed', 'active');
+    INSERT INTO brain_observations (id, type, title) VALUES ('O-1', 'discovery', 'Seeded observation');
+    INSERT INTO brain_page_edges (from_id, to_id, edge_type, weight) VALUES
+      ('observation:O-1', 'task:T9', 'applies_to', 0.7);
+    DROP TABLE tasks_tasks;
+  `);
+  _resetDualScopeDbCache();
+  tasksKindGraph = getAllSubstrates({
+    limit: 500,
+    projectCtx: {
+      projectPath: tasksKindRoot,
+      brainDbPath: tasksKindStore,
+      tasksDbPath: tasksKindStore,
+    },
   });
 
   // A project store that exists but is not a database.
@@ -135,6 +165,15 @@ beforeAll(async () => {
       tasksDbPath: unopenableStore,
     },
   });
+
+  // A global store that exists but is not a database, beside the healthy
+  // project store: conduit's a1 → a2 edge points at agents that never loaded.
+  const badHome = join(dir, 'bad-home');
+  mkdirSync(badHome, { recursive: true });
+  writeFileSync(join(badHome, 'cleo.db'), 'not a sqlite database, just text '.repeat(200));
+  vi.stubEnv('CLEO_HOME', badHome);
+  unopenableGlobalGraph = getAllSubstrates({ limit: 500, projectCtx });
+  vi.stubEnv('CLEO_HOME', home);
 });
 
 afterAll(() => {
@@ -211,6 +250,48 @@ describe('getAllSubstrates() over the consolidated cleo.db (T14583)', () => {
     expect(edges.has('brain:L-1|derived_from|brain:O-1')).toBe(true);
     expect(partialGraph.errors?.brain).toMatch(/^brain_decisions: .*no such table/i);
     expect(partialGraph.errors?.brain).not.toMatch(/brain_patterns|brain_learnings/);
+  });
+
+  it('drops and counts edges whose endpoint failed to load, with no fake stub (T14658)', () => {
+    const edges = partialGraph.edges.map((e) => `${e.source}|${e.type}|${e.target}`);
+    expect(edges.some((e) => e.includes('brain:D-1'))).toBe(false);
+    expect(partialGraph.nodes.some((n) => n.id === 'brain:D-1')).toBe(false);
+    expect(partialGraph.errors?.brain).toMatch(
+      /dropped 2 edge\(s\) whose decision endpoint did not load because its node query failed/,
+    );
+  });
+
+  it('keeps edges to absent targets of a healthy kind beside a failed kind (T14659)', () => {
+    const edges = partialGraph.edges.map((e) => `${e.source}|${e.type}|${e.target}`);
+    // brain: decisions failed, observations loaded; O-9 is simply absent.
+    expect(edges).toContain('brain:L-1|related|brain:O-9');
+    expect(partialGraph.nodes.find((n) => n.id === 'brain:O-9')?.meta?.isStub).toBe(true);
+    // tasks: sessions failed, tasks loaded; T9 is simply absent.
+    expect(edges).toContain('brain:O-1|applies_to|tasks:T9');
+    expect(partialGraph.nodes.find((n) => n.id === 'tasks:T9')?.meta?.isStub).toBe(true);
+    expect(partialGraph.errors?.tasks).toMatch(/^tasks_sessions: .*no such table/i);
+    expect(partialGraph.errors?.tasks).not.toMatch(/dropped/);
+  });
+
+  it('drops an edge to an unloaded target of a failed kind beside a healthy kind (T14659)', () => {
+    const edges = tasksKindGraph.edges.map((e) => `${e.source}|${e.type}|${e.target}`);
+    expect(edges).not.toContain('brain:O-1|applies_to|tasks:T9');
+    expect(tasksKindGraph.nodes.some((n) => n.id === 'tasks:T9')).toBe(false);
+    expect(tasksKindGraph.nodes.some((n) => n.id === 'tasks:ses_seed_00000001')).toBe(true);
+    expect(tasksKindGraph.errors?.tasks).toMatch(
+      /^tasks_tasks: .*; dropped 1 edge\(s\) whose task target did not load because its node query failed$/,
+    );
+    expect(tasksKindGraph.counts.edges.cross).toBe(0);
+  });
+
+  it('drops edges into a substrate whose store cannot be opened, with no fake stub (T14659)', () => {
+    const edges = unopenableGlobalGraph.edges.map((e) => `${e.source}|${e.type}|${e.target}`);
+    expect(edges).not.toContain('agent-registry:a1|messages|agent-registry:a2');
+    expect(unopenableGlobalGraph.nodes.some((n) => n.substrate === 'agent-registry')).toBe(false);
+    expect(unopenableGlobalGraph.errors?.['agent-registry']).toMatch(
+      /^store cannot be opened: .*; dropped 1 edge\(s\) whose agent target did not load because its node query failed$/,
+    );
+    expect(unopenableGlobalGraph.counts.edges.cross).toBe(graph.counts.edges.cross - 1);
   });
 
   it('reports a failed nexus stub read (T14656)', () => {

@@ -38,6 +38,7 @@ export {
 } from './cleo-home.js';
 // Read-only store readers (for advanced consumers; each opens a snapshot of
 // the consolidated cleo.db through the core store chokepoint and closes it)
+export type { StoreErrorSink } from './db-connections.js';
 export { readGlobalStore, readProjectStore } from './db-connections.js';
 // Project context
 export type { ProjectContext } from './project-context.js';

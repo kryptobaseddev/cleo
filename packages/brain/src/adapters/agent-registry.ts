@@ -22,8 +22,20 @@
  * @task T14583 (read the global cleo.db)
  */
 
-import { allTyped, readGlobalStore, substrateResult, tryQuery } from '../db-connections.js';
-import type { BrainEdge, BrainNode, BrainQueryOptions, BrainSubstrateResult } from '../types.js';
+import {
+  allTyped,
+  readGlobalStore,
+  storeFailureSink,
+  substrateResult,
+  tryNodeQuery,
+} from '../db-connections.js';
+import type {
+  BrainEdge,
+  BrainNode,
+  BrainNodeKind,
+  BrainQueryOptions,
+  BrainSubstrateResult,
+} from '../types.js';
 
 /** Raw row from `agent_registry_agents`. */
 interface AgentRow {
@@ -49,11 +61,12 @@ export function getAgentRegistrySubstrate(options: BrainQueryOptions = {}): Brai
   const nodes: BrainNode[] = [];
   const edges: BrainEdge[] = [];
   const errors: string[] = [];
+  const failedKinds = new Set<BrainNodeKind>();
 
   readGlobalStore(
     (db) => {
       // created_at is ISO text; a legacy epoch-seconds integer is converted too.
-      const agentRows = tryQuery(errors, 'agent_registry_agents', () =>
+      const agentRows = tryNodeQuery(errors, failedKinds, 'agent', 'agent_registry_agents', () =>
         allTyped<AgentRow>(
           db.prepare(
             `SELECT agent_id, name, status,
@@ -85,8 +98,8 @@ export function getAgentRegistrySubstrate(options: BrainQueryOptions = {}): Brai
         });
       }
     },
-    (message) => errors.push(message),
+    storeFailureSink(errors, failedKinds, ['agent']),
   );
 
-  return substrateResult(nodes, edges, errors);
+  return substrateResult(nodes, edges, errors, failedKinds);
 }

@@ -24,7 +24,7 @@ import { getErrorMessage } from '@cleocode/contracts/errors.js';
 import { openCleoDbSnapshot } from '@cleocode/core/store/open-cleo-db.js';
 import { getGlobalStorePath } from './cleo-home.js';
 import type { ProjectContext } from './project-context.js';
-import type { BrainEdge, BrainNode, BrainSubstrateResult } from './types.js';
+import type { BrainEdge, BrainNode, BrainNodeKind, BrainSubstrateResult } from './types.js';
 
 // ---------------------------------------------------------------------------
 // Typed row helper
@@ -159,17 +159,68 @@ export function tryQuery<T>(errors: string[], name: string, query: () => T[]): T
 }
 
 /**
+ * Runs one node query through {@link tryQuery}, adding `kind` to `failedKinds`
+ * when it fails, so edges to unloaded nodes of that kind are dropped (T14659).
+ *
+ * @param errors - Collects `<name>: <message>` for each failed query.
+ * @param failedKinds - Collects the kind of each failed node query.
+ * @param kind - The node kind the query loads.
+ * @param name - The query's name in the recorded message (usually its table).
+ * @param query - The query to run.
+ * @returns The query's rows, or an empty array when it failed.
+ */
+export function tryNodeQuery<T>(
+  errors: string[],
+  failedKinds: Set<BrainNodeKind>,
+  kind: BrainNodeKind,
+  name: string,
+  query: () => T[],
+): T[] {
+  const before = errors.length;
+  const rows = tryQuery(errors, name, query);
+  if (errors.length > before) failedKinds.add(kind);
+  return rows;
+}
+
+/**
+ * Builds the store error sink of an adapter: a whole-store failure (an open
+ * failure or a thrown read) records the message and marks every node kind the
+ * adapter owns as failed, since none of them loaded (T14659).
+ *
+ * @param errors - Collects the failure message.
+ * @param failedKinds - Receives every kind in `kinds` on failure.
+ * @param kinds - The node kinds the adapter loads from this store.
+ * @returns The sink to pass to {@link readProjectStore} or {@link readGlobalStore}.
+ */
+export function storeFailureSink(
+  errors: string[],
+  failedKinds: Set<BrainNodeKind>,
+  kinds: readonly BrainNodeKind[],
+): StoreErrorSink {
+  return (message) => {
+    errors.push(message);
+    for (const kind of kinds) failedKinds.add(kind);
+  };
+}
+
+/**
  * Builds an adapter result, joining the recorded failures into `error`.
  *
  * @param nodes - Nodes read from the substrate.
  * @param edges - Edges read from the substrate.
  * @param errors - Failures recorded while reading; empty when every read succeeded.
- * @returns The result, with `error` set only when a read failed.
+ * @param failedKinds - Kinds whose node query failed (see {@link tryNodeQuery}).
+ * @returns The result, with `error` set only when a read failed and
+ *   `failedKinds` only when a node query failed.
  */
 export function substrateResult(
   nodes: BrainNode[],
   edges: BrainEdge[],
   errors: string[],
+  failedKinds: ReadonlySet<BrainNodeKind> = new Set(),
 ): BrainSubstrateResult {
-  return errors.length === 0 ? { nodes, edges } : { nodes, edges, error: errors.join('; ') };
+  if (errors.length === 0) return { nodes, edges };
+  return failedKinds.size === 0
+    ? { nodes, edges, error: errors.join('; ') }
+    : { nodes, edges, error: errors.join('; '), failedKinds: [...failedKinds] };
 }

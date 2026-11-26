@@ -205,6 +205,11 @@ export interface BrainSubstrateResult {
   edges: BrainEdge[];
   /** Message of the SQL error that cut the read short, when one occurred. */
   error?: string;
+  /**
+   * Node kinds whose query failed, present only when one did. An edge to an
+   * unloaded node of such a kind is dropped, never stubbed (T14659).
+   */
+  failedKinds?: BrainNodeKind[];
 }
 
 // ---------------------------------------------------------------------------
