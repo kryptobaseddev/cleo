@@ -35,8 +35,11 @@ export const MAX_WORKER_FILES = 3;
 export const ATOMIC_SCOPE_RULE =
   `A worker task may declare at most ${MAX_WORKER_FILES} counted files. A test file ` +
   '(`*.test.*`, `*.spec.*`, or under `__tests__/`) that pairs with a declared source file ' +
-  'by name stem (`foo.ts` with `foo.test.ts` or `__tests__/foo.test.ts`) does not count; ' +
-  'every source file and every unpaired test file counts.';
+  'by name stem in the directory it tests does not count: a sibling (`src/foo.test.ts`), a ' +
+  '`__tests__/` tree (`src/__tests__/sub/foo.test.ts` with `src/sub/foo.ts`), or a `tests/` or ' +
+  '`test/` tree mirroring `src/` (`pkg/tests/sub/foo.test.ts` with `pkg/src/sub/foo.ts` or ' +
+  '`pkg/sub/foo.ts`). The source must be a code file, so a test never pairs with `foo.json`. ' +
+  'Every source file and every unpaired test file counts.';
 
 /**
  * Whether a declared path is a test file under {@link ATOMIC_SCOPE_RULE}.
@@ -52,33 +55,110 @@ export function isAtomicScopeTestFile(path: string): boolean {
 }
 
 /**
- * The name stem a file pairs on: the basename without its extension, and for a
- * test file also without its `.test`/`.spec` suffix (`a/foo.test.ts` → `foo`).
+ * Extensions of the code files a test may pair with. A declared data or
+ * config file (`foo.json`, `foo.md`) never absorbs a test.
  */
-function scopeStem(path: string): string {
-  const normalized = path.replace(/\\/g, '/');
-  const base = normalized.slice(normalized.lastIndexOf('/') + 1);
+const ATOMIC_SCOPE_CODE_EXTENSIONS: ReadonlySet<string> = new Set([
+  'ts',
+  'tsx',
+  'mts',
+  'cts',
+  'js',
+  'jsx',
+  'mjs',
+  'cjs',
+  'svelte',
+  'vue',
+  'py',
+  'rs',
+  'go',
+  'rb',
+  'java',
+  'php',
+  'cs',
+]);
+
+/**
+ * Normalise a declared path for pairing: `/` separators, no duplicate
+ * slashes, no leading `./` (`.\\src//foo.ts` → `src/foo.ts`).
+ */
+function normalizeScopePath(path: string): string {
+  return path
+    .replace(/\\/g, '/')
+    .replace(/\/{2,}/g, '/')
+    .replace(/^(\.\/)+/, '');
+}
+
+/** Split a normalised path into its directory (with trailing `/`) and basename. */
+function splitScopePath(path: string): { dir: string; base: string } {
+  const slash = path.lastIndexOf('/');
+  return { dir: path.slice(0, slash + 1), base: path.slice(slash + 1) };
+}
+
+/**
+ * The key a declared source file pairs on: its normalised directory and name
+ * stem (`./src/foo.ts` → `src/|foo`), or null when it is not a code file.
+ */
+function sourcePairKey(path: string): string | null {
+  const { dir, base } = splitScopePath(normalizeScopePath(path));
   const dot = base.lastIndexOf('.');
-  const stem = dot > 0 ? base.slice(0, dot) : base;
-  return stem.replace(/\.(test|spec)$/, '');
+  if (dot <= 0 || !ATOMIC_SCOPE_CODE_EXTENSIONS.has(base.slice(dot + 1).toLowerCase())) {
+    return null;
+  }
+  return `${dir}|${base.slice(0, dot)}`;
+}
+
+/**
+ * The keys a test file may pair on: its stem (without `.test`/`.spec`) in each
+ * directory it can test. Those are its own directory; for a `__tests__/`
+ * segment, the parent joined with the path below it
+ * (`src/__tests__/sub/foo.test.ts` → `src/sub/`); and for a `tests/` or `test/`
+ * segment, `<root>/src/<rel>/` and `<root>/<rel>/`.
+ */
+function testPairKeys(path: string): string[] {
+  const { dir, base } = splitScopePath(normalizeScopePath(path));
+  const dot = base.lastIndexOf('.');
+  const stem = (dot > 0 ? base.slice(0, dot) : base).replace(/\.(test|spec)$/, '');
+  const dirs = new Set([dir]);
+  const segments = dir.split('/').slice(0, -1);
+  segments.forEach((segment, i) => {
+    const root = segments
+      .slice(0, i)
+      .map((s) => `${s}/`)
+      .join('');
+    const rel = segments
+      .slice(i + 1)
+      .map((s) => `${s}/`)
+      .join('');
+    if (segment === '__tests__') dirs.add(root + rel);
+    if (segment === 'tests' || segment === 'test') {
+      dirs.add(`${root}src/${rel}`);
+      dirs.add(root + rel);
+    }
+  });
+  return [...dirs].map((d) => `${d}|${stem}`);
 }
 
 /**
  * Count the files of a worker scope that count toward {@link MAX_WORKER_FILES}.
  *
  * Applies {@link ATOMIC_SCOPE_RULE}: every source file counts, and a test file
- * counts unless its name stem matches a declared source file's (so a scope of
- * test files only, or an orphan test, counts in full).
+ * counts unless a declared code file has its stem in a directory it tests (see
+ * {@link ATOMIC_SCOPE_RULE}). Paths are normalised first. So a scope of test
+ * files only, an orphan test, or same-stem tests in unrelated directories
+ * count in full.
  *
  * @param files - The declared files.
  * @returns The counted-file total.
  * @task T14633
+ * @task T14636
+ * @task T14661
  */
 export function countScopedFiles(files: readonly string[]): number {
   const sources = files.filter((file) => !isAtomicScopeTestFile(file));
-  const sourceStems = new Set(sources.map(scopeStem));
+  const sourceKeys = new Set(sources.map(sourcePairKey).filter((key) => key !== null));
   const unpairedTests = files.filter(
-    (file) => isAtomicScopeTestFile(file) && !sourceStems.has(scopeStem(file)),
+    (file) => isAtomicScopeTestFile(file) && !testPairKeys(file).some((key) => sourceKeys.has(key)),
   );
   return sources.length + unpairedTests.length;
 }
