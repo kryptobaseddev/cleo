@@ -211,6 +211,17 @@ export function inferTierFromRole(role: string): string {
 // Template generators
 // ---------------------------------------------------------------------------
 
+/**
+ * `mental_model.max_tokens` cap per tier, mirroring cant-core's TIER-002
+ * (`crates/cant-core/src/validate/hierarchy.rs`): low=0, mid=1000, high=2000.
+ */
+const TIER_MAX_TOKENS: Record<string, number> = { low: 0, mid: 1000, high: 2000 };
+
+/** The role's preferred `max_tokens`, lowered to the tier's TIER-002 cap. */
+function cappedMaxTokens(preferred: number, tier: string): number {
+  return Math.min(preferred, TIER_MAX_TOKENS[tier] ?? preferred);
+}
+
 interface PersonaParams {
   name: string;
   role: string;
@@ -270,17 +281,17 @@ agent ${name}:
   consult-when: "Cross-team decisions, scope changes, human-in-the-loop escalation, or when a lead reports a blocking ambiguity"
 
   context_sources:
-    - source: decisions
+    on_overflow: escalate_tier
+    decisions:
       query: "recent architectural and project decisions"
       max_entries: 5
-    - source: patterns
+    patterns:
       query: "project conventions and established patterns"
       max_entries: 3
-  on_overflow: escalate_tier
 
   mental_model:
     scope: project
-    max_tokens: 2000
+    max_tokens: ${cappedMaxTokens(2000, tier)}
     on_load:
       validate: true
 
@@ -289,9 +300,7 @@ agent ${name}:
     session: read, write
     memory: read, write
 
-  skills:
-    - ct-cleo
-    - ct-task-executor
+  skills: [ct-cleo, ct-task-executor]
 
   tools:
     core: [Read, Grep, Glob]
@@ -334,17 +343,17 @@ agent ${name}:
   consult-when: "Implementation strategy, code architecture, refactoring direction, task decomposition, or when workers need clarification"
 
   context_sources:
-    - source: patterns
+    on_overflow: escalate_tier
+    patterns:
       query: "codebase conventions and architecture patterns"
       max_entries: 5
-    - source: decisions
+    decisions:
       query: "technical decisions affecting implementation"
       max_entries: 3
-  on_overflow: escalate_tier
 
   mental_model:
     scope: project
-    max_tokens: 1000
+    max_tokens: ${cappedMaxTokens(1000, tier)}
     on_load:
       validate: true
 
@@ -352,10 +361,7 @@ agent ${name}:
     files:
       read: ["**/*"]
 
-  skills:
-    - ct-cleo
-    - ct-dev-workflow
-    - ct-task-executor
+  skills: [ct-cleo, ct-dev-workflow, ct-task-executor]
 
   tools:
     core: [Read, Grep, Glob]
@@ -398,17 +404,17 @@ agent ${name}:
   consult-when: "Writing code, fixing bugs, running tests, formatting, or any file modification task"
 
   context_sources:
-    - source: patterns
+    on_overflow: escalate_tier
+    patterns:
       query: "coding conventions and testing patterns"
       max_entries: 5
-    - source: learnings
+    learnings:
       query: "past implementation mistakes and fixes"
       max_entries: 3
-  on_overflow: escalate_tier
 
   mental_model:
     scope: project
-    max_tokens: 1000
+    max_tokens: ${cappedMaxTokens(1000, tier)}
     on_load:
       validate: true
 
@@ -418,10 +424,7 @@ agent ${name}:
       read: ["**/*"]
       delete: ${JSON.stringify(writeGlobs)}
 
-  skills:
-    - ct-cleo
-    - ct-dev-workflow
-    - ct-task-executor
+  skills: [ct-cleo, ct-dev-workflow, ct-task-executor]
 
   tools:
     core: [Read, Edit, Write, Bash, Glob, Grep]
@@ -462,17 +465,17 @@ agent ${name}:
   consult-when: "Writing documentation, updating READMEs, adding TSDoc comments, or improving existing docs"
 
   context_sources:
-    - source: patterns
+    on_overflow: escalate_tier
+    patterns:
       query: "documentation conventions and style patterns"
       max_entries: 3
-    - source: decisions
+    decisions:
       query: "architectural decisions needing documentation"
       max_entries: 3
-  on_overflow: escalate_tier
 
   mental_model:
     scope: project
-    max_tokens: 1000
+    max_tokens: ${cappedMaxTokens(1000, tier)}
     on_load:
       validate: true
 
@@ -482,9 +485,7 @@ agent ${name}:
       read: ["**/*"]
       delete: ["docs/**"]
 
-  skills:
-    - ct-cleo
-    - ct-documentor
+  skills: [ct-cleo, ct-documentor]
 
   tools:
     core: [Read, Edit, Write, Bash, Glob, Grep]
