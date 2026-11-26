@@ -218,6 +218,16 @@ describe('validateSpawnReadiness — T894 atomic scope (worker role)', () => {
     expect(result.issues.some((i) => i.code === 'V_ATOMIC_SCOPE_TOO_LARGE')).toBe(true);
   });
 
+  it('T14636 — same-stem tests in other directories count, and the message states the count', async () => {
+    const files = ['src/index.ts', 'src/a/index.test.ts', 'src/b/index.test.ts', 'src/foo.json'];
+    const accessor = makeAccessor([baseTask({ files })]);
+    const result = await validateSpawnReadiness('T9801', undefined, accessor, {
+      role: 'worker',
+    });
+    const issue = result.issues.find((i) => i.code === 'V_ATOMIC_SCOPE_TOO_LARGE');
+    expect(issue?.message).toContain('declares 4 files, 4 of which count');
+  });
+
   it(`worker role + exactly ${MAX_WORKER_FILES} files → valid`, async () => {
     const exactFiles = Array.from(
       { length: MAX_WORKER_FILES },

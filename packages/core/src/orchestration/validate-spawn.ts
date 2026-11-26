@@ -204,6 +204,8 @@ export async function validateSpawnReadiness(
   if (role === 'worker' && !isExemptType && !isExemptRole) {
     const files = task.files ?? [];
 
+    const countedFileCount = countScopedFiles(files);
+
     if (files.length === 0) {
       // Worker role with no declared files — scope is undefined.
       issues.push({
@@ -214,13 +216,13 @@ export async function validateSpawnReadiness(
           `Fix: cleo update ${taskId} --files "path/a.ts,path/b.ts"`,
         severity: 'error',
       });
-    } else if (countScopedFiles(files) > MAX_WORKER_FILES) {
+    } else if (countedFileCount > MAX_WORKER_FILES) {
       // Worker role with too many counted files — the same rule as
       // checkAtomicity (T14633); the spawn refusal names the routes out.
       issues.push({
         code: 'V_ATOMIC_SCOPE_TOO_LARGE',
         message:
-          `Worker-role task ${taskId} declares ${files.length} files, ${countScopedFiles(files)} ` +
+          `Worker-role task ${taskId} declares ${files.length} files, ${countedFileCount} ` +
           `of which count (max ${MAX_WORKER_FILES}). Rule: ${ATOMIC_SCOPE_RULE} ` +
           `Narrow it with cleo update ${taskId} --files, or file sibling tasks under its parent.`,
         severity: 'error',
