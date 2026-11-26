@@ -161,9 +161,9 @@ fn jit_backend_dev_fixture_parses() {
 // T615 proved the starter bundle parses and validates clean. T1932 deleted the
 // starter bundle in favour of `packages/agents/templates/*.cant`, which carry
 // mustache-style `{{placeholders}}` filled in at install time. These tests
-// render each template with sample values and hold it to the same bar. None
-// of them parses yet (T14643), so they are ignored until that task lands;
-// `cargo test -p cant-core -- --ignored template_` shows the failures.
+// render each template with sample values and hold it to the same bar
+// (T14643 rewrote the templates' YAML-style lists into CANT inline arrays and
+// keyed `context_sources:` sub-blocks).
 
 /// Returns the repository root derived from the crate manifest directory.
 fn repo_root() -> PathBuf {
@@ -216,31 +216,26 @@ fn assert_template_clean(name: &str) {
 }
 
 #[test]
-#[ignore = "T14643: the agent templates do not parse with cant-core yet"]
 fn template_project_orchestrator_parses_clean() {
     assert_template_clean("project-orchestrator.cant");
 }
 
 #[test]
-#[ignore = "T14643: the agent templates do not parse with cant-core yet"]
 fn template_project_dev_lead_parses_clean() {
     assert_template_clean("project-dev-lead.cant");
 }
 
 #[test]
-#[ignore = "T14643: the agent templates do not parse with cant-core yet"]
 fn template_project_code_worker_parses_clean() {
     assert_template_clean("project-code-worker.cant");
 }
 
 #[test]
-#[ignore = "T14643: the agent templates do not parse with cant-core yet"]
 fn template_project_docs_worker_parses_clean() {
     assert_template_clean("project-docs-worker.cant");
 }
 
 #[test]
-#[ignore = "T14643: the agent templates do not parse with cant-core yet"]
 fn template_project_security_worker_parses_clean() {
     assert_template_clean("project-security-worker.cant");
 }

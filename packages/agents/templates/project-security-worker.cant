@@ -25,13 +25,13 @@ agent project-security-worker:
   consult-when: "Security review requested, dependency audit needed, OWASP assessment, or when code introduces authentication/authorization/network/crypto surface"
 
   context_sources:
-    - source: decisions
+    on_overflow: escalate_tier
+    decisions:
       query: "security decisions and threat model"
       max_entries: 5
-    - source: patterns
+    patterns:
       query: "security patterns and known vulnerabilities"
       max_entries: 3
-  on_overflow: escalate_tier
 
   mental_model:
     scope: project
@@ -43,9 +43,7 @@ agent project-security-worker:
     files:
       read: ["**/*"]
 
-  skills:
-    - ct-cleo
-    - ct-task-executor
+  skills: [ct-cleo, ct-task-executor]
 
   tools:
     core: [Read, Grep, Glob]

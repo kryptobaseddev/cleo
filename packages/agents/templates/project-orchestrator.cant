@@ -23,13 +23,13 @@ agent project-orchestrator:
   consult-when: "Cross-team decisions, scope changes, human-in-the-loop escalation, or when the dev-lead reports a blocking ambiguity"
 
   context_sources:
-    - source: decisions
+    on_overflow: escalate_tier
+    decisions:
       query: "recent architectural and project decisions"
       max_entries: 5
-    - source: patterns
+    patterns:
       query: "project conventions and established patterns"
       max_entries: 3
-  on_overflow: escalate_tier
 
   mental_model:
     scope: project
@@ -42,9 +42,7 @@ agent project-orchestrator:
     session: read, write
     memory: read, write
 
-  skills:
-    - ct-cleo
-    - ct-task-executor
+  skills: [ct-cleo, ct-task-executor]
 
   tools:
     core: [Read, Grep, Glob]
