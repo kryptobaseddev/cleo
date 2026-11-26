@@ -20,9 +20,11 @@
 
 import { existsSync } from 'node:fs';
 import type { DatabaseSync } from 'node:sqlite';
+import { getErrorMessage } from '@cleocode/contracts/errors.js';
 import { openCleoDbSnapshot } from '@cleocode/core/store/open-cleo-db.js';
 import { getGlobalStorePath } from './cleo-home.js';
 import type { ProjectContext } from './project-context.js';
+import type { BrainEdge, BrainNode, BrainSubstrateResult } from './types.js';
 
 // ---------------------------------------------------------------------------
 // Typed row helper
@@ -64,24 +66,41 @@ export function allTyped<T>(stmt: PreparedStatementLike, ...params: unknown[]): 
 // ---------------------------------------------------------------------------
 
 /**
+ * Receives one read failure of a substrate, so the caller can report it
+ * instead of returning a silently empty substrate (T14656).
+ */
+export type StoreErrorSink = (message: string) => void;
+
+/**
  * Runs `read` against a read-only snapshot of the store at `path`.
  *
  * @param path - Absolute path to a consolidated `cleo.db`.
  * @param read - Synchronous read; the handle is closed when it returns.
- * @returns The read's result, or null when the store is missing or cannot be
- *   opened (a restore in progress, a malformed file), so the substrate degrades
- *   to no nodes.
+ * @param onError - Receives the failure when the store exists but cannot be
+ *   opened (a restore in progress, a malformed file) or `read` throws. Without
+ *   it a failed open returns null and a throwing `read` propagates.
+ * @returns The read's result, or null when the store is missing, cannot be
+ *   opened, or `read` failed and `onError` received the failure.
  */
-function readStore<T>(path: string, read: (db: DatabaseSync) => T): T | null {
+function readStore<T>(
+  path: string,
+  read: (db: DatabaseSync) => T,
+  onError?: StoreErrorSink,
+): T | null {
   if (!existsSync(path)) return null;
   let snapshot: ReturnType<typeof openCleoDbSnapshot>;
   try {
     snapshot = openCleoDbSnapshot(path, { readOnly: true });
-  } catch {
+  } catch (err) {
+    onError?.(`store cannot be opened: ${getErrorMessage(err)}`);
     return null;
   }
   try {
     return read(snapshot.db);
+  } catch (err) {
+    if (!onError) throw err;
+    onError(getErrorMessage(err));
+    return null;
   } finally {
     snapshot.close();
   }
@@ -92,18 +111,65 @@ function readStore<T>(path: string, read: (db: DatabaseSync) => T): T | null {
  *
  * @param ctx - The active project context; `tasksDbPath` names its `cleo.db`.
  * @param read - Synchronous read against the project store.
+ * @param onError - Receives an open or read failure (see {@link StoreErrorSink}).
  * @returns The read's result, or null when the store is missing or unreadable.
  */
-export function readProjectStore<T>(ctx: ProjectContext, read: (db: DatabaseSync) => T): T | null {
-  return readStore(ctx.tasksDbPath, read);
+export function readProjectStore<T>(
+  ctx: ProjectContext,
+  read: (db: DatabaseSync) => T,
+  onError?: StoreErrorSink,
+): T | null {
+  return readStore(ctx.tasksDbPath, read, onError);
 }
 
 /**
  * Runs `read` against the global-scope `cleo.db` under CLEO home.
  *
  * @param read - Synchronous read against the global store.
+ * @param onError - Receives an open or read failure (see {@link StoreErrorSink}).
  * @returns The read's result, or null when the store is missing or unreadable.
  */
-export function readGlobalStore<T>(read: (db: DatabaseSync) => T): T | null {
-  return readStore(getGlobalStorePath(), read);
+export function readGlobalStore<T>(
+  read: (db: DatabaseSync) => T,
+  onError?: StoreErrorSink,
+): T | null {
+  return readStore(getGlobalStorePath(), read, onError);
+}
+
+// ---------------------------------------------------------------------------
+// Per-query failure capture
+// ---------------------------------------------------------------------------
+
+/**
+ * Runs one substrate query, recording its failure instead of throwing, so one
+ * failing query never skips the substrate's other queries (T14656).
+ *
+ * @param errors - Collects `<name>: <message>` for each failed query.
+ * @param name - The query's name in the recorded message (usually its table).
+ * @param query - The query to run.
+ * @returns The query's rows, or an empty array when it failed.
+ */
+export function tryQuery<T>(errors: string[], name: string, query: () => T[]): T[] {
+  try {
+    return query();
+  } catch (err) {
+    errors.push(`${name}: ${getErrorMessage(err)}`);
+    return [];
+  }
+}
+
+/**
+ * Builds an adapter result, joining the recorded failures into `error`.
+ *
+ * @param nodes - Nodes read from the substrate.
+ * @param edges - Edges read from the substrate.
+ * @param errors - Failures recorded while reading; empty when every read succeeded.
+ * @returns The result, with `error` set only when a read failed.
+ */
+export function substrateResult(
+  nodes: BrainNode[],
+  edges: BrainEdge[],
+  errors: string[],
+): BrainSubstrateResult {
+  return errors.length === 0 ? { nodes, edges } : { nodes, edges, error: errors.join('; ') };
 }

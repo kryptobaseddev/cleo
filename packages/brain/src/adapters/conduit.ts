@@ -9,8 +9,7 @@
  * Node IDs are prefixed with "conduit:" to prevent collisions.
  */
 
-import { getErrorMessage } from '@cleocode/contracts/errors.js';
-import { allTyped, readProjectStore } from '../db-connections.js';
+import { allTyped, readProjectStore, substrateResult, tryQuery } from '../db-connections.js';
 import { resolveDefaultProjectContext } from '../project-context.js';
 import type { BrainEdge, BrainNode, BrainQueryOptions, BrainSubstrateResult } from '../types.js';
 
@@ -41,20 +40,23 @@ export function getConduitSubstrate(options: BrainQueryOptions = {}): BrainSubst
 
   const nodes: BrainNode[] = [];
   const edges: BrainEdge[] = [];
-  let error: string | undefined;
+  const errors: string[] = [];
 
-  readProjectStore(ctx, (db) => {
-    try {
+  readProjectStore(
+    ctx,
+    (db) => {
       // Most recent messages
-      const msgRows = allTyped<MessageRow>(
-        db.prepare(
-          `SELECT id, content, from_agent_id, to_agent_id,
+      const msgRows = tryQuery(errors, 'conduit_messages', () =>
+        allTyped<MessageRow>(
+          db.prepare(
+            `SELECT id, content, from_agent_id, to_agent_id,
                 strftime('%Y-%m-%dT%H:%M:%S', created_at) AS created_at, conversation_id
          FROM main.conduit_messages
          ORDER BY created_at DESC
          LIMIT ?`,
+          ),
+          perSubstrateLimit,
         ),
-        perSubstrateLimit,
       );
 
       const agentPairs = new Map<string, { count: number; from: string; to: string }>();
@@ -99,12 +101,9 @@ export function getConduitSubstrate(options: BrainQueryOptions = {}): BrainSubst
           substrate: 'cross',
         });
       }
-    } catch (err) {
-      // Keep the partial results, but report the failure instead of
-      // returning a silently short substrate (T14647).
-      error = getErrorMessage(err);
-    }
-  });
+    },
+    (message) => errors.push(message),
+  );
 
-  return error === undefined ? { nodes, edges } : { nodes, edges, error };
+  return substrateResult(nodes, edges, errors);
 }

@@ -10,8 +10,7 @@
  * Node IDs are prefixed with "nexus:" to prevent collisions.
  */
 
-import { getErrorMessage } from '@cleocode/contracts/errors.js';
-import { allTyped, readProjectStore } from '../db-connections.js';
+import { allTyped, readProjectStore, substrateResult, tryQuery } from '../db-connections.js';
 import { resolveDefaultProjectContext } from '../project-context.js';
 import type {
   BrainEdge,
@@ -59,14 +58,16 @@ export function getNexusSubstrate(options: BrainQueryOptions = {}): BrainSubstra
 
   const nodes: BrainNode[] = [];
   const edges: BrainEdge[] = [];
-  let error: string | undefined;
+  const errors: string[] = [];
 
-  readProjectStore(ctx, (db) => {
-    try {
+  readProjectStore(
+    ctx,
+    (db) => {
       // Count in-degree for each node to use as weight
-      const nodeRows = allTyped<NexusNodeRow>(
-        db.prepare(
-          `SELECT n.id, n.kind, COALESCE(n.name, n.label) AS name, n.indexed_at,
+      const nodeRows = tryQuery(errors, 'nexus_nodes', () =>
+        allTyped<NexusNodeRow>(
+          db.prepare(
+            `SELECT n.id, n.kind, COALESCE(n.name, n.label) AS name, n.indexed_at,
                 COUNT(r.target_id) AS in_degree
          FROM main.nexus_nodes n
          LEFT JOIN main.nexus_relations r ON r.target_id = n.id
@@ -77,8 +78,9 @@ export function getNexusSubstrate(options: BrainQueryOptions = {}): BrainSubstra
          GROUP BY n.id
          ORDER BY in_degree DESC
          LIMIT ?`,
+          ),
+          perSubstrateLimit,
         ),
-        perSubstrateLimit,
       );
 
       for (const row of nodeRows) {
@@ -101,15 +103,17 @@ export function getNexusSubstrate(options: BrainQueryOptions = {}): BrainSubstra
       const placeholders = [...rawIds].map(() => '?').join(',');
       if (rawIds.size === 0) return;
 
-      const relRows = allTyped<NexusRelationRow>(
-        db.prepare(
-          `SELECT source_id, target_id, type, confidence
+      const relRows = tryQuery(errors, 'nexus_relations', () =>
+        allTyped<NexusRelationRow>(
+          db.prepare(
+            `SELECT source_id, target_id, type, confidence
          FROM main.nexus_relations
          WHERE source_id IN (${placeholders})
            AND target_id IN (${placeholders})`,
+          ),
+          ...rawIds,
+          ...rawIds,
         ),
-        ...rawIds,
-        ...rawIds,
       );
 
       for (const row of relRows) {
@@ -121,12 +125,9 @@ export function getNexusSubstrate(options: BrainQueryOptions = {}): BrainSubstra
           substrate: 'nexus',
         });
       }
-    } catch (err) {
-      // Keep the partial results, but report the failure instead of
-      // returning a silently short substrate (T14647).
-      error = getErrorMessage(err);
-    }
-  });
+    },
+    (message) => errors.push(message),
+  );
 
-  return error === undefined ? { nodes, edges } : { nodes, edges, error };
+  return substrateResult(nodes, edges, errors);
 }
