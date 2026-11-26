@@ -864,8 +864,8 @@ export { DOCS_LIFECYCLE_STATUSES, type DocsLifecycleStatus } from './docs-lifecy
  * Replaces the blob content for an existing slug — the slug is transferred
  * from the old `attachments` row to a new row carrying the new sha256, and
  * the old row remains reachable by attachment-id for history. Unlike
- * {@link DocsSupersedeParams}-style flows, NO supersession edge is created
- * (callers wanting an explicit lineage edge should use `cleo docs supersede`).
+ * {@link DocsSupersedeParams}-style flows, NO supersession edge is created,
+ * except by `status: 'superseded'` with `supersededBy` (T14657).
  *
  * At most one of `file` or `content` may be provided. With neither, `status`
  * is required and the update changes only the lifecycle status, keeping the
@@ -917,6 +917,14 @@ export interface DocsUpdateParams {
    * (no `file`/`content`), it changes only the lifecycle status.
    */
   status?: DocsLifecycleStatus;
+  /**
+   * Slug (or alias) of the doc that replaces this one (T14657). Requires
+   * `status: 'superseded'` with no `file`/`content`: it records the successor
+   * link the deprecated `docs.supersede` wrote — this doc's `superseded_by`
+   * and the successor's `supersedes` — in one transaction. A doc that is
+   * already superseded takes the new successor (latest wins).
+   */
+  supersededBy?: string;
   /** Validate/preflight only; do not mutate attachment rows, blob storage, or audit logs. */
   dryRun?: boolean;
   /** Fail body-schema diagnostics instead of surfacing advisory warnings. */

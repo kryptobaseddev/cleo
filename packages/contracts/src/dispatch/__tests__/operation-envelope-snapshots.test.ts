@@ -134,6 +134,14 @@ describe('operation envelope registry snapshots (T10615)', () => {
             },
             {
               "cli": {
+                "flag": "superseded-by",
+              },
+              "name": "supersededBy",
+              "required": false,
+              "type": "string",
+            },
+            {
+              "cli": {
                 "flag": "dry-run",
               },
               "name": "dryRun",

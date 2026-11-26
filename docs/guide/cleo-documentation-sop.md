@@ -43,11 +43,15 @@ The owner id links the doc to its task. Task and decision links, dates and
 supersession live in the doc's metadata, never in its name.
 
 Prefer updating the existing doc to replacing it. When a doc really is
-replaced, retire the old one so searches stop surfacing it:
+replaced, retire the old one and name its successor, so searches stop
+surfacing it and readers (and `cleo docs doctor`) can follow the link:
 
 ```bash
-cleo docs update <old-slug> --status superseded --message "replaced by <new-slug>"
+cleo docs update <old-slug> --status superseded --superseded-by <new-slug>
 ```
+
+`--status superseded` without `--superseded-by` records no successor. The
+deprecated `cleo docs supersede <old> <new>` wrote the same link.
 
 ## Kinds and folders
 

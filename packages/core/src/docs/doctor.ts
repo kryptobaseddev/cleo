@@ -418,17 +418,19 @@ export function docsDoctorArchiveCommand(publishedPath: string, slug: string): s
 }
 
 /**
- * The `cleo docs update` invocation that marks `slug` superseded (T14650):
- * the non-deprecated route (`cleo docs supersede` warns W_DEPRECATED_COMMAND,
- * T11179) that takes a duplicate doc out of the archive-target tie. A
- * placeholder `slug` (such as `DUPLICATE`, never one in angle brackets) is
- * printed as given.
+ * The `cleo docs update` invocation that marks `slug` superseded by
+ * `successor` (T14650, T14657): the non-deprecated route (`cleo docs
+ * supersede` warns W_DEPRECATED_COMMAND, T11179) that records the same
+ * successor link, so the doc leaves the archive-target tie and a later
+ * finding can name its successor. Placeholders (such as `DUPLICATE` or
+ * `KEPT`, never in angle brackets) are printed as given.
  *
  * @param slug - The doc to mark superseded.
+ * @param successor - The doc that replaces it.
  * @returns The command.
  */
-export function docsSupersedeCommand(slug: string): string {
-  return `cleo docs update ${slug} --status superseded`;
+export function docsSupersedeCommand(slug: string, successor: string): string {
+  return `cleo docs update ${slug} --status superseded --superseded-by ${successor}`;
 }
 
 /**
@@ -1249,7 +1251,7 @@ async function scanPublicationLedger(
                 : target?.kind === 'ambiguous'
                   ? {
                       action: 'republish-or-prune',
-                      detail: `mirror ${record.publishedPath} is gone (${proof.reason}) and this row is the only reference to blob ${blob}…; the archive target is ambiguous: docs ${target.slugs.map((s) => `'${s}'`).join(', ')} share the head its stream publishes — keep the doc the stream belongs to and mark each other one superseded with \`${docsSupersedeCommand('DUPLICATE')}\`, then \`cleo docs doctor --only publication-ledger-drift --apply\` archives the blob into it`,
+                      detail: `mirror ${record.publishedPath} is gone (${proof.reason}) and this row is the only reference to blob ${blob}…; the archive target is ambiguous: docs ${target.slugs.map((s) => `'${s}'`).join(', ')} share the head its stream publishes — keep the doc the stream belongs to and mark each other one superseded by it with \`${docsSupersedeCommand('DUPLICATE', 'KEPT')}\`, then \`cleo docs doctor --only publication-ledger-drift --apply\` archives the blob into it`,
                     }
                   : target?.kind === 'unknown'
                     ? {
@@ -1259,7 +1261,7 @@ async function scanPublicationLedger(
                     : target?.kind === 'superseded'
                       ? {
                           action: 'republish-or-prune',
-                          detail: `mirror ${record.publishedPath} is gone (${proof.reason}) and this row is the only reference to blob ${blob}…; doc '${target.slug}' is superseded, so it takes no archive${target.successor ? ` — archive into its successor: \`${docsDoctorArchiveCommand(record.publishedPath, target.successor)}\`` : ` — name the doc that replaced it: \`${docsDoctorArchiveCommand(record.publishedPath, 'SLUG')}\``}`,
+                          detail: `mirror ${record.publishedPath} is gone (${proof.reason}) and this row is the only reference to blob ${blob}…; doc '${target.slug}' is superseded, so it takes no archive${target.successor ? ` — archive into its successor: \`${docsDoctorArchiveCommand(record.publishedPath, target.successor)}\`` : ` — record the doc that replaced it with \`${docsSupersedeCommand(target.slug, 'SLUG')}\`, then archive into it: \`${docsDoctorArchiveCommand(record.publishedPath, 'SLUG')}\``}`,
                         }
                       : target?.kind === 'no-bytes'
                         ? {

@@ -8780,7 +8780,7 @@ export const OPERATIONS: OperationDef[] = [
     description:
       'docs.update (mutate) — replace blob content for an existing slug while preserving the slug. ' +
       'New sha256 + new attachment row; the old row stays reachable by ID for history. ' +
-      'NO supersession edge (use `cleo docs supersede` for that). ' +
+      'A supersession edge is written only by --status superseded with --superseded-by. ' +
       'Audit log entry appended to .cleo/audit/docs-versioning.jsonl (squashed within a 5-min window).',
     tier: 1,
     idempotent: false,
@@ -8843,6 +8843,15 @@ export const OPERATIONS: OperationDef[] = [
           'Override the new lifecycle status. Defaults to "draft" on every update. ' +
           'Alone (no file or content) it changes only the lifecycle status. ' +
           `Valid: ${DOCS_LIFECYCLE_STATUSES.join('|')}.`,
+      },
+      {
+        name: 'supersededBy',
+        type: 'string' as const,
+        required: false,
+        description:
+          'Slug of the doc that replaces this one (T14657). Use with --status superseded and no file or content: ' +
+          "records the successor link (this doc's superseded_by, the successor's supersedes) that `cleo docs supersede` wrote.",
+        cli: { flag: 'superseded-by' },
       },
       {
         name: 'dryRun',
