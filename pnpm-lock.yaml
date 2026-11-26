@@ -823,6 +823,9 @@ importers:
       '@cleocode/core':
         specifier: workspace:*
         version: link:../core
+      '@cleocode/lafs':
+        specifier: workspace:*
+        version: link:../lafs
       '@cleocode/runtime':
         specifier: workspace:*
         version: link:../runtime
@@ -852,7 +855,7 @@ importers:
         version: 3.3.1
       llmtxt:
         specifier: ^2026.5.15
-        version: 2026.5.15(@cleocode/lafs@2026.9.18(@a2a-js/sdk@0.3.13(express@5.2.1))(express@5.2.1))(drizzle-orm@1.0.0-rc.4(@opentelemetry/api@1.9.0)(@sinclair/typebox@0.34.49)(@types/mssql@9.1.9(@azure/core-client@1.10.1))(better-sqlite3@12.9.0)(mssql@11.0.1(@azure/core-client@1.10.1))(postgres@3.4.9)(typebox@1.1.38)(zod@4.3.6))(onnxruntime-node@1.24.3)(postgres@3.4.9)
+        version: 2026.5.15(@cleocode/lafs@packages+lafs)(drizzle-orm@1.0.0-rc.4(@opentelemetry/api@1.9.0)(@sinclair/typebox@0.34.49)(@types/mssql@9.1.9(@azure/core-client@1.10.1))(better-sqlite3@12.9.0)(mssql@11.0.1(@azure/core-client@1.10.1))(postgres@3.4.9)(typebox@1.1.38)(zod@4.3.6))(onnxruntime-node@1.24.3)(postgres@3.4.9)
       loro-crdt:
         specifier: '*'
         version: 1.11.0
@@ -966,6 +969,7 @@ packages:
 
   '@aflsolutions/graphology-communities-leiden@1.1.1':
     resolution: {integrity: sha512-kqjUf7oofB2c3RKvUIP3dIqwMzZxtVdDYLtr2Z2DFOmWa9RbNfUeQRns+UeODtWtEfwh6j83UiMRxRMDIdGC5A==}
+    deprecated: Moved to @alessandro-afloarei/graphology-communities-leiden
     peerDependencies:
       graphology-types: '>=0.19.0'
 
@@ -1426,19 +1430,6 @@ packages:
     resolution: {integrity: sha512-9htqNRQfVxBc22WQDipGgdkOkzn6vtmbxgJvZo8RS7ALw8XhnzCglq+ZeC8T1PufPz6NgIfQywkHlLzWgp7vTg==}
     engines: {node: '>=22.0.0'}
     hasBin: true
-
-  '@cleocode/lafs@2026.9.18':
-    resolution: {integrity: sha512-TZ+uqa+S3urcThtCqumR0pwJM8OI82glLJqn4O/BynURcOGy5aWKrBeZspg1n7lqh1I/cljfNCtVN8T5lQqUHQ==}
-    engines: {node: '>=24.16.0'}
-    hasBin: true
-    peerDependencies:
-      '@a2a-js/sdk': ^0.3.10
-      express: ^5.2.1
-    peerDependenciesMeta:
-      '@a2a-js/sdk':
-        optional: true
-      express:
-        optional: true
 
   '@codluv/versionguard@1.2.0':
     resolution: {integrity: sha512-iVyEiPp54DqiFa/gf2Tf6mwvlHx90UXTQ8A0EEx6ArLuPeNn7lhvn7JnG+rXzBybW+HOdmnOXxSSfg5sTHxLZQ==}
@@ -2080,20 +2071,24 @@ packages:
   '@mariozechner/pi-agent-core@0.66.0':
     resolution: {integrity: sha512-cFPeXVDqb44k1dMsWLuxFnfJd3GxgDI/ujWU0LGIibxnU8LQBfUXOsri6Qmx+7BGVmcbLfPFXQy8wED/HPb4SA==}
     engines: {node: '>=20.0.0'}
+    deprecated: please use @earendil-works/pi-agent-core instead going forward
 
   '@mariozechner/pi-ai@0.66.0':
     resolution: {integrity: sha512-mN/Ke4hWqOdslvnd0c4q5t/++pXjFqqBU8S80lKvXlxUHAl9Mvx/IqVQS/ZOYDc2J83htrTik7KLEH2p+tadCg==}
     engines: {node: '>=20.0.0'}
+    deprecated: please use @earendil-works/pi-ai instead going forward
     hasBin: true
 
   '@mariozechner/pi-coding-agent@0.66.0':
     resolution: {integrity: sha512-TgT4dfYd0iWuBd3Y+ubW2mwEVIfijctiu3TEKZUqTzwUmQxpI+3Lkg/JrwcwDY1eqzqg5+eTMile+v5J/ufjwA==}
     engines: {node: '>=20.6.0'}
+    deprecated: please use @earendil-works/pi-coding-agent instead going forward
     hasBin: true
 
   '@mariozechner/pi-tui@0.66.0':
     resolution: {integrity: sha512-MphPNFpTOTGKie6KoeZi0vLCL3ZpgAjiZ1mLPe87FIRfKnmFAJIJnTqOaxTNZnSgj5WzQSpIQNdsqc8nWBzB3w==}
     engines: {node: '>=20.0.0'}
+    deprecated: please use @earendil-works/pi-tui instead going forward
 
   '@microsoft/tsdoc-config@0.18.1':
     resolution: {integrity: sha512-9brPoVdfN9k9g0dcWkFeA7IH9bbcttzDJlXvkf8b2OBzd5MueR1V2wkKBL0abn0otvmkHJC6aapBOTJDDeMCZg==}
@@ -2637,6 +2632,9 @@ packages:
   '@smithy/smithy-client@4.12.9':
     resolution: {integrity: sha512-ovaLEcTU5olSeHcRXcxV6viaKtpkHZumn6Ps0yn7dRf2rRSfy794vpjOtrWDO0d1auDSvAqxO+lyhERSXQ03EQ==}
     engines: {node: '>=18.0.0'}
+    deprecated: |-
+      Deprecated due to a bug in custom logger data redaction. Upgrade to the latest version. If you used a custom logger with
+        this version, review your logs and rotate any credentials or other secrets. See https://github.com/aws/aws-sdk-js-v3/issues/8393.
 
   '@smithy/types@4.14.0':
     resolution: {integrity: sha512-OWgntFLW88kx2qvf/c/67Vno1yuXm/f9M7QFAtVkkO29IJXGBIg0ycEaBTH0kvCtwmvZxRujrgP5a86RvsXJAQ==}
@@ -7115,15 +7113,6 @@ snapshots:
       - '@grpc/grpc-js'
       - supports-color
 
-  '@cleocode/lafs@2026.9.18(@a2a-js/sdk@0.3.13(express@5.2.1))(express@5.2.1)':
-    dependencies:
-      ajv: 8.18.0
-      ajv-formats: 3.0.1(ajv@8.18.0)
-    optionalDependencies:
-      '@a2a-js/sdk': 0.3.13(express@5.2.1)
-      express: 5.2.1
-    optional: true
-
   '@codluv/versionguard@1.2.0':
     dependencies:
       '@clack/prompts': 1.2.0
@@ -10291,20 +10280,6 @@ snapshots:
   linkify-it@5.0.0:
     dependencies:
       uc.micro: 2.1.0
-
-  llmtxt@2026.5.15(@cleocode/lafs@2026.9.18(@a2a-js/sdk@0.3.13(express@5.2.1))(express@5.2.1))(drizzle-orm@1.0.0-rc.4(@opentelemetry/api@1.9.0)(@sinclair/typebox@0.34.49)(@types/mssql@9.1.9(@azure/core-client@1.10.1))(better-sqlite3@12.9.0)(mssql@11.0.1(@azure/core-client@1.10.1))(postgres@3.4.9)(typebox@1.1.38)(zod@4.3.6))(onnxruntime-node@1.24.3)(postgres@3.4.9):
-    dependencies:
-      '@noble/ed25519': 3.1.0
-      '@noble/hashes': 2.2.0
-      loro-crdt: 1.11.0
-      nanoid: 5.1.9
-      yjs: 13.6.30
-      zod: 4.3.6
-    optionalDependencies:
-      '@cleocode/lafs': 2026.9.18(@a2a-js/sdk@0.3.13(express@5.2.1))(express@5.2.1)
-      drizzle-orm: 1.0.0-rc.4(@opentelemetry/api@1.9.0)(@sinclair/typebox@0.34.49)(@types/mssql@9.1.9(@azure/core-client@1.10.1))(better-sqlite3@12.9.0)(mssql@11.0.1(@azure/core-client@1.10.1))(postgres@3.4.9)(typebox@1.1.38)(zod@4.3.6)
-      onnxruntime-node: 1.24.3
-      postgres: 3.4.9
 
   llmtxt@2026.5.15(@cleocode/lafs@packages+lafs)(drizzle-orm@1.0.0-rc.4(@opentelemetry/api@1.9.0)(@sinclair/typebox@0.34.49)(@types/mssql@9.1.9(@azure/core-client@1.10.1))(better-sqlite3@12.9.0)(mssql@11.0.1(@azure/core-client@1.10.1))(postgres@3.4.9)(typebox@1.1.38)(zod@4.3.6))(onnxruntime-node@1.24.3)(postgres@3.4.9):
     dependencies:
