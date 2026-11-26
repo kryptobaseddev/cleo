@@ -374,3 +374,45 @@ fn path_escapes_root_basic() {
     assert!(!path_escapes_root("agents/scanner.cant"));
     assert!(!path_escapes_root("subdir/../shared.cant"));
 }
+
+#[test]
+fn path_escapes_root_backslash_separators() {
+    use super::imports::path_escapes_root;
+    assert!(path_escapes_root(r"..\..\etc\passwd"));
+    assert!(path_escapes_root(r".\sub\..\..\outside.cant"));
+    assert!(!path_escapes_root(r".\agents\scanner.cant"));
+    assert!(!path_escapes_root(r"subdir\..\shared.cant"));
+}
+
+#[test]
+fn s10_static_check_flags_backslash_rooted_import() {
+    let doc = make_doc(vec![Section::Import(ImportStatement {
+        path: r"\\server\share\x.cant".to_string(),
+        alias: None,
+        span: dummy_span(),
+    })]);
+    let diags = check_import_symlink_escape(&doc);
+    assert_eq!(diags.len(), 1);
+    assert_eq!(diags[0].rule_id, "S10");
+}
+
+#[test]
+fn strip_verbatim_converts_canonical_windows_paths() {
+    use super::imports::strip_verbatim;
+    assert_eq!(
+        strip_verbatim(r"\\?\C:\proj\a.cant").as_deref(),
+        Some(r"C:\proj\a.cant")
+    );
+    assert_eq!(
+        strip_verbatim(r"\\?\UNC\srv\share\proj").as_deref(),
+        Some(r"\\srv\share\proj")
+    );
+    // Not verbatim: unchanged (None).
+    assert_eq!(strip_verbatim(r"C:\proj"), None);
+    assert_eq!(strip_verbatim("/home/u/proj"), None);
+    // Verbatim forms whose plain form would name another file stay verbatim.
+    assert_eq!(strip_verbatim(r"\\?\Volume{abc}\proj"), None);
+    assert_eq!(strip_verbatim(r"\\?\C:\proj\..\x"), None);
+    assert_eq!(strip_verbatim(r"\\?\C:\proj\a/b"), None);
+    assert_eq!(strip_verbatim(r"\\?\C:\proj\trailing."), None);
+}

@@ -306,3 +306,84 @@ fn symlink_escape_is_refused_unread() {
     assert!(s10[0].message.contains("symlink"));
     assert_outside_not_read(&diags);
 }
+
+/// T14645: a git repository without its own `.cleo/`, nested under a
+/// directory that has one (a home directory with `~/.cleo/`), is rooted at
+/// the repository, never at the farther `.cleo/` ancestor.
+#[test]
+fn nearest_git_repo_wins_over_a_farther_cleo_ancestor() {
+    let home = project("nested-root");
+    write(
+        &home,
+        ".cleo/skills/evil.cant",
+        "agent evil:\n  model: opus\n  permissions:\n    tasks: read, write, execute\n",
+    );
+    write(
+        &home,
+        "outside.cant",
+        "agent evil:\n  model: opus\n  permissions:\n    tasks: read, write, execute\n",
+    );
+
+    // A `.git` directory, and the `.git` file a linked worktree has.
+    let repo = home.join("repo");
+    std::fs::create_dir_all(repo.join(".git")).unwrap();
+    let worktree = home.join("worktree");
+    write(&worktree, ".git", "gitdir: /elsewhere\n");
+
+    for root in [&repo, &worktree] {
+        // `@evil` would resolve to ~/.cleo/skills/evil.cant (S12) if the
+        // root were the home directory.
+        let main = write(
+            root,
+            "main.cant",
+            &format!("@import \"@evil\"\n{COORDINATOR}"),
+        );
+        let diags = validate_path(&main);
+        assert!(
+            !rule_ids(&diags).contains(&"S12"),
+            "home skill read: {diags:#?}"
+        );
+
+        // Containment is the repository: `../outside.cant` escapes it.
+        write(root, "mid.cant", "@import \"../outside.cant\"\n");
+        let main = write(
+            root,
+            "main.cant",
+            &format!("@import \"./mid.cant\"\n{COORDINATOR}"),
+        );
+        let diags = validate_path(&main);
+        assert!(rule_ids(&diags).contains(&"S09"), "diagnostics: {diags:#?}");
+        assert!(
+            !rule_ids(&diags).contains(&"S12"),
+            "outside read: {diags:#?}"
+        );
+    }
+}
+
+/// T14645: `\` separates specifier components like `/` on every host, so
+/// `.\` and `..\` imports are relative and a `..\` escape is refused unread.
+#[test]
+fn backslash_specifiers_resolve_relative_and_escapes_are_refused() {
+    let (_base, proj) = sandbox("backslash");
+    let main = write(
+        &proj,
+        "main.cant",
+        &format!("@import \".\\\\sub\\\\mid.cant\"\n{COORDINATOR}"),
+    );
+    write(&proj, "sub/mid.cant", "@import \"..\\\\main.cant\"\n");
+    let diags = validate_path(&main);
+    assert!(
+        rule_ids(&diags).contains(&"S03"),
+        "not resolved: {diags:#?}"
+    );
+
+    write(
+        &proj,
+        "sub/mid.cant",
+        "@import \"..\\\\..\\\\outside.cant\"\n",
+    );
+    let diags = validate_path(&main);
+    let s09: Vec<_> = diags.iter().filter(|d| d.rule_id == "S09").collect();
+    assert_eq!(s09.len(), 1, "diagnostics: {diags:#?}");
+    assert_outside_not_read(&diags);
+}
