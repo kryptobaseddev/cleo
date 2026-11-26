@@ -10,6 +10,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   realpathSync,
   rmSync,
@@ -845,5 +846,94 @@ describe('runUpgrade gives legacy docs their identity (T14288)', () => {
     // A second upgrade has nothing to migrate: no action, no snapshot.
     const again = await runUpgrade({ cwd: tmpDir, dryRun: false });
     expect(again.actions.some((a) => a.action === 'docs_migrate')).toBe(false);
+  });
+});
+
+// T14655: `cleo upgrade` passes the CANT parser, so a seed that no longer
+// parses is refreshed when provably unedited and reported when edited.
+describe('runUpgrade refreshes unparseable unedited agent seeds (T14655)', () => {
+  const AGENT = 'project-code-worker';
+  const OLD_SEED = `---
+kind: agent
+version: 1
+---
+
+agent ${AGENT}:
+  role: worker
+  parent: cleo-prime
+  description: "Seed in the retired syntax."
+  prompt: "Old prompt."
+  skills: ["ct-cleo"]
+# legacy-syntax
+`;
+  /** Stand-in for the CLI's real parser: only the fixture's old syntax fails. */
+  const cantParses = async (path: string): Promise<boolean> =>
+    !readFileSync(path, 'utf8').includes('# legacy-syntax');
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = realpathSync(mkdtempSync(join(tmpdir(), 'cleo-upgrade-t14655-')));
+    mkdirSync(join(tmpDir, '.cleo'), { recursive: true });
+    mkdirSync(join(tmpDir, '.git'), { recursive: true });
+  });
+
+  afterEach(async () => {
+    const { closeAllDatabases } = await import('../store/sqlite.js');
+    await closeAllDatabases();
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  /** Install the old seed as `cleo init` would, recording its seed digest. */
+  async function installOldSeed(): Promise<string> {
+    const { installAgentFromCant } = await import('../store/agent-install.js');
+    const store = await import('../store/agent-registry-store.js');
+    store._resetGlobalAgentRegistryDb_TESTING_ONLY();
+    await store.ensureGlobalAgentRegistryDb();
+    const db = store.getGlobalAgentRegistryNativeDb();
+    if (!db) throw new Error('no agent registry handle');
+    const src = join(tmpDir, 'old', `${AGENT}.cant`);
+    mkdirSync(dirname(src), { recursive: true });
+    writeFileSync(src, OLD_SEED);
+    return installAgentFromCant(db, {
+      cantSource: src,
+      targetTier: 'project',
+      installedFrom: 'seed',
+      projectRoot: tmpDir,
+      force: true,
+      packagedSeed: true,
+    }).cantPath;
+  }
+
+  it('refreshes an unedited seed from its packaged template and keeps a backup', async () => {
+    const { resolveAgentTemplates } = await import('../agents/resolveAgentTemplates.js');
+    const template = join(resolveAgentTemplates() ?? '', `${AGENT}.cant`);
+    const cantPath = await installOldSeed();
+
+    const result = await runUpgrade({ cwd: tmpDir, dryRun: false, cantParses });
+    const sync = result.actions.find((a) => a.action === 'agent_registry_sync');
+    expect(sync?.details, JSON.stringify(sync)).toMatch(/repaired: [^;]*D-007/);
+    expect(readFileSync(cantPath, 'utf8')).toBe(readFileSync(template, 'utf8'));
+    const backups = readdirSync(dirname(cantPath)).filter((f) =>
+      f.startsWith(`${AGENT}.cant.bak-`),
+    );
+    expect(backups).toHaveLength(1);
+    expect(readFileSync(join(dirname(cantPath), backups[0] ?? ''), 'utf8')).toBe(OLD_SEED);
+    expect(result.actions.some((a) => a.action === 'agent_cant_parse')).toBe(false);
+  });
+
+  it('reports an edited unparseable seed with the fix command and never overwrites it', async () => {
+    const { resolveAgentTemplates } = await import('../agents/resolveAgentTemplates.js');
+    const template = join(resolveAgentTemplates() ?? '', `${AGENT}.cant`);
+    const cantPath = await installOldSeed();
+    const edited = `${OLD_SEED}# user edit\n`;
+    writeFileSync(cantPath, edited);
+
+    const result = await runUpgrade({ cwd: tmpDir, dryRun: false, cantParses });
+    const report = result.actions.find(
+      (a) => a.action === 'agent_cant_parse' && a.details.includes(`project:${AGENT}`),
+    );
+    expect(report, JSON.stringify(result.actions)).toBeDefined();
+    expect(report?.fix).toBe(`cleo agent install ${template} --force`);
+    expect(readFileSync(cantPath, 'utf8')).toBe(edited);
   });
 });

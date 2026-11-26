@@ -35,6 +35,7 @@
 import { resolve } from 'node:path';
 import { CleoError, diagnoseUpgrade, runUpgrade, upgradeWorkflows } from '@cleocode/core/internal';
 import { defineCommand } from 'citty';
+import { cantParses } from '../lib/cant-parses.js';
 import { negatedFlag } from '../lib/negated-flag.js';
 import { createUpgradeProgress } from '../progress.js';
 import { cliError, cliOutput } from '../renderers/index.js';
@@ -262,6 +263,7 @@ export const upgradeCommand = defineCommand({
         mapCodebase,
         projectName,
         migrateHierarchyDefaults: args['migrate-hierarchy-defaults'] === true,
+        cantParses,
       });
 
       progress.step(4, 'Verifying results');

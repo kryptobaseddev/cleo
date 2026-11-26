@@ -37,6 +37,8 @@
  *   a reinstall to `<cleoHome>/cant/agents/`). Info only: no drift checks run
  *   against it and no fix command installs it, so it cannot overwrite the
  *   registered agent (T14600).
+ *   A seed installed before `seed_sha256` existed is proven unedited by
+ *   {@link HISTORICAL_SEED_SHA256} instead (T14655).
  * - **D-012** `parser-unavailable` — {@link BuildDoctorReportOptions.cantParses}
  *   threw, so the D-007 parse check was skipped for this run (T14654).
  *
@@ -60,6 +62,9 @@ import { resolveAgentTemplates } from '../agents/resolveAgentTemplates.js';
 import { rerouteLegacyStarterBundlePaths } from '../agents/seed-install.js';
 import { getCleoGlobalCantAgentsDir, getCleoLegacyGlobalAgentsDir } from '../paths.js';
 import { installAgentFromCant } from './agent-install.js';
+import { HISTORICAL_SEED_SHA256 } from './agent-seed-digests.js';
+
+export { HISTORICAL_SEED_SHA256 } from './agent-seed-digests.js';
 
 // ---------------------------------------------------------------------------
 // Public API shapes
@@ -107,6 +112,11 @@ export interface BuildDoctorReportOptions {
    * refreshes; defaults to {@link resolveAgentTemplates}.
    */
   templatesDir?: string | null;
+  /**
+   * Override {@link HISTORICAL_SEED_SHA256}, the digests that prove a seed
+   * installed before `seed_sha256` was recorded is unedited (T14655).
+   */
+  historicalSeedDigests?: Readonly<Record<string, readonly string[]>>;
 }
 
 /**
@@ -141,6 +151,11 @@ export interface ReconcileDoctorOptions {
    * unparseable unedited seed (D-007); defaults to {@link resolveAgentTemplates}.
    */
   templatesDir?: string | null;
+  /**
+   * Override {@link HISTORICAL_SEED_SHA256}, the digests that prove a seed
+   * installed before `seed_sha256` was recorded is unedited (T14655).
+   */
+  historicalSeedDigests?: Readonly<Record<string, readonly string[]>>;
 }
 
 /**
@@ -227,14 +242,33 @@ async function refreshableSeedTemplate(
   row: Pick<DoctorAgentRow, 'agent_id' | 'installed_from' | 'seed_sha256'>,
   fileHash: string,
   templatesDir: string | null,
+  historicalDigests: Readonly<Record<string, readonly string[]>>,
 ): Promise<string | null> {
+  if (row.installed_from !== 'seed') return null;
   // seed_sha256, never cant_sha256: the D-003 repair rewrites cant_sha256 to an
   // edited file's digest, so only seed_sha256 proves the bytes are the seed's.
-  if (row.installed_from !== 'seed' || !row.seed_sha256 || row.seed_sha256 !== fileHash) {
-    return null;
-  }
+  // A seed installed before seed_sha256 existed (NULL) is proven unedited only
+  // by matching a packaged template version that once shipped (T14655).
+  const unedited = row.seed_sha256
+    ? row.seed_sha256 === fileHash
+    : (historicalDigests[row.agent_id] ?? []).includes(fileHash);
+  if (!unedited) return null;
+  return packagedTemplate(row.agent_id, templatesDir);
+}
+
+/**
+ * Path of the packaged template named after `agentId`, when one ships.
+ *
+ * @param agentId - Agent id (the template file is `<agentId>.cant`).
+ * @param templatesDir - Packaged templates directory, or `null` when absent.
+ * @returns The template path, or `null` when no such template ships.
+ */
+async function packagedTemplate(
+  agentId: string,
+  templatesDir: string | null,
+): Promise<string | null> {
   if (!templatesDir) return null;
-  const template = join(templatesDir, `${row.agent_id}.cant`);
+  const template = join(templatesDir, `${agentId}.cant`);
   return (await exists(template)) ? template : null;
 }
 
@@ -384,6 +418,7 @@ export async function buildDoctorReport(
   const templatesDir =
     options.templatesDir !== undefined ? options.templatesDir : resolveAgentTemplates();
   let cantParses = options.cantParses;
+  const historicalDigests = options.historicalSeedDigests ?? HISTORICAL_SEED_SHA256;
 
   // --- D-001 / D-003 / D-005 / D-006 / D-007: filesystem-driven walk -------
   for (const scan of scans) {
@@ -468,19 +503,26 @@ export async function buildDoctorReport(
         // A D-003 drift means the file was edited: never offer a refresh.
         const template = drifted
           ? null
-          : await refreshableSeedTemplate(row, actualHash, templatesDir);
+          : await refreshableSeedTemplate(row, actualHash, templatesDir, historicalDigests);
+        // Reinstalling the same broken bytes never parses: the fix installs the
+        // packaged template (the replaced bytes are kept as a .bak-<instant> that is
+        // never pruned when they hold edits) or,
+        // with none shipped, there is no command until the file is rewritten.
+        const packaged = template ? null : await packagedTemplate(agentId, templatesDir);
         const tierFlag = scan.tier === 'global' ? ' --global' : '';
-        findings.push({
+        const finding: AgentDoctorFinding = {
           code: 'D-007',
           severity: 'error',
           subject: `${scan.tier}:${agentId}`,
           message: template
             ? `${path} does not parse with the current CANT grammar. It is an unedited seed, so --repair refreshes it from the packaged template ${template}.`
-            : `${path} does not parse with the current CANT grammar and is not provably the unedited packaged seed (edited after install, installed before seed digests were recorded, or no packaged template), so it is left alone. Rewrite it in the current syntax${templatesDir ? ` (see ${join(templatesDir, `${agentId}.cant`)})` : ''}, then reinstall it.`,
-          fixCommand: template
-            ? 'cleo agent doctor --repair'
-            : `cleo agent install ${path} --force${tierFlag}`,
-        });
+            : packaged
+              ? `${path} does not parse with the current CANT grammar and is not provably the unedited packaged seed (edited after install, or installed from bytes no packaged template ever shipped), so it is left alone. Port your changes to the current syntax, or run the fix command: it REPLACES this file, and your edits with it, by the packaged template ${packaged}. Your current bytes are first copied to ${path}.bak-<install instant>, and a backup of edited content is never pruned.`
+              : `${path} does not parse with the current CANT grammar and no packaged template named ${agentId}.cant ships, so it is left alone. Rewrite it in the current syntax, then run: cleo agent install ${path} --force${tierFlag}`,
+        };
+        if (template) finding.fixCommand = 'cleo agent doctor --repair';
+        else if (packaged) finding.fixCommand = `cleo agent install ${packaged} --force${tierFlag}`;
+        findings.push(finding);
         continue;
       }
 
@@ -691,7 +733,12 @@ export async function reconcileDoctor(
           options.templatesDir !== undefined ? options.templatesDir : resolveAgentTemplates();
         const template =
           row?.cant_path && fileHash
-            ? await refreshableSeedTemplate(row, fileHash, templatesDir)
+            ? await refreshableSeedTemplate(
+                row,
+                fileHash,
+                templatesDir,
+                options.historicalSeedDigests ?? HISTORICAL_SEED_SHA256,
+              )
             : null;
         const cantPath = row?.cant_path ? resolve(row.cant_path) : null;
         // The install writes to <projectRoot>/.cleo/cant/agents/<id>.cant or

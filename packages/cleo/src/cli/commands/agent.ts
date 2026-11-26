@@ -2091,11 +2091,8 @@ const doctorCommand = defineCommand({
       const db = getGlobalAgentRegistryNativeDb() as import('node:sqlite').DatabaseSync;
 
       try {
-        const { parseDocument } = await import('@cleocode/cant');
-        const report = await buildDoctorReport(db, {
-          projectRoot: getProjectRoot(),
-          cantParses: async (cantPath) => (await parseDocument(cantPath)).success,
-        });
+        const { cantParses } = await import('../lib/cant-parses.js');
+        const report = await buildDoctorReport(db, { projectRoot: getProjectRoot(), cantParses });
         const repairFlag = args.repair === true;
 
         let reconciled: Awaited<ReturnType<typeof reconcileDoctor>> | undefined;

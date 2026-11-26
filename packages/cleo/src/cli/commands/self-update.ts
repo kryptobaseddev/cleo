@@ -34,6 +34,7 @@ import {
   runUpgrade,
 } from '@cleocode/core/internal';
 import { defineCommand } from 'citty';
+import { cantParses } from '../lib/cant-parses.js';
 import { negatedFlag } from '../lib/negated-flag.js';
 import { createSelfUpdateProgress } from '../progress.js';
 import { cliError, cliOutput, humanInfo, humanWarn } from '../renderers/index.js';
@@ -486,7 +487,7 @@ async function runPostUpdateDiagnostics(opts?: {
 
     humanInfo(`  Running upgrade...\n`);
 
-    const result = await runUpgrade({ autoMigrate: true });
+    const result = await runUpgrade({ autoMigrate: true, cantParses });
 
     // Show structured output of each action taken
     if (result.actions.length > 0) {
@@ -527,7 +528,7 @@ async function runPostUpdateDiagnostics(opts?: {
     // all databases (brain.db, signaldock.db, conduit.db), adapters, schemas,
     // memory-bridge.md, and other scaffold items are up to date.
     if (!opts?.skipUpgrade) {
-      const result = await runUpgrade({ autoMigrate: false });
+      const result = await runUpgrade({ autoMigrate: false, cantParses });
 
       if (result.applied > 0 || result.errors.length > 0) {
         // Show structured output of each action taken

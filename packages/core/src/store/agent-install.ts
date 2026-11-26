@@ -36,6 +36,7 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import {
   existsSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
   renameSync,
   unlinkSync,
@@ -45,6 +46,7 @@ import { basename, dirname, extname, join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import type { AgentRegistryExtendedFields, AgentSkillSource, AgentTier } from '@cleocode/contracts';
 import { getCleoGlobalCantAgentsDir } from '../paths.js';
+import { isPackagedSeedDigest } from './agent-seed-digests.js';
 
 // ---------------------------------------------------------------------------
 // Public API shapes
@@ -292,6 +294,51 @@ function writeBytesAtomic(path: string, bytes: Buffer): void {
   }
 }
 
+/**
+ * How many `<agent>.cant.bak-<instant>` copies holding packaged template bytes
+ * an install keeps; older ones are removed (T14655). A backup holding any
+ * other bytes (possibly the user's edits) is never removed.
+ */
+export const AGENT_CANT_BACKUPS_KEPT = 3;
+
+/**
+ * The backup name this module writes for `fileName`: `<fileName>.bak-` plus
+ * the ISO-8601 instant with `:` and `.` replaced by `-`.
+ *
+ * @param fileName - Base name of the installed `.cant` file.
+ * @returns An anchored pattern matching only those backup names.
+ */
+function backupNamePattern(fileName: string): RegExp {
+  const escaped = fileName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`^${escaped}\\.bak-\\d{4}-\\d{2}-\\d{2}T\\d{2}-\\d{2}-\\d{2}-\\d{3}Z$`);
+}
+
+/**
+ * Remove all but the newest {@link AGENT_CANT_BACKUPS_KEPT} backups of `path`
+ * that hold packaged template bytes. Only names this module writes are
+ * considered (a user's `<file>.bak-notes` is never touched), and a backup
+ * whose bytes match no shipped template may hold edits, so it is kept. The
+ * instant is an ISO-8601 stamp, so name order is age order. Best-effort: a
+ * failure leaves extra backups, never loses the file.
+ *
+ * @param path - The installed `.cant` file whose backups to prune.
+ */
+function pruneBackups(path: string): void {
+  const dir = dirname(path);
+  const pattern = backupNamePattern(basename(path));
+  try {
+    const packaged = readdirSync(dir)
+      .filter((name) => pattern.test(name))
+      .filter((name) => isPackagedSeedDigest(sha256Hex(readFileSync(join(dir, name)))))
+      .sort();
+    for (const name of packaged.slice(0, -AGENT_CANT_BACKUPS_KEPT)) {
+      unlinkSync(join(dir, name));
+    }
+  } catch {
+    // best-effort: extra backups are harmless
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Atomic install pipeline
 // ---------------------------------------------------------------------------
@@ -486,6 +533,7 @@ export function installAgentFromCant(
     }
 
     db.exec('COMMIT');
+    if (didWriteFile) pruneBackups(destinationPath);
 
     // Populate an AgentRegistryExtendedFields-shaped view for observability
     // (currently consumed only by callers that log install events).

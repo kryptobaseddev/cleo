@@ -471,6 +471,54 @@ describe('W2-3 installAgentFromCant — real sqlite + real .cant', () => {
     }
   });
 
+  // T14655: pruning removes only old backups of packaged template bytes. A
+  // backup of edited content and a user's own `.bak-*` file are never removed.
+  it('prunes packaged-byte backups only, keeping edited backups and user files', async () => {
+    const { AGENT_CANT_BACKUPS_KEPT, installAgentFromCant } = await import('../agent-install.js');
+    const { resolveAgentTemplates } = await import('../../agents/resolveAgentTemplates.js');
+    const packaged = readFileSync(
+      join(resolveAgentTemplates() ?? '', 'project-code-worker.cant'),
+      'utf8',
+    );
+    const db = env.openDb();
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      const srcDir = join(env.projectRoot, 'sources');
+      const base = {
+        targetTier: 'global',
+        installedFrom: 'manual',
+        globalCantDir: env.globalCantDir,
+      } as const;
+      const edit = (n: number): string => `${packaged}# user edit ${n}\n`;
+      // Edited, then packaged, edited, packaged ...: every install replaces
+      // the previous bytes, so backups alternate edited / packaged content.
+      const versions = [edit(0)];
+      for (let n = 1; n <= AGENT_CANT_BACKUPS_KEPT + 2; n++) versions.push(packaged, edit(n));
+      versions.push(packaged);
+      let second = 0;
+      for (const [i, body] of versions.entries()) {
+        vi.setSystemTime(new Date(Date.UTC(2026, 10, 26, 0, 0, second++)));
+        const src = writeSource(srcDir, 'project-code-worker.cant', body);
+        installAgentFromCant(db, { ...base, cantSource: src, force: i > 0 });
+        if (i === 0) {
+          writeFileSync(join(env.globalCantDir, 'project-code-worker.cant.bak-notes'), 'mine');
+        }
+      }
+      const backups = readdirSync(env.globalCantDir)
+        .filter((f) => f.startsWith('project-code-worker.cant.bak-'))
+        .map((f) => readFileSync(join(env.globalCantDir, f), 'utf8'));
+      expect(backups.filter((b) => b === packaged)).toHaveLength(AGENT_CANT_BACKUPS_KEPT);
+      // The first edit survived every later replacement, as did each edit.
+      for (let n = 0; n <= AGENT_CANT_BACKUPS_KEPT + 2; n++) expect(backups).toContain(edit(n));
+      expect(
+        readFileSync(join(env.globalCantDir, 'project-code-worker.cant.bak-notes'), 'utf8'),
+      ).toBe('mine');
+    } finally {
+      vi.useRealTimers();
+      db.close();
+    }
+  });
+
   // T14600: install --global, create --global, the seed and the resolver share
   // one directory, so a globally installed agent resolves by id.
   it('installs globally into the shared directory and resolves the agent by id', async () => {
