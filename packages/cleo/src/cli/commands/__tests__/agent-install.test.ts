@@ -8,7 +8,7 @@
  * - a real project-root tmp dir whose `.cleo/conduit.db` is created on demand
  *   by {@link attachAgentToProject}.
  *
- * The ONLY substitution is `paths.ts` (`getCleoHome` / `getCleoGlobalAgentsDir`)
+ * The ONLY substitution is `paths.ts` (`getCleoHome` / `getCleoGlobalCantAgentsDir`)
  * via `vi.doMock` so that the install pipeline points at the tmp workspace
  * instead of the developer's real `~/.local/share/cleo`. No `@cleocode/*`
  * module logic is mocked; no sqlite or fs module is mocked. This mirrors the
@@ -103,7 +103,7 @@ async function makeTmpEnv(suffix: string): Promise<TmpEnv> {
   const base = mkdtempSync(join(tmpdir(), `cleo-w2-6-fix-${suffix}-`));
   const cleoHome = join(base, 'cleo-home');
   const projectRoot = join(base, 'project');
-  const globalCantDir = join(cleoHome, 'agents');
+  const globalCantDir = join(cleoHome, 'cant', 'agents');
   const sourcesDir = join(base, 'sources');
   mkdirSync(cleoHome, { recursive: true });
   mkdirSync(join(projectRoot, '.cleo'), { recursive: true });
@@ -117,7 +117,7 @@ async function makeTmpEnv(suffix: string): Promise<TmpEnv> {
   // `@cleocode/core/internal` is aliased by vitest to `packages/core/src/internal.ts`
   // which re-exports everything from `./store/...` which in turn imports
   // `../paths.js`. Mocking that single module is enough to retarget all
-  // downstream `getCleoHome()` / `getCleoGlobalAgentsDir()` calls.
+  // downstream `getCleoHome()` / `getCleoGlobalCantAgentsDir()` calls.
   vi.doMock('../../../../../../packages/core/src/paths.js', async () => {
     const actual = await vi.importActual<typeof import('../../../../../core/src/paths.js')>(
       '../../../../../../packages/core/src/paths.js',
@@ -125,7 +125,7 @@ async function makeTmpEnv(suffix: string): Promise<TmpEnv> {
     return {
       ...actual,
       getCleoHome: () => cleoHome,
-      getCleoGlobalAgentsDir: () => globalCantDir,
+      getCleoGlobalCantAgentsDir: () => globalCantDir,
     };
   });
 
@@ -139,7 +139,7 @@ async function makeTmpEnv(suffix: string): Promise<TmpEnv> {
     return {
       ...actual,
       getCleoHome: () => cleoHome,
-      getCleoGlobalAgentsDir: () => globalCantDir,
+      getCleoGlobalCantAgentsDir: () => globalCantDir,
     };
   });
 

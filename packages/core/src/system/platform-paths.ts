@@ -32,7 +32,7 @@ import {
   getCleoCantWorkflowsDir,
   getCleoConfigDir,
   getCleoDirAbsolute,
-  getCleoGlobalAgentsDir,
+  getCleoGlobalCantAgentsDir,
   getCleoGlobalJustfilePath,
   getCleoGlobalRecipesDir,
   getCleoHome,
@@ -112,7 +112,7 @@ export function getSystemPaths(projectRoot: string): PathsData {
   const globalJustfile = getCleoGlobalJustfilePath();
   const piExtensions = getCleoPiExtensionsDir();
   const cantWorkflows = getCleoCantWorkflowsDir();
-  const globalAgents = getCleoGlobalAgentsDir();
+  const globalAgents = getCleoGlobalCantAgentsDir();
 
   return {
     projectCleoDir: getCleoDirAbsolute(projectRoot),

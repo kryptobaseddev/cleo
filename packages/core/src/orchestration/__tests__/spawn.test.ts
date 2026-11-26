@@ -85,7 +85,7 @@ async function makeTmpEnv(suffix: string): Promise<TmpEnv> {
     return {
       ...actual,
       getCleoHome: () => cleoHome,
-      getCleoGlobalAgentsDir: () => globalCantDir,
+      getCleoGlobalCantAgentsDir: () => globalCantDir,
     };
   });
 

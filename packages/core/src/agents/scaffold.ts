@@ -12,7 +12,7 @@
 
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { getCleoHome } from '@cleocode/paths';
+import { getCleoGlobalCantAgentsDir } from '../paths.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -185,7 +185,7 @@ interface ResolveTargetRootOpts {
 
 function resolveTargetRoot(opts: ResolveTargetRootOpts): string {
   if (opts.isGlobal) {
-    return join(getCleoHome(), 'cant', 'agents');
+    return getCleoGlobalCantAgentsDir();
   }
   if (!opts.projectRoot) {
     throw new Error('projectRoot is required for non-global agent scaffold');

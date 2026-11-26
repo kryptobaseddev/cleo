@@ -1267,21 +1267,46 @@ export function getCleoCantWorkflowsDir(): string {
 /**
  * Get the Global CLEO Agents directory.
  *
- * Holds globally-available CANT agent definitions (`.cant` files).
- * Project-local agents still live in `{projectRoot}/.cleo/agents/`.
- *
- * @returns Absolute path to the agents directory under CLEO home
+ * @returns Absolute path to the global CANT agents directory
  *
  * @remarks
- * Returns `{cleoHome}/agents`. Loaded when `cleo agent start <id>` resolves
- * agent IDs that aren't found in the project-local registry.
+ * Returns the same directory as {@link getCleoGlobalCantAgentsDir}
+ * (`{cleoHome}/cant/agents`). Before T14600 this returned `{cleoHome}/agents`,
+ * so `cleo agent install --global` wrote where the resolver never looked.
+ *
+ * @deprecated Use {@link getCleoGlobalCantAgentsDir}, the single global agent
+ * directory. Kept as an alias for public API compatibility.
  *
  * @example
  * ```typescript
- * const dir = getCleoGlobalAgentsDir();
+ * const dir = getCleoGlobalAgentsDir(); // === getCleoGlobalCantAgentsDir()
  * ```
+ *
+ * @task T14600
  */
 export function getCleoGlobalAgentsDir(): string {
+  return getCleoGlobalCantAgentsDir();
+}
+
+/**
+ * Get the pre-T14600 global agents directory, `{cleoHome}/agents`.
+ *
+ * @returns Absolute path to the legacy global agents directory
+ *
+ * @remarks
+ * `cleo agent install --global` wrote here before T14600. Read-only: nothing
+ * writes it any more; the filesystem resolver still scans it after
+ * {@link getCleoGlobalCantAgentsDir} so an agent installed by an older CLEO
+ * is still found.
+ *
+ * @example
+ * ```typescript
+ * const legacy = getCleoLegacyGlobalAgentsDir();
+ * ```
+ *
+ * @task T14600
+ */
+export function getCleoLegacyGlobalAgentsDir(): string {
   return join(getCleoHome(), 'agents');
 }
 
@@ -1299,8 +1324,9 @@ export function getCleoGlobalAgentsDir(): string {
  *
  * @remarks
  * Returns `{cleoHome}/cant/agents` — e.g. `~/.local/share/cleo/cant/agents`
- * on Linux. This is the target of both the npm postinstall seed hook (W2-5)
- * and the `cleo agent install --global` CLI command.
+ * on Linux. This is the single global agent directory (T14600): the npm
+ * postinstall seed hook (W2-5), `cleo agent install --global`,
+ * `cleo agent create --global` and the resolver all use it.
  *
  * @example
  * ```typescript

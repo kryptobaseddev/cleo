@@ -1335,7 +1335,7 @@ const healthCommand = defineCommand({
  *   `persona.cant` inside and feeds a renamed copy to the pipeline.
  *
  * Flags:
- * - `--global`: install to global tier ({@link getCleoGlobalAgentsDir}).
+ * - `--global`: install to global tier ({@link getCleoGlobalCantAgentsDir}).
  * - `--strict`: fail with `E_VALIDATION` when the pipeline reports warnings
  *   (e.g. unknown skill slugs).
  * - `--attach`: after install, also attach the agent to the current project

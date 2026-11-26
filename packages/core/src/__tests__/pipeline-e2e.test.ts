@@ -134,7 +134,7 @@ async function makeTmpEnv(suffix: string): Promise<TmpEnv> {
     return {
       ...actual,
       getCleoHome: () => cleoHome,
-      getCleoGlobalAgentsDir: () => join(cleoHome, 'cant', 'agents'),
+      getCleoGlobalCantAgentsDir: () => join(cleoHome, 'cant', 'agents'),
     };
   });
 
@@ -400,7 +400,7 @@ describe('Pipeline E2E — classifier emits canonical project-<role> IDs', () =>
       return {
         ...actual,
         getCleoHome: () => cleoHome,
-        getCleoGlobalAgentsDir: () => join(cleoHome, 'cant', 'agents'),
+        getCleoGlobalCantAgentsDir: () => join(cleoHome, 'cant', 'agents'),
       };
     });
 

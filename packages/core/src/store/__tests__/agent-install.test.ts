@@ -107,7 +107,8 @@ async function makeTmpEnv(suffix: string): Promise<TmpEnv> {
     return {
       ...actual,
       getCleoHome: () => cleoHome,
-      getCleoGlobalAgentsDir: () => globalCantDir,
+      getCleoGlobalCantAgentsDir: () => globalCantDir,
+      getCleoLegacyGlobalAgentsDir: () => join(cleoHome, 'agents'),
     };
   });
 
@@ -430,5 +431,50 @@ describe('W2-3 installAgentFromCant — real sqlite + real .cant', () => {
     } finally {
       db.close();
     }
+  });
+
+  // T14600: install --global, create --global, the seed and the resolver share
+  // one directory, so a globally installed agent resolves by id.
+  it('installs globally into the shared directory and resolves the agent by id', async () => {
+    const { installAgentFromCant } = await import('../agent-install.js');
+    const { resolveAgent } = await import('../agent-resolver.js');
+    const { resolvePersonaFromRegistry } = await import('../../orchestration/registry-resolver.js');
+    const src = writeSource(join(env.cleoHome, 'src'), 'fixture-agent.cant', FIXTURE_MINIMAL_CANT);
+    const db = env.openDb();
+    try {
+      // No globalCantDir override: the default destination is under test.
+      installAgentFromCant(db, { cantSource: src, targetTier: 'global' });
+      const expected = join(env.globalCantDir, 'fixture-agent.cant');
+
+      const byRegistry = resolveAgent(db, 'fixture-agent');
+      expect(byRegistry.tier).toBe('global');
+      expect(byRegistry.cantPath).toBe(expected);
+
+      const byScan = await resolvePersonaFromRegistry(
+        { title: 'fixture agent' },
+        { projectRoot: env.projectRoot, packagedSeedDir: join(env.cleoHome, 'no-seeds') },
+      );
+      expect(byScan).toMatchObject({
+        agentId: 'fixture-agent',
+        tier: 'global',
+        cantPath: expected,
+      });
+    } finally {
+      db.close();
+    }
+  });
+
+  it('still finds an agent installed to the pre-T14600 <cleoHome>/agents directory', async () => {
+    const { resolvePersonaFromRegistry } = await import('../../orchestration/registry-resolver.js');
+    const legacy = writeSource(
+      join(env.cleoHome, 'agents'),
+      'legacy-helper.cant',
+      FIXTURE_MINIMAL_CANT,
+    );
+    const found = await resolvePersonaFromRegistry(
+      { title: 'legacy helper' },
+      { projectRoot: env.projectRoot, packagedSeedDir: join(env.cleoHome, 'no-seeds') },
+    );
+    expect(found).toMatchObject({ agentId: 'legacy-helper', tier: 'global', cantPath: legacy });
   });
 });

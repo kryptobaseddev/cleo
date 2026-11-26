@@ -13,7 +13,7 @@ import { GLOBAL_CONFIG_FILE_MODE } from '../llm/global-config-migration.js';
 import { pushWarning } from '../output.js';
 import {
   getCleoCantWorkflowsDir,
-  getCleoGlobalAgentsDir,
+  getCleoGlobalCantAgentsDir,
   getCleoGlobalRecipesDir,
   getCleoHome,
   getCleoPiExtensionsDir,
@@ -224,7 +224,7 @@ export async function ensureCleoOsHub(): Promise<ScaffoldResult> {
   const recipesDir = getCleoGlobalRecipesDir();
   const piExtDir = getCleoPiExtensionsDir();
   const cantWorkflowsDir = getCleoCantWorkflowsDir();
-  const agentsDir = getCleoGlobalAgentsDir();
+  const agentsDir = getCleoGlobalCantAgentsDir();
 
   try {
     await mkdir(recipesDir, { recursive: true });

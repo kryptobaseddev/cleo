@@ -202,10 +202,11 @@ whose `cant_path` still exists on disk; an orphan row is skipped, not fatal.
 `E_AGENT_NOT_FOUND` is thrown only when every tier misses, which means
 `cleo-subagent.cant` itself is unreachable.
 
-**Global directory caveat (T14588):** `cleo agent create --global` and the
-seed installer use `<cleoHome>/cant/agents/`, but
-`cleo agent install --global` writes to `<cleoHome>/agents/`
-(`getCleoGlobalAgentsDir`). `<cleoHome>` is `~/.local/share/cleo` on Linux and
+**Global directory (T14600):** `cleo agent install --global`,
+`cleo agent create --global`, the seed installer and the resolver all use
+`<cleoHome>/cant/agents/` (`getCleoGlobalCantAgentsDir`). Agents an older CLEO
+installed to `<cleoHome>/agents/` are still found by the resolver.
+`<cleoHome>` is `~/.local/share/cleo` on Linux and
 `~/Library/Application Support/cleo` on macOS.
 
 ## Contract Guarantees
