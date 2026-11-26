@@ -18,7 +18,7 @@
  *     `published_at` on conflict (latest-publish-wins). The only DELETE is
  *     {@link deleteDocsPublication}, used by the `cleo docs doctor` ledger
  *     prune (T14117) under its backup gate and by the `cleo docs modernize`
- *     row move (T14610).
+ *     row move and removal (T14610, T14631).
  *   - {@link readDocsPublications} carries a one-time, idempotent migration
  *     shim: when the store table is empty and the legacy
  *     `.cleo/docs-publications.json` still holds entries, they are seeded
@@ -88,13 +88,17 @@ function readLegacyLedger(projectRoot: string): DocsPublicationRecord[] {
 }
 
 /**
- * Insert one publication row, coalescing on the natural triple key.
+ * Insert one publication row exactly as given, leaving any row already at the
+ * natural (ownerId, blobName, publishedPath) key untouched.
+ *
+ * Callers: the legacy JSON seed shim, and `cleo docs modernize`, which moves
+ * a row to its mirror's new path and restores it on rollback with its
+ * original `publishedAt` (T14631).
  *
  * @param projectRoot - Absolute path to the CLEO project root.
- * @param record - The publication facts (publishedAt is taken as given — the
- *   shim preserves the legacy timestamp, the live path stamps `now`).
+ * @param record - The publication facts; `publishedAt` is taken as given.
  */
-async function insertPublicationRow(
+export async function insertDocsPublication(
   projectRoot: string,
   record: DocsPublicationRecord,
 ): Promise<void> {
@@ -194,7 +198,7 @@ export async function readDocsPublications(projectRoot: string): Promise<DocsPub
   if (legacy.length === 0) return [];
 
   for (const record of legacy) {
-    await insertPublicationRow(projectRoot, record);
+    await insertDocsPublication(projectRoot, record);
   }
   try {
     writeFileSync(markerPath, `${new Date().toISOString()}\n`, 'utf-8');
@@ -229,8 +233,9 @@ export async function readDocsPublicationSha256Set(projectRoot: string): Promise
  * Two callers: the `cleo docs doctor` ledger prune (T14117), after its
  * backup gate passed and after it appended the full row to its audit log, so
  * a pruned row can be re-inserted with {@link upsertDocsPublication}; and
- * `cleo docs modernize`, which moves a row to its mirror's new path and
- * journals both keys so a rollback moves it back (T14610).
+ * `cleo docs modernize`, which moves a row to its mirror's new path (or
+ * removes it with a merged or deleted mirror) and journals the full row so a
+ * rollback restores it exactly (T14610, T14631).
  *
  * @param projectRoot - Absolute path to the CLEO project root.
  * @param key - The natural key of the row to delete.

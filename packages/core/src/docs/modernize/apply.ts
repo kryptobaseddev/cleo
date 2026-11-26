@@ -15,7 +15,8 @@
  *    superseded by the survivor (`supersede`).
  * 3. **Files.** Survivors are written to their canonical path (`write-file`)
  *    and every other scanned path is removed (`remove-file`); a moved
- *    mirror's `docs_publications` row follows it (`move-publication`).
+ *    mirror's `docs_publications` row follows it, and a merged or deleted
+ *    mirror's row is removed (`move-publication`).
  * 4. **Graph.** Each survivor's body links become `links-to` edges (`link`)
  *    and the column-derived edges are rebuilt (always, in `finally`).
  *
@@ -36,13 +37,13 @@ import {
   closeSync,
   existsSync,
   fsyncSync,
+  lstatSync,
   mkdirSync,
   openSync,
   readdirSync,
   readFileSync,
   rmdirSync,
   rmSync,
-  statSync,
   writeSync,
 } from 'node:fs';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
@@ -65,6 +66,7 @@ import { extractWikilinkTargets } from '../derive-links.js';
 import { IMPORT_OWNER_TYPE, IMPORT_PROJECT_OWNER_ID } from '../import/attachment-store-accessor.js';
 import {
   deleteDocsPublication,
+  insertDocsPublication,
   readDocsPublications,
   upsertDocsPublication,
 } from '../publications-store.js';
@@ -182,14 +184,20 @@ async function backup(projectRoot: string, runId: string, text: string): Promise
 }
 
 /**
- * Whether two paths name one file on disk (same device and inode). A
- * case-only rename on a case-insensitive filesystem is the case that matters:
- * `ADR-1.md` and `adr-1.md` are then the same file (T14610).
+ * Whether two spellings of a path name one directory entry: a case-only
+ * rename on a case-insensitive filesystem, where `ADR-1.md` and `adr-1.md`
+ * are the same file (T14610).
+ *
+ * The paths must differ only in case and resolve, without following links
+ * (`lstat`), to the same device and inode. A symlink has its own inode, and a
+ * hard link has a name that differs by more than case, so neither counts as
+ * the file it points at and a non-survivor link is still removed (T14631).
  */
 function sameFile(a: string, b: string): boolean {
+  if (a.toLowerCase() !== b.toLowerCase()) return false;
   try {
-    const x = statSync(a);
-    const y = statSync(b);
+    const x = lstatSync(a);
+    const y = lstatSync(b);
     return x.dev === y.dev && x.ino === y.ino;
   } catch {
     return false;
@@ -764,6 +772,7 @@ export async function applyDocsModernize(
         options.checkoutRoot ?? projectRoot,
         root,
         moves,
+        deleted,
       );
       await save();
 
@@ -795,11 +804,25 @@ export async function applyDocsModernize(
   return receipt(edgeCount);
 }
 
+/** Natural key of a `docs_publications` row. */
+function publicationKey(row: {
+  readonly ownerId: string;
+  readonly blobName: string;
+  readonly publishedPath: string;
+}): string {
+  return JSON.stringify([row.ownerId, row.blobName, row.publishedPath]);
+}
+
 /**
  * Re-point every `docs_publications` row whose mirror a tree run moved at the
- * file's new path, journaling each as `move-publication` (T14610). A row
- * keeps its form: an absolute path stays absolute, a relative one stays
- * relative to the root it resolved against.
+ * file's new path (T14610), and remove every row whose mirror it merged into
+ * another doc or deleted (T14631), journaling each as `move-publication` with
+ * the full row so a rollback restores it exactly.
+ *
+ * A moved row keeps its form (an absolute path stays absolute, a relative one
+ * stays relative to the root it resolved against) and its `publishedAt`. A row
+ * already at the new path is kept as it was: the moved row is dropped rather
+ * than overwriting it, and a rollback leaves it in place (T14631).
  */
 async function movePublications(
   journal: StepJournal,
@@ -807,22 +830,32 @@ async function movePublications(
   checkoutRoot: string,
   root: string,
   moves: readonly { readonly from: string; readonly to: string }[],
+  removed: readonly string[],
 ): Promise<void> {
-  if (moves.length === 0) return;
+  if (moves.length === 0 && removed.length === 0) return;
   const { resolvePublishedMirror } = await import('../docs-ops.js');
   const ledger = await readDocsPublications(projectRoot);
-  for (const { from, to } of moves) {
+  const present = new Set(ledger.map(publicationKey));
+  const changes: { from: string; to: string | null }[] = [
+    ...moves,
+    ...removed.map((from) => ({ from, to: null })),
+  ];
+  for (const { from, to } of changes) {
     const fromAbs = safeJoin(root, from);
-    const toAbs = safeJoin(root, to);
     for (const pub of ledger) {
+      if (!present.has(publicationKey(pub))) continue;
       if (resolvePublishedMirror(projectRoot, checkoutRoot, pub.publishedPath) !== fromAbs) {
         continue;
       }
-      const base =
-        resolve(checkoutRoot, pub.publishedPath) === fromAbs ? checkoutRoot : projectRoot;
-      const toPath = isAbsolute(pub.publishedPath)
-        ? toAbs
-        : relative(base, toAbs).split(sep).join('/');
+      let toPath: string | null = null;
+      if (to !== null) {
+        const toAbs = safeJoin(root, to);
+        const base =
+          resolve(checkoutRoot, pub.publishedPath) === fromAbs ? checkoutRoot : projectRoot;
+        toPath = isAbsolute(pub.publishedPath) ? toAbs : relative(base, toAbs).split(sep).join('/');
+      }
+      const moved = toPath === null ? null : { ...pub, publishedPath: toPath };
+      const targetExisted = moved !== null && present.has(publicationKey(moved));
       const i = journal.begin({
         op: 'move-publication',
         path: from,
@@ -834,20 +867,17 @@ async function movePublications(
             fromPath: pub.publishedPath,
             toPath,
             lastBlobSha: pub.lastBlobSha,
+            publishedAt: pub.publishedAt,
+            targetExisted,
           },
         },
       });
-      await upsertDocsPublication(projectRoot, {
-        ownerId: pub.ownerId,
-        blobName: pub.blobName,
-        publishedPath: toPath,
-        lastBlobSha: pub.lastBlobSha,
-      });
-      await deleteDocsPublication(projectRoot, {
-        ownerId: pub.ownerId,
-        blobName: pub.blobName,
-        publishedPath: pub.publishedPath,
-      });
+      if (moved !== null && !targetExisted) {
+        await insertDocsPublication(projectRoot, moved);
+        present.add(publicationKey(moved));
+      }
+      await deleteDocsPublication(projectRoot, pub);
+      present.delete(publicationKey(pub));
       journal.done(i);
     }
   }
@@ -1041,17 +1071,26 @@ export async function rollbackDocsModernize(
           const pub = prior.publication;
           if (!op.ownerId || !pub) break;
           // Both writes are idempotent, so a pending step is reversed the same way.
-          await upsertDocsPublication(projectRoot, {
+          const fromRow = {
             ownerId: op.ownerId,
             blobName: pub.blobName,
             publishedPath: pub.fromPath,
             lastBlobSha: pub.lastBlobSha,
-          });
-          await deleteDocsPublication(projectRoot, {
-            ownerId: op.ownerId,
-            blobName: pub.blobName,
-            publishedPath: pub.toPath,
-          });
+          };
+          if (pub.publishedAt !== undefined) {
+            await insertDocsPublication(projectRoot, { ...fromRow, publishedAt: pub.publishedAt });
+          } else {
+            // A receipt written before T14631 holds no publishedAt to restore.
+            await upsertDocsPublication(projectRoot, fromRow);
+          }
+          // A row that sat at the new path before the run is not ours to remove.
+          if (pub.toPath !== null && pub.targetExisted !== true) {
+            await deleteDocsPublication(projectRoot, {
+              ownerId: op.ownerId,
+              blobName: pub.blobName,
+              publishedPath: pub.toPath,
+            });
+          }
           break;
         }
         default: {
