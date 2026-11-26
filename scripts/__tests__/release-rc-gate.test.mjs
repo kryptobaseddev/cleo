@@ -32,6 +32,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { parse as parseYaml } from 'yaml';
+import { soakWorstCaseMs } from '../release-canary-soak.mjs';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const WORKFLOWS = path.join(REPO_ROOT, '.github/workflows');
@@ -70,19 +71,23 @@ afterEach(() => {
  * @param {string} [opts.tag] - TAG.
  * @param {number} [opts.payloadExit] - Exit code of the post-deploy check.
  * @param {number} [opts.stablePayloadExit] - Exit code of the stable dependency check.
+ * @param {number} [opts.stableGateMs] - How long the stable dependency check takes.
  * @param {string} [opts.payloadVerdict] - Verdict the check writes to its deploy summary (T14192).
  * @param {number} [opts.soakExit] - Exit code of the soak.
  * @param {string[]} [opts.published] - `pkg@version` already on npm.
- * @returns {{ status: number, log: string[] }}
+ * @param {string} [opts.step] - Step text to run instead of the workflow's.
+ * @returns {{ status: number, stdout: string, log: string[] }}
  */
 function runPublish({
   rc,
   tag = 'latest',
   payloadExit = 0,
   stablePayloadExit = 0,
+  stableGateMs = 0,
   payloadVerdict,
   soakExit = 0,
   published = [],
+  step = publishStep.run,
 }) {
   const log = path.join(dir, 'log');
   writeFileSync(log, '');
@@ -102,7 +107,7 @@ function runPublish({
   );
   script(
     'execute-payload.mjs',
-    `import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs';\nconst a = process.argv.slice(2);\nappendFileSync(${JSON.stringify(log)}, 'payload ' + a.join(' ') + '\\n');\nappendFileSync(${JSON.stringify(log)}, 'budget ' + ['POSTDEPLOY_TIMEOUT_MS', 'POSTDEPLOY_BACKOFF', 'POSTDEPLOY_MAX_INTERVAL_MS'].map((k) => k + '=' + (process.env[k] ?? '')).join(' ') + '\\n');\nconst out = a[a.indexOf('--output-dir') + 1];\nconst v = a[a.indexOf('--version') + 1];\nif (${JSON.stringify(payloadVerdict ?? '')}) { mkdirSync(out, { recursive: true }); writeFileSync(out + '/deploy-summary-' + v + '.json', JSON.stringify({ verdict: ${JSON.stringify(payloadVerdict ?? '')} })); }\nprocess.exit(a.includes('--before-package') ? ${stablePayloadExit} : ${payloadExit});\n`,
+    `import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs';\nconst a = process.argv.slice(2);\nappendFileSync(${JSON.stringify(log)}, 'payload ' + a.join(' ') + '\\n');\nappendFileSync(${JSON.stringify(log)}, 'budget ' + ['POSTDEPLOY_TIMEOUT_MS', 'POSTDEPLOY_BACKOFF', 'POSTDEPLOY_MAX_INTERVAL_MS'].map((k) => k + '=' + (process.env[k] ?? '')).join(' ') + '\\n');\nconst out = a[a.indexOf('--output-dir') + 1];\nconst v = a[a.indexOf('--version') + 1];\nif (${JSON.stringify(payloadVerdict ?? '')}) { mkdirSync(out, { recursive: true }); writeFileSync(out + '/deploy-summary-' + v + '.json', JSON.stringify({ verdict: ${JSON.stringify(payloadVerdict ?? '')} })); }\nif (a.includes('--before-package')) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ${stableGateMs});\nprocess.exit(a.includes('--before-package') ? ${stablePayloadExit} : ${payloadExit});\n`,
   );
   script(
     'release-canary-soak.mjs',
@@ -131,8 +136,13 @@ function runPublish({
     'npm',
     `#!/usr/bin/env bash\nspec="\${2#@cleocode/}"\nfor p in ${published.map((p) => JSON.stringify(p)).join(' ')}; do [[ "$p" == "$spec" ]] && { echo "\${spec##*@}"; exit 0; }; done\nexit 1\n`,
   );
+  // timeout(1) is not on every macOS runner: record the bound, then run the command.
+  fake(
+    'timeout',
+    `#!/usr/bin/env bash\n[[ "$1" == -k ]] && shift 2\necho "$1 $2 $3" >> ${JSON.stringify(path.join(dir, 'timeouts'))}\nshift\nexec "$@"\n`,
+  );
   const summary = path.join(dir, 'summary.md');
-  const r = spawnSync('bash', ['-eo', 'pipefail', '-c', BASH3_SHIM + publishStep.run], {
+  const r = spawnSync('bash', ['-eo', 'pipefail', '-c', BASH3_SHIM + step], {
     cwd: dir,
     env: {
       PATH: `${bin}:${process.env.PATH}`,
@@ -146,6 +156,7 @@ function runPublish({
   });
   return {
     status: r.status ?? -1,
+    stdout: r.stdout,
     log: readFileSync(log, 'utf8').trim().split('\n').filter(Boolean),
   };
 }
@@ -331,6 +342,99 @@ describe('T14516 — stable dependencies are installable before the CLI reaches 
     expect(stableBudget).toBe(rcBudget);
     // Shared, not copied: the literal budget appears exactly once in the step.
     expect(publishStep.run.split('POSTDEPLOY_TIMEOUT_MS=1800000')).toHaveLength(2);
+  });
+});
+
+describe('T14646 — every wait in the Publish job is bounded below the job timeout', () => {
+  const setting = (name) => {
+    const m = publishStep.run.match(new RegExp(`^\\s*${name}=(\\d+)\\s*$`, 'm'));
+    expect(m, `${name} is defined once as a literal`).not.toBeNull();
+    return Number(m[1]);
+  };
+
+  /** `<seconds> <command…>` lines the fake timeout(1) recorded. */
+  const recordedBounds = () => readFileSync(path.join(dir, 'timeouts'), 'utf8').trim().split('\n');
+  const secsOf = (b) => Number(b.split(' ')[0]);
+
+  it('every pnpm publish and npm view runs under timeout(1), within its wave budget', () => {
+    const { status, log } = runPublish({ rc: RC });
+    expect(status, log.join('\n')).toBe(0);
+    const small = setting('SMALL_WAVES_BUDGET_S');
+    const cli = setting('CLI_WAVE_BUDGET_S');
+    const view = setting('NPM_VIEW_TIMEOUT_S');
+    const bounds = recordedBounds();
+    const publishBounds = bounds.filter((b) => b.includes(' pnpm publish'));
+    const viewBounds = bounds.filter((b) => b.includes(' npm view'));
+    // Every publish the fake pnpm saw went through timeout(1), and so did every view.
+    expect(publishBounds).toHaveLength(log.filter((l) => l.startsWith('publish ')).length);
+    expect(viewBounds.length).toBeGreaterThan(0);
+    // Publishes run in PACKAGES order; each release's last one is the CLI wave.
+    const publishDirs = log.filter((l) => l.startsWith('publish ')).map((l) => l.split(' ')[1]);
+    publishBounds.forEach((b, i) => {
+      const limit = publishDirs[i] === 'cleo' ? cli : small;
+      expect(secsOf(b), `${publishDirs[i]} bound`).toBeGreaterThan(0);
+      expect(secsOf(b), `${publishDirs[i]} bound`).toBeLessThanOrEqual(limit);
+    });
+    for (const b of viewBounds) expect(secsOf(b)).toBe(view);
+    expect(publishStep.run).not.toMatch(/\$\((?:pnpm publish|npm view)/);
+  });
+
+  it('the CLI wave gets its whole budget, however long the dependency gate took', () => {
+    const { status, log } = runPublish({ rc: '', stableGateMs: 3_000 });
+    expect(status, log.join('\n')).toBe(0);
+    const cli = setting('CLI_WAVE_BUDGET_S');
+    const cleo = recordedBounds().filter((b) => b.includes(' pnpm publish'));
+    const publishDirs = log.filter((l) => l.startsWith('publish ')).map((l) => l.split(' ')[1]);
+    expect(publishDirs.at(-1)).toBe('cleo');
+    // Counted from before the 3s gate, the window would be at most cli - 3.
+    expect(secsOf(cleo.at(-1))).toBeGreaterThanOrEqual(cli - 1);
+    expect(cli, 'headroom above gh#1479 (55m33s)').toBeGreaterThan(55 * 60 + 33);
+  });
+
+  it('a spent publish budget fails the package with its own message, not the job timeout', () => {
+    const step = publishStep.run.replace(
+      /^(\s*)SMALL_WAVES_BUDGET_S=\d+$/m,
+      '$1SMALL_WAVES_BUDGET_S=0',
+    );
+    expect(step).not.toBe(publishStep.run);
+    const { status, stdout, log } = runPublish({ rc: '', tag: 'beta', step });
+    expect(status).toBe(1);
+    expect(stdout).toContain('was not published within the 0s publish budget');
+    expect(stdout, 'the diagnosis says how to publish the rest').toContain('gh run rerun');
+    expect(
+      log.filter((l) => l.startsWith('publish ')),
+      'nothing publishes past the deadline',
+    ).toEqual([]);
+  });
+
+  it('the documented worst case of a stable release is below timeout-minutes', () => {
+    const view = setting('NPM_VIEW_TIMEOUT_S');
+    // Past each deadline: the pre-publish view, then the post-failure view, each
+    // with its 10s kill grace; the running publish's 30s grace is shorter.
+    const overrunS = 2 * (view + 10);
+    const publishMin =
+      (setting('SMALL_WAVES_BUDGET_S') + setting('CLI_WAVE_BUDGET_S') + 2 * overrunS) / 60;
+    const gate = publishStep.run.match(/BLOCKING_GATE_BUDGET=\(POSTDEPLOY_TIMEOUT_MS=(\d+) /);
+    const gateMin = Number(gate[1]) / 60_000;
+    const soakMin = soakWorstCaseMs() / 60_000;
+    const { steps } = releaseYaml.jobs.publish;
+    const bounded = steps.filter(
+      (st) => st.name === 'Install dependencies' || /^Download /.test(st.name),
+    );
+    expect(bounded).toHaveLength(5);
+    const boundedMin = bounded.reduce((sum, st) => sum + st['timeout-minutes'], 0);
+    // Checkout, setup, verify, stage and the GitHub Release: the reserve the job comment names.
+    const otherStepsMin = 10;
+    const stable = 2 * publishMin + 2 * gateMin + soakMin + boundedMin + otherStepsMin;
+    const canary = publishMin + 900_000 / 60_000 + soakMin + boundedMin + otherStepsMin;
+    const cap = releaseYaml.jobs.publish['timeout-minutes'];
+    expect(Math.ceil(stable)).toBe(341);
+    expect(stable).toBeLessThan(cap);
+    expect(canary).toBeLessThan(cap);
+    expect(cap).toBeLessThanOrEqual(360);
+    expect(publishStep.run).toContain(
+      'POSTDEPLOY_TIMEOUT_MS=900000 node scripts/execute-payload.mjs',
+    );
   });
 });
 

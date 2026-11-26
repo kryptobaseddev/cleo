@@ -71,6 +71,10 @@
  *                               (default 1 = fixed interval)
  *   POSTDEPLOY_MAX_INTERVAL_MS  cap on the backed-off interval (default: none)
  *
+ * Worst case (T14646): POSTDEPLOY_TIMEOUT_MS. The budget is a hard bound, not a
+ * check between rounds: a round still waiting on the registry at the deadline
+ * is abandoned, and every request is bounded by FETCH_TIMEOUT_MS.
+ *
  * @task gh#1377
  */
 
@@ -81,6 +85,16 @@ import { fileURLToPath } from 'node:url';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const REGISTRY = 'https://registry.npmjs.org';
+
+/**
+ * Bound on each registry request, body included (T14646). Without it one
+ * stalled socket holds a whole poll round, and the round holds the gate past
+ * its deadline. A timed-out request is `pending`, like any unreachable one.
+ */
+export const FETCH_TIMEOUT_MS = 30_000;
+
+/** Request options shared by every registry fetch: the per-request bound. */
+const bounded = (init = {}) => ({ ...init, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
 
 // ---------------------------------------------------------------------------
 // Published packages — read from the SSoT, never a second copy
@@ -134,7 +148,7 @@ export async function checkMetadata(pkg, ver, fetchImpl = fetch) {
   const url = `${REGISTRY}/@cleocode/${encodeURIComponent(pkg)}/${encodeURIComponent(ver)}`;
   let res;
   try {
-    res = await fetchImpl(url, { headers: { accept: 'application/json' } });
+    res = await fetchImpl(url, bounded({ headers: { accept: 'application/json' } }));
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     return { state: 'pending', detail: `metadata unreachable: ${msg}` };
@@ -190,9 +204,10 @@ export async function checkMetadata(pkg, ver, fetchImpl = fetch) {
  */
 export async function readCreatedAt(pkg, ver, fetchImpl = fetch) {
   try {
-    const res = await fetchImpl(`${REGISTRY}/@cleocode/${encodeURIComponent(pkg)}`, {
-      headers: { accept: 'application/json' },
-    });
+    const res = await fetchImpl(
+      `${REGISTRY}/@cleocode/${encodeURIComponent(pkg)}`,
+      bounded({ headers: { accept: 'application/json' } }),
+    );
     if (!res.ok) return undefined;
     const body = await res.json();
     const at = body?.time?.[ver];
@@ -229,7 +244,7 @@ export async function checkDistTag(pkg, ver, distTag, fetchImpl = fetch) {
   const url = `${REGISTRY}/-/package/@cleocode%2f${encodeURIComponent(pkg)}/dist-tags`;
   let res;
   try {
-    res = await fetchImpl(url, { headers: { accept: 'application/json' } });
+    res = await fetchImpl(url, bounded({ headers: { accept: 'application/json' } }));
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     return { state: 'pending', detail: `dist-tags unreachable: ${msg}` };
@@ -277,7 +292,7 @@ export async function checkTarball(pkg, ver, fetchImpl = fetch, tarballUrl) {
     );
   }
   try {
-    const res = await fetchImpl(url, { method: 'HEAD' });
+    const res = await fetchImpl(url, bounded({ method: 'HEAD' }));
     if (res.ok) return { state: 'ok' };
     return { state: 'pending', detail: `tarball HTTP ${res.status}` };
   } catch (err) {
@@ -370,6 +385,14 @@ export function readPollSetting(env, name, fallback, min = 0) {
  * `backoff` after each one, capped at `maxIntervalMs`. The last wait is cut
  * short so the loop never sleeps past the deadline.
  *
+ * The deadline is a bound, not a check between attempts (T14646): an attempt
+ * still running when the budget runs out is abandoned and the loop returns
+ * `timedOut` with the previous attempt's value. The abandoned attempt keeps
+ * running in the background; a caller whose attempt mutates shared state must
+ * ignore it once this returns. A synchronous attempt cannot be interrupted, so
+ * it must carry its own bound; the loop's worst case is then the budget plus
+ * one attempt.
+ *
  * @template T
  * @param {() => Promise<{ settled: boolean, value: T }>} attempt - One try.
  * @param {object} [opts]
@@ -394,13 +417,28 @@ export async function converge(attempt, opts = {}) {
     onWait = () => {},
   } = opts;
   const started = now();
+  const cut = Symbol('deadline');
   let waitMs = intervalMs;
   let attempts = 0;
+  /** @type {T | undefined} */
+  let last;
   for (;;) {
-    const r = await attempt();
+    /** @type {ReturnType<typeof setTimeout> | undefined} */
+    let timer;
+    const deadline = new Promise((resolve) => {
+      timer = setTimeout(resolve, Math.max(0, timeoutMs - (now() - started)), cut);
+    });
+    let r;
+    try {
+      r = await Promise.race([attempt(), deadline]);
+    } finally {
+      clearTimeout(timer);
+    }
     attempts++;
     const elapsedMs = now() - started;
+    if (r === cut) return { settled: false, value: last, timedOut: true, attempts, elapsedMs };
     if (r.settled) return { settled: true, value: r.value, timedOut: false, attempts, elapsedMs };
+    last = r.value;
     if (elapsedMs >= timeoutMs)
       return { settled: false, value: r.value, timedOut: true, attempts, elapsedMs };
     const wait = Math.min(waitMs, maxIntervalMs, timeoutMs - elapsedMs);
@@ -444,20 +482,24 @@ export async function verifyAll(packages, ver, opts = {}) {
   let pending = [...packages];
   // T14615: why each pending package is still pending, from its latest
   // attempt, so every logged attempt names the rung and status it stalled at.
-  /** @type {Map<string, string>} */
+  /** @type {Map<string, { detail: string, rung?: string }>} */
   const pendingDetail = new Map();
+  // T14646: set once `converge` returns. A round it abandoned at the deadline
+  // may still finish later; it must not change the verdict already reported.
+  let closed = false;
 
   const round = async () => {
     const results = await Promise.all(
       pending.map(async (pkg) => ({ pkg, ...(await checkPackage(pkg, ver, fetchImpl, distTag)) })),
     );
+    if (closed) return { settled: false, value: undefined };
 
     /** @type {string[]} */
     const stillPending = [];
     for (const r of results) {
       if (r.state === 'pending') {
         stillPending.push(r.pkg);
-        pendingDetail.set(r.pkg, r.detail ?? 'not installable');
+        pendingDetail.set(r.pkg, { detail: r.detail ?? 'not installable', rung: r.rung });
         continue;
       }
       // ok and mismatch are both terminal — a wrong version never becomes right.
@@ -466,6 +508,7 @@ export async function verifyAll(packages, ver, opts = {}) {
       // package is installable, so it is read here and nowhere else. A package
       // that stalls at any rung keeps the record without it.
       const createdAt = r.state === 'ok' ? await readCreatedAt(r.pkg, ver, fetchImpl) : undefined;
+      if (closed) return { settled: false, value: undefined };
       settled.set(r.pkg, {
         state: r.state,
         detail: r.detail,
@@ -497,20 +540,24 @@ export async function verifyAll(packages, ver, opts = {}) {
       log(
         `  ... attempt ${attempts}: ${pending.length} not yet installable at +${Math.round(elapsedMs / 1000)}s ` +
           `(next in ${Math.round(waitMs / 1000)}s): ` +
-          pending.map((pkg) => `${pkg} (${pendingDetail.get(pkg)})`).join(', '),
+          pending.map((pkg) => `${pkg} (${pendingDetail.get(pkg)?.detail})`).join(', '),
       ),
   });
+  closed = true;
 
+  // T14646: reported from each package's latest answer. Another registry round
+  // here would be a wait past the deadline the budget exists to enforce.
   if (outcome.timedOut) {
     for (const pkg of pending) {
-      const last = await checkPackage(pkg, ver, fetchImpl, distTag);
+      const last = pendingDetail.get(pkg);
+      const detail = last?.detail ?? 'no registry answer before the deadline';
       settled.set(pkg, {
         state: 'timeout',
-        detail: last.detail ?? 'still not installable at deadline',
+        detail,
         elapsedMs: outcome.elapsedMs,
-        rung: last.rung,
+        ...(last?.rung ? { rung: last.rung } : {}),
       });
-      log(`  [FAIL] @cleocode/${pkg}@${ver}  ${last.detail ?? 'not installable'}`);
+      log(`  [FAIL] @cleocode/${pkg}@${ver}  ${detail}`);
     }
   }
 
