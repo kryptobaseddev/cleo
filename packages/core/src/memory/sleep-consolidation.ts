@@ -404,7 +404,9 @@ function cosineSimilarity(a: Uint8Array | null, b: Uint8Array | null): number {
  * {@link MergeDuplicatesResult.error} (T14639). A pair whose edge already
  * exists is left unmerged and counted in {@link MergeDuplicatesResult.skipped},
  * so the earlier edge's provenance survives. If the rollback itself fails the
- * step stops and reports the merges already committed (T14640).
+ * step stops and reports the merges already committed (T14640); inside a
+ * caller's transaction nothing has committed, so it throws instead and the
+ * caller must roll its transaction back (T14648).
  *
  * @param projectRoot - Project root for brain.db resolution.
  */
@@ -541,7 +543,9 @@ async function stepMergeDuplicates(projectRoot: string): Promise<MergeDuplicates
           weight: provenance.similarity,
           createdAt: now,
         })
-        .onConflictDoNothing()
+        .onConflictDoNothing({
+          target: [brainPageEdges.fromId, brainPageEdges.toId, brainPageEdges.edgeType],
+        })
         .returning({ fromId: brainPageEdges.fromId })
         .all();
       if (inserted.length === 0) {
@@ -584,7 +588,19 @@ async function stepMergeDuplicates(projectRoot: string): Promise<MergeDuplicates
         // transaction this pair opened (earlier pairs already committed on
         // their RELEASE), stop merging, and report what did commit (T14640).
         rollbackFailure = rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr);
-        if (!startedInTransaction && nativeDb.isTransaction) {
+        if (startedInTransaction) {
+          // Inside a caller's transaction nothing here has committed: every
+          // RELEASE only folded a pair into the caller's transaction, which
+          // still holds this pair's partial writes. Only the caller can
+          // discard them, so rethrow instead of reporting merges (T14648).
+          // @sync-invariant none:local-only the caller's open transaction still holds the uncommitted writes; nothing is committed
+          throw new Error(
+            `sleep merge rollback failed inside a caller transaction (${rollbackFailure}); ` +
+              `pair ${keepId} <- ${evictId} failed: ${firstFailure}; nothing committed, ` +
+              'roll back the caller transaction',
+          );
+        }
+        if (nativeDb.isTransaction) {
           try {
             nativeDb.exec('ROLLBACK');
           } catch (abortErr) {

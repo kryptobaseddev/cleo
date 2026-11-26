@@ -10,6 +10,7 @@
  *
  * @task T14599
  * @task T14640
+ * @task T14648
  */
 
 import { mkdtemp, rm } from 'node:fs/promises';
@@ -242,6 +243,52 @@ describe.skipIf(!isSqliteVecAvailable())('sleep consolidation merge on a real st
       .prepare(`SELECT 1 FROM brain_page_edges WHERE to_id = 'observation:O-dup2'`)
       .get();
     expect(orphan).toBeUndefined();
+  });
+
+  it('inside a caller transaction a ROLLBACK TO failure reports nothing committed', async () => {
+    const db = await seedStore();
+    const { upsertEmbeddingRowsNative } = await import('../../store/memory-accessor.js');
+    const insert = db.prepare(
+      `INSERT INTO brain_observations (id, type, title, narrative, quality_score, memory_tier, citation_count)
+       VALUES (?, 'discovery', ?, 'Second duplicate', ?, 'short', ?)`,
+    );
+    insert.run('O-keep2', 'Second A', 0.8, 0);
+    insert.run('O-dup2', 'Second B', 0.3, 4);
+    upsertEmbeddingRowsNative(db, MODEL, [
+      { id: 'O-keep2', vector: unitVector(4) },
+      { id: 'O-dup2', vector: unitVector(4) },
+    ]);
+    // The first pair merges into the caller's transaction; the second fails
+    // after its edge and eviction are written.
+    db.exec(`CREATE TRIGGER t14648_inject BEFORE UPDATE OF citation_count ON brain_observations
+             WHEN NEW.id = 'O-keep2'
+             BEGIN SELECT RAISE(ABORT, 'injected citation failure'); END`);
+    const before = snapshot(db);
+    const prepare = db.prepare.bind(db);
+    const spy = vi.spyOn(db, 'prepare').mockImplementation((sql: string) => {
+      if (sql === 'ROLLBACK TO sleep_merge_pair') throw new Error('injected rollback failure');
+      return prepare(sql);
+    });
+
+    db.exec('BEGIN');
+    const { runSleepConsolidation } = await import('../sleep-consolidation.js');
+    const result = await runSleepConsolidation(tempDir);
+    spy.mockRestore();
+
+    expect(result.mergeDuplicates.merged).toBe(0);
+    expect(result.mergeDuplicates.error).toMatch(/injected rollback failure/);
+    expect(result.mergeDuplicates.error).toMatch(/injected citation failure/);
+    expect(result.mergeDuplicates.error).toMatch(/nothing committed/);
+    // The caller's transaction is left to the caller, who discards the writes.
+    expect(db.isTransaction).toBe(true);
+    db.exec('ROLLBACK');
+    expect(snapshot(db)).toEqual(before);
+    const edges = db
+      .prepare(
+        `SELECT 1 FROM brain_page_edges WHERE to_id IN ('observation:O-dup', 'observation:O-dup2')`,
+      )
+      .all();
+    expect(edges).toEqual([]);
   });
 
   it('reports a query failure in the result instead of reading as nothing to merge', async () => {
