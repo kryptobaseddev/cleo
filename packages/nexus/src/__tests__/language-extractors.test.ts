@@ -1,5 +1,6 @@
 /**
- * Tests for the Wave I language extractors: Python, Go, and Rust.
+ * Tests for the Wave I language extractors: Python, Go, and Rust, plus parse
+ * checks for the C, C++, Ruby and JavaScript grammars (T14637).
  *
  * Each test creates a minimal in-memory tree-sitter AST by parsing a code
  * snippet and verifying that the extractor returns the expected definitions,
@@ -14,6 +15,7 @@
  */
 
 import { createRequire } from 'node:module';
+import type Parser from 'tree-sitter';
 import { beforeAll, describe, expect, it } from 'vitest';
 
 // ---------------------------------------------------------------------------
@@ -578,5 +580,49 @@ impl Counter {
     const incrementMethod = result.definitions.find((d) => d.name === 'increment');
     expect(incrementMethod?.kind).toBe('method');
     expect(incrementMethod?.parent).toBe('counter.rs::Counter');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Grammar parse checks under tree-sitter 0.25.1 (T14637)
+// ---------------------------------------------------------------------------
+
+describe('grammar parse under tree-sitter 0.25.1 (T14637)', () => {
+  // These grammars have no extractor test above. A missing native module throws
+  // from require and fails here instead of skipping, so the check is never vacuous.
+  it.each([
+    [
+      'tree-sitter-c',
+      'int add(int a, int b) { return a + b; }\n',
+      'translation_unit',
+      'function_declarator',
+      'add',
+    ],
+    [
+      'tree-sitter-cpp',
+      'class Greeter { public: void hi(); };\n',
+      'translation_unit',
+      'class_specifier',
+      'Greeter',
+    ],
+    ['tree-sitter-ruby', 'class Greeter\n  def hi; end\nend\n', 'program', 'method', 'hi'],
+    [
+      'tree-sitter-javascript',
+      'function greet(name) { return name; }\n',
+      'program',
+      'function_declaration',
+      'greet',
+    ],
+  ])('%s parses a snippet into its root and a named declaration', (pkg, source, rootType, nodeType, name) => {
+    const parser = new (_require('tree-sitter') as typeof Parser)();
+    parser.setLanguage(_require(pkg) as Parser.Language);
+    const root = parser.parse(source).rootNode;
+    expect(root.type).toBe(rootType);
+    expect(root.hasError).toBe(false);
+    const node = root.descendantsOfType(nodeType)[0];
+    const nameNode = node?.childForFieldName(
+      nodeType === 'function_declarator' ? 'declarator' : 'name',
+    );
+    expect(nameNode?.text).toBe(name);
   });
 });

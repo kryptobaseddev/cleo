@@ -60,8 +60,9 @@ export const DEFAULT_PARSE_TIMEOUT_MS = 1000;
  * @remarks The native timeout bounds synchronous parsing; a JavaScript timer cannot
  * preempt it. Cancellation in this realm is cooperative. Worker resource limits
  * bound JavaScript heap separately and do not cap native allocations. The 4096-unit
- * input chunks avoid the installed binding's default string-buffer limit without
- * allocating a buffer proportional to the entire source. Surrogate pairs stay intact.
+ * input chunks feed the binding without allocating a buffer proportional to the
+ * entire source (tree-sitter 0.21.1 also refused a default parse above 32767 units;
+ * 0.25.1 does not, T14637). Surrogate pairs stay intact.
  * @example
  * ```ts
  * const tree = parseOriginalSource(parser, 'const 解析 = "🌱";', { timeoutMs: 500 });

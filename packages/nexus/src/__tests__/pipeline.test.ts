@@ -861,9 +861,13 @@ describe('bounded original parser capacity (T12262)', () => {
     );
   });
 
-  it('retains the real default-buffer failure as a native negative control', () => {
-    expect(() => nativeParser().parse(sourceOfLength(32767))).not.toThrow();
-    expect(() => nativeParser().parse(sourceOfLength(32768))).toThrow('Invalid argument');
+  // tree-sitter 0.21.1 threw "Invalid argument" on a default parse above 32767 units;
+  // 0.25.1 (T14637) parses it whole. This pins the native upgrade; the chunked input
+  // used by parseOriginalSource does not depend on it.
+  it.each([32767, 32768, 262144])('native default parse reads all %i units', (length) => {
+    const tree = nativeParser().parse(sourceOfLength(length));
+    expect(tree.rootNode.hasError).toBe(false);
+    expect(tree.rootNode.endIndex).toBe(length);
   });
 
   it('preserves an astral surrogate pair across the input chunk boundary', () => {
