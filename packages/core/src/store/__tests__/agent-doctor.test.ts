@@ -79,6 +79,7 @@ async function makeTmpEnv(suffix: string): Promise<TmpEnv> {
       getCleoHome: () => cleoHome,
       getCleoGlobalAgentsDir: () => globalCantDir,
       getCleoGlobalCantAgentsDir: () => globalCantDir,
+      getCleoLegacyGlobalAgentsDir: () => join(cleoHome, 'agents'),
     };
   });
 
@@ -231,6 +232,92 @@ describe('W2-7 buildDoctorReport + reconcileDoctor — real sqlite + real .cant'
       expect(d003[0]?.severity).toBe('error');
       expect(d003[0]?.subject).toBe('global:doctor-fixture');
       expect(d003[0]?.fixCommand).toContain('--force');
+    } finally {
+      db.close();
+    }
+  });
+
+  // T14600: agents installed to the legacy <cleoHome>/agents dir still get the
+  // filesystem drift checks, and each finding names the file it is about.
+  it('runs D-001 and D-003 on the legacy <cleoHome>/agents dir and names the file', async () => {
+    const { installAgentFromCant } = await import('../agent-install.js');
+    const { buildDoctorReport } = await import('../agent-doctor.js');
+    const legacyDir = join(env.cleoHome, 'agents');
+    const orphan = writeCant(legacyDir, 'legacy-orphan.cant', FIXTURE_MINIMAL_CANT);
+    const sourcePath = writeCant(
+      join(env.projectRoot, 'sources'),
+      'doctor-fixture.cant',
+      FIXTURE_MINIMAL_CANT,
+    );
+    const db = env.openDb();
+    try {
+      // An install made by an older CLEO: file and row in the legacy dir.
+      const install = installAgentFromCant(db, {
+        cantSource: sourcePath,
+        targetTier: 'global',
+        installedFrom: 'manual',
+        globalCantDir: legacyDir,
+      });
+      appendFileSync(install.cantPath, '\n# drift marker added by test\n');
+
+      const report = await buildDoctorReport(db, {
+        globalCantDir: env.globalCantDir,
+        homeDir: env.homeDir,
+      });
+      const d001 = report.findings.filter((f) => f.code === 'D-001');
+      expect(d001).toHaveLength(1);
+      expect(d001[0]?.subject).toBe('global:legacy-orphan');
+      expect(d001[0]?.message).toContain(orphan);
+      const d003 = report.findings.filter((f) => f.code === 'D-003');
+      expect(d003).toHaveLength(1);
+      expect(d003[0]?.subject).toBe('global:doctor-fixture');
+      expect(d003[0]?.message).toContain(join(legacyDir, 'doctor-fixture.cant'));
+    } finally {
+      db.close();
+    }
+  });
+
+  // T14600: after an upgrade and reinstall, a stale legacy copy must not be
+  // drift-checked or offered for install over the registered canonical file.
+  it('reports a stale legacy copy of a canonical agent as D-011 with no fix command', async () => {
+    const { installAgentFromCant } = await import('../agent-install.js');
+    const { buildDoctorReport } = await import('../agent-doctor.js');
+    const legacyDir = join(env.cleoHome, 'agents');
+    const sourcePath = writeCant(
+      join(env.projectRoot, 'sources'),
+      'doctor-fixture.cant',
+      FIXTURE_MINIMAL_CANT,
+    );
+    // Stale copy: different bytes and skills from the registered file.
+    const stale = writeCant(
+      legacyDir,
+      'doctor-fixture.cant',
+      `${FIXTURE_MINIMAL_CANT.replace('["ct-cleo"]', '[]')}\n# stale\n`,
+    );
+    const db = env.openDb();
+    try {
+      const install = installAgentFromCant(db, {
+        cantSource: sourcePath,
+        targetTier: 'global',
+        installedFrom: 'manual',
+        globalCantDir: env.globalCantDir,
+      });
+
+      const report = await buildDoctorReport(db, {
+        globalCantDir: env.globalCantDir,
+        homeDir: env.homeDir,
+      });
+      const codes = report.findings.map((f) => f.code);
+      expect(codes).not.toContain('D-003');
+      expect(codes).not.toContain('D-005');
+      expect(codes).not.toContain('D-006');
+      const d011 = report.findings.filter((f) => f.code === 'D-011');
+      expect(d011).toHaveLength(1);
+      expect(d011[0]?.severity).toBe('info');
+      expect(d011[0]?.subject).toBe('global:doctor-fixture');
+      expect(d011[0]?.message).toContain(stale);
+      expect(d011[0]?.message).toContain(install.cantPath);
+      expect(report.findings.some((f) => f.fixCommand?.includes(stale))).toBe(false);
     } finally {
       db.close();
     }

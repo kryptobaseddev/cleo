@@ -44,7 +44,11 @@ import { accessSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
-import { getCleoGlobalCantAgentsDir, resolveOrCwd } from '../paths.js';
+import {
+  getCleoGlobalCantAgentsDir,
+  getCleoLegacyGlobalAgentsDir,
+  resolveOrCwd,
+} from '../paths.js';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -315,9 +319,11 @@ export async function resolvePersonaFromRegistry(
   if (projectResult) return projectResult;
 
   // ── Tier 2: global ─────────────────────────────────────────────────────────
-  const globalAgentsDir = getCleoGlobalCantAgentsDir();
-  const globalResult = tryTier(globalAgentsDir, 'global', keywords, db);
-  if (globalResult) return globalResult;
+  // The legacy dir holds agents installed globally before T14600.
+  for (const globalAgentsDir of [getCleoGlobalCantAgentsDir(), getCleoLegacyGlobalAgentsDir()]) {
+    const globalResult = tryTier(globalAgentsDir, 'global', keywords, db);
+    if (globalResult) return globalResult;
+  }
 
   // ── Tier 3: packaged ───────────────────────────────────────────────────────
   const packagedDir = options.packagedSeedDir ?? resolvePackagedSeedDir();
@@ -351,6 +357,7 @@ export function listTierDirectories(
   const entries: Array<{ tier: PersonaTier; dir: string }> = [
     { tier: 'project', dir: join(root, '.cleo', 'cant', 'agents') },
     { tier: 'global', dir: getCleoGlobalCantAgentsDir() },
+    { tier: 'global', dir: getCleoLegacyGlobalAgentsDir() },
   ];
 
   const packaged = packagedSeedDir ?? resolvePackagedSeedDir();

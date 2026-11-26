@@ -289,17 +289,19 @@ function installedCleoHome(): string | undefined {
 
 /**
  * Resolve an agent reference to a .cant file on disk. Checks
- * `$PWD/.cleo/agents/`, `$CLEO_HOME/agents/`, then `<installed CLEO home>/agents/`.
+ * `$PWD/.cleo/agents/`, then each global home (`$CLEO_HOME`, then the
+ * installed CLEO home): its `cant/agents/` directory first, where
+ * `cleo agent install --global` writes (T14600), then the legacy `agents/`.
  */
 export function resolveAgentFile(cwd: string, agentName: string): string | undefined {
-  const cleoHome = installedCleoHome();
+  const file = `${agentName}.cant`;
+  const homes = [process.env.CLEO_HOME, installedCleoHome()].filter(
+    (h): h is string => typeof h === "string" && h.length > 0,
+  );
   const candidates = [
-    join(cwd, ".cleo", "agents", `${agentName}.cant`),
-    process.env.CLEO_HOME
-      ? join(process.env.CLEO_HOME, "agents", `${agentName}.cant`)
-      : undefined,
-    cleoHome ? join(cleoHome, "agents", `${agentName}.cant`) : undefined,
-  ].filter((p): p is string => typeof p === "string");
+    join(cwd, ".cleo", "agents", file),
+    ...homes.flatMap((home) => [join(home, "cant", "agents", file), join(home, "agents", file)]),
+  ];
   for (const path of candidates) if (existsSync(path)) return path;
   return undefined;
 }

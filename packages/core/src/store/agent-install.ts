@@ -37,7 +37,7 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, unlinkSync } from 'n
 import { basename, extname, join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import type { AgentRegistryExtendedFields, AgentSkillSource, AgentTier } from '@cleocode/contracts';
-import { getCleoGlobalAgentsDir } from '../paths.js';
+import { getCleoGlobalCantAgentsDir } from '../paths.js';
 
 // ---------------------------------------------------------------------------
 // Public API shapes
@@ -51,13 +51,13 @@ import { getCleoGlobalAgentsDir } from '../paths.js';
 export interface InstallAgentFromCantInput {
   /** Absolute path to the source `.cant` file to install. */
   cantSource: string;
-  /** Target tier: `'global'` writes to {@link getCleoGlobalAgentsDir}; `'project'` writes to `<projectRoot>/.cleo/cant/agents/`. */
+  /** Target tier: `'global'` writes to {@link getCleoGlobalCantAgentsDir}; `'project'` writes to `<projectRoot>/.cleo/cant/agents/`. */
   targetTier: Extract<AgentTier, 'global' | 'project'>;
   /** Provenance tag written to `agents.installed_from`. */
   installedFrom: 'seed' | 'user' | 'manual';
   /** Absolute path to the project root (required when `targetTier === 'project'`). */
   projectRoot?: string;
-  /** Override the destination directory for `'global'` installs (defaults to {@link getCleoGlobalAgentsDir}). */
+  /** Override the destination directory for `'global'` installs (defaults to {@link getCleoGlobalCantAgentsDir}). */
   globalCantDir?: string;
   /** When `true`, overwrite an existing row/file instead of throwing. */
   force?: boolean;
@@ -248,7 +248,7 @@ function parseSkillsValue(raw: string): string[] {
  */
 function resolveDestinationPath(input: InstallAgentFromCantInput, agentId: string): string {
   if (input.targetTier === 'global') {
-    const dir = input.globalCantDir ?? getCleoGlobalAgentsDir();
+    const dir = input.globalCantDir ?? getCleoGlobalCantAgentsDir();
     return join(dir, `${agentId}.cant`);
   }
   if (!input.projectRoot) {

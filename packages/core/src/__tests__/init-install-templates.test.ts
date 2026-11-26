@@ -77,7 +77,7 @@ async function makeTmpEnv(): Promise<TmpEnv> {
     return {
       ...actual,
       getCleoHome: () => cleoHome,
-      getCleoGlobalAgentsDir: () => join(cleoHome, 'cant', 'agents'),
+      getCleoGlobalCantAgentsDir: () => join(cleoHome, 'cant', 'agents'),
     };
   });
 

@@ -202,10 +202,11 @@ whose `cant_path` still exists on disk; an orphan row is skipped, not fatal.
 `E_AGENT_NOT_FOUND` is thrown only when every tier misses, which means
 `cleo-subagent.cant` itself is unreachable.
 
-**Global directory caveat (T14588):** `cleo agent create --global` and the
-seed installer use `<cleoHome>/cant/agents/`, but
-`cleo agent install --global` writes to `<cleoHome>/agents/`
-(`getCleoGlobalAgentsDir`). `<cleoHome>` is `~/.local/share/cleo` on Linux and
+**Global directory (T14600):** `cleo agent install --global`,
+`cleo agent create --global`, the seed installer and the resolver all use
+`<cleoHome>/cant/agents/` (`getCleoGlobalCantAgentsDir`). Agents an older CLEO
+installed to `<cleoHome>/agents/` are still found by the resolver.
+`<cleoHome>` is `~/.local/share/cleo` on Linux and
 `~/Library/Application Support/cleo` on macOS.
 
 ## Contract Guarantees
@@ -219,9 +220,9 @@ seed installer use `<cleoHome>/cant/agents/`, but
   compares `<cleoHome>/.seed-version` against the bundled version and returns
   early when they match.
 - **Doctor drift reporting**: `packages/core/src/store/agent-doctor.ts` emits
-  D-001…D-010 (orphan file, orphan row, SHA mismatch, unattached global,
+  D-001…D-011 (orphan file, orphan row, SHA mismatch, unattached global,
   missing or extra skills, parse error, legacy path, deprecated agent still
-  live, legacy JSON registry). `cleo agent doctor --repair` applies the safe
+  live, legacy JSON registry, shadowed copy of a registered agent). `cleo agent doctor --repair` applies the safe
   repairs (D-002 orphan-row delete, D-003 hash refresh).
 
 ## See Also

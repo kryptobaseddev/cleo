@@ -28,6 +28,11 @@
  *   without an alias redirect row.
  * - **D-010** `legacy-json`       — discovered `~/.cleo/agent-registry.json`
  *   from a pre-T889 install.
+ * - **D-011** `shadowed-copy`     — a scanned `.cant` file is not the file its
+ *   registry row points at (e.g. a stale `<cleoHome>/agents/` copy left after
+ *   a reinstall to `<cleoHome>/cant/agents/`). Info only: no drift checks run
+ *   against it and no fix command installs it, so it cannot overwrite the
+ *   registered agent (T14600).
  *
  * The module is intentionally dependency-light and does NOT import
  * `@cleocode/cant` (a circular dependency) — skill-list extraction reuses
@@ -42,11 +47,11 @@
 import { createHash } from 'node:crypto';
 import { access, readdir, readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { basename, join } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import type { AgentDoctorCode, AgentDoctorFinding, DoctorReport } from '@cleocode/contracts';
 import { rerouteLegacyStarterBundlePaths } from '../agents/seed-install.js';
-import { getCleoGlobalCantAgentsDir } from '../paths.js';
+import { getCleoGlobalCantAgentsDir, getCleoLegacyGlobalAgentsDir } from '../paths.js';
 
 // ---------------------------------------------------------------------------
 // Public API shapes
@@ -71,6 +76,13 @@ export interface BuildDoctorReportOptions {
    * {@link getCleoGlobalCantAgentsDir} is used.
    */
   globalCantDir?: string;
+  /**
+   * Override the legacy global agents directory (`<cleoHome>/agents/`, where
+   * `cleo agent install --global` wrote before T14600). Also scanned at the
+   * global tier after the canonical directory; defaults to
+   * {@link getCleoLegacyGlobalAgentsDir}.
+   */
+  legacyGlobalCantDir?: string;
   /**
    * Override `~/` for the D-010 legacy-json probe. Tests pass a tmp path
    * here; production callers should leave it `undefined`.
@@ -244,7 +256,12 @@ function extractCantSkills(raw: string): string[] {
  */
 function resolveTierDirs(options: BuildDoctorReportOptions): TierScan[] {
   const globalDir = options.globalCantDir ?? getCleoGlobalCantAgentsDir();
-  const scans: TierScan[] = [{ tier: 'global', dir: globalDir }];
+  const legacyDir = options.legacyGlobalCantDir ?? getCleoLegacyGlobalAgentsDir();
+  // The legacy dir holds agents installed globally before T14600.
+  const scans: TierScan[] = [
+    { tier: 'global', dir: globalDir },
+    { tier: 'global', dir: legacyDir },
+  ];
   if (options.projectRoot) {
     scans.push({
       tier: 'project',
@@ -337,6 +354,19 @@ export async function buildDoctorReport(
         continue;
       }
 
+      // D-011 — this file is not the registered one. Never drift-check it or
+      // suggest installing it: `install --force` would copy a stale file over
+      // the agent the row points at.
+      if (row.cant_path && resolve(row.cant_path) !== resolve(path)) {
+        findings.push({
+          code: 'D-011',
+          severity: 'info',
+          subject: `${scan.tier}:${agentId}`,
+          message: `Shadowed copy: ${path} is not the registered file; the registry row points at ${row.cant_path}, which wins.`,
+        });
+        continue;
+      }
+
       // D-003 — sha256 drift
       let parsedSkills: string[] | null = null;
       try {
@@ -347,7 +377,7 @@ export async function buildDoctorReport(
             code: 'D-003',
             severity: 'error',
             subject: `${scan.tier}:${agentId}`,
-            message: `SHA256 mismatch: file=${actualHash.slice(0, HEX_SHORT)}..., registry=${row.cant_sha256.slice(0, HEX_SHORT)}...`,
+            message: `SHA256 mismatch in ${path}: file=${actualHash.slice(0, HEX_SHORT)}..., registry=${row.cant_sha256.slice(0, HEX_SHORT)}...`,
             fixCommand: `cleo agent install ${path} --force${scan.tier === 'global' ? ' --global' : ''}`,
           });
         }
@@ -357,7 +387,7 @@ export async function buildDoctorReport(
           code: 'D-007',
           severity: 'error',
           subject: `${scan.tier}:${agentId}`,
-          message: `Failed to read .cant file: ${readErr instanceof Error ? readErr.message : String(readErr)}`,
+          message: `Failed to read .cant file ${path}: ${readErr instanceof Error ? readErr.message : String(readErr)}`,
         });
         continue;
       }
@@ -385,7 +415,7 @@ export async function buildDoctorReport(
             code: 'D-005',
             severity: 'warn',
             subject: `${scan.tier}:${agentId}`,
-            message: `Missing junction: .cant declares '${slug}' but agent_skills lacks the row.`,
+            message: `Missing junction: ${path} declares '${slug}' but agent_skills lacks the row.`,
             fixCommand: `cleo agent install ${path} --force${scan.tier === 'global' ? ' --global' : ''}`,
           });
         }
@@ -396,7 +426,7 @@ export async function buildDoctorReport(
             code: 'D-006',
             severity: 'warn',
             subject: `${scan.tier}:${agentId}`,
-            message: `Stale junction: agent_skills binds '${slug}' but .cant no longer declares it.`,
+            message: `Stale junction: agent_skills binds '${slug}' but ${path} no longer declares it.`,
             fixCommand: `cleo agent install ${path} --force${scan.tier === 'global' ? ' --global' : ''}`,
           });
         }
