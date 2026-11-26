@@ -2062,7 +2062,8 @@ const doctorCommand = defineCommand({
   args: {
     repair: {
       type: 'boolean',
-      description: 'Apply safe repairs (D-002 orphan-row delete, D-003 hash refresh)',
+      description:
+        'Apply safe repairs (D-002 orphan-row delete, D-003 hash refresh, D-007 unedited seed refresh)',
     },
     'import-legacy-json': {
       type: 'boolean',
@@ -2090,7 +2091,11 @@ const doctorCommand = defineCommand({
       const db = getGlobalAgentRegistryNativeDb() as import('node:sqlite').DatabaseSync;
 
       try {
-        const report = await buildDoctorReport(db, { projectRoot: getProjectRoot() });
+        const { parseDocument } = await import('@cleocode/cant');
+        const report = await buildDoctorReport(db, {
+          projectRoot: getProjectRoot(),
+          cantParses: async (cantPath) => (await parseDocument(cantPath)).success,
+        });
         const repairFlag = args.repair === true;
 
         let reconciled: Awaited<ReturnType<typeof reconcileDoctor>> | undefined;

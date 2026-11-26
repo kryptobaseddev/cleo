@@ -129,10 +129,62 @@ describe('W1-2 toCantAgentV3 + W1-4 TODO-stub linter', () => {
     // skills array flows through.
     expect(typed.skills).toContain('ct-task-executor');
 
-    // Mapper cannot reconstruct the Wave 0 dict-flattened context_sources AST
-    // today, so contextSources defaults to [] — the surface remains stable
-    // once the grammar grows nested-dict support.
-    expect(Array.isArray(typed.contextSources)).toBe(true);
+    // The keyed context_sources block is rebuilt from the flat AST (T14654).
+    // `conventions` declares a file, not a query, so it is not a BRAIN source.
+    expect(typed.contextSources).toEqual([
+      { source: 'patterns', query: 'backend AND (auth OR session)', maxEntries: 5 },
+    ]);
+  });
+
+  it('carries keyed context_sources and on_overflow from a packaged template (T14654)', async () => {
+    const template = resolve(
+      THIS_DIR,
+      '..',
+      '..',
+      'agents',
+      'templates',
+      'project-code-worker.cant',
+    );
+    const bundle = await compileBundle([template]);
+    const typed = bundle.agents[0]?.typed;
+    expect(typed?.contextSources).toEqual([
+      {
+        source: 'patterns',
+        query: 'coding conventions and testing patterns for {{tech_stack}}',
+        maxEntries: 5,
+      },
+      { source: 'learnings', query: 'past implementation mistakes and fixes', maxEntries: 3 },
+    ]);
+    expect(typed?.onOverflow).toBe('escalate_tier');
+  });
+
+  it('carries a non-default on_overflow from inside context_sources (T14654)', async () => {
+    const file = createFixture(
+      'overflow-fail.cant',
+      [
+        '---',
+        'kind: agent',
+        'version: "1"',
+        '---',
+        '',
+        'agent overflow-fail:',
+        '  role: worker',
+        '  context_sources:',
+        '    on_overflow: fail',
+        '    decisions:',
+        '      query: "release decisions"',
+        '      max_entries: 2',
+        '  tier: low',
+        '',
+      ].join('\n'),
+    );
+    const bundle = await compileBundle([file]);
+    const typed = bundle.agents[0]?.typed;
+    expect(typed?.onOverflow).toBe('fail');
+    expect(typed?.tier).toBe('low');
+    expect(typed?.contextSources).toEqual([
+      { source: 'decisions', query: 'release decisions', maxEntries: 2 },
+    ]);
   });
 
   it('rejects agents with TODO stubs in prompt/tone/enforcement fields via S-TODO-001', async () => {

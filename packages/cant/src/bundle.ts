@@ -195,7 +195,7 @@ export interface CompiledBundle {
  * with `{ value: string }` and a typed `value` wrapper.
  */
 interface RawAstProperty {
-  key: { value: string };
+  key: { value: string; span?: { col?: number } };
   value: Record<string, unknown>;
 }
 
@@ -205,6 +205,13 @@ interface RawAgentSection {
   properties: RawAstProperty[];
   permissions?: Array<{ domain: string; access: string[] }>;
   hooks?: unknown[];
+  /**
+   * The `context_sources:` sub-block. cant-core flattens it: each source
+   * header (`patterns:`), its nested `query:` / `max_entries:` lines and the
+   * block-level `on_overflow:` all arrive as one flat property list, told
+   * apart only by the key's column.
+   */
+  context_sources?: RawAstProperty[];
 }
 
 /**
@@ -262,6 +269,47 @@ function extractProperties(rawProps: RawAstProperty[]): Record<string, unknown> 
 }
 
 /**
+ * Rebuild the keyed `context_sources:` block from cant-core's flat property
+ * list (T14654).
+ *
+ * @remarks
+ * A key at the block's outer column whose value is empty opens a source named
+ * by that key; keys at a deeper column belong to the open source. The outer
+ * `on_overflow:` key is returned separately. Any other outer key closes the
+ * open source.
+ *
+ * @param rawProps - The `context_sources` property list from the AST.
+ * @returns The sources as `{ source, ...fields }` records plus `on_overflow`.
+ */
+function groupContextSources(rawProps: RawAstProperty[]): {
+  sources: Array<Record<string, unknown>>;
+  onOverflow: unknown;
+} {
+  const sources: Array<Record<string, unknown>> = [];
+  let onOverflow: unknown;
+  const cols = rawProps.map((p) => p.key?.span?.col ?? 0);
+  const outerCol = cols.length > 0 ? Math.min(...cols) : 0;
+  let current: Record<string, unknown> | null = null;
+  for (const [i, prop] of rawProps.entries()) {
+    const key = prop.key?.value;
+    if (typeof key !== 'string') continue;
+    const value = simplifyValue(prop.value);
+    if ((cols[i] ?? 0) > outerCol) {
+      if (current !== null) current[key] = value;
+      continue;
+    }
+    current = null;
+    if (key === 'on_overflow') {
+      onOverflow = value;
+    } else if (value === '') {
+      current = { source: key };
+      sources.push(current);
+    }
+  }
+  return { sources, onOverflow };
+}
+
+/**
  * Extract agents from a parsed document AST.
  *
  * @param doc - The raw AST document object from `parseDocument`.
@@ -295,6 +343,16 @@ function extractAgents(doc: unknown, sourcePath: string): AgentEntry[] {
         }
       }
       properties['permissions'] = permMap;
+    }
+
+    if (Array.isArray(agentData.context_sources) && agentData.context_sources.length > 0) {
+      const { sources, onOverflow } = groupContextSources(agentData.context_sources);
+      if (sources.length > 0 && properties['context_sources'] === undefined) {
+        properties['context_sources'] = sources;
+      }
+      if (onOverflow !== undefined && properties['on_overflow'] === undefined) {
+        properties['on_overflow'] = onOverflow;
+      }
     }
 
     agents.push({ name: nameValue, sourcePath, properties });
@@ -388,11 +446,9 @@ function extractContracts(value: unknown): CantContractBlock {
 
 /**
  * Map the raw `context_sources` property value to an array of
- * {@link CantContextSourceDef}. Supports the list form
- * `[{source, query, max_entries}]` today; dict form (`patterns: {...}`) is
- * flattened by the Wave 0 parser into sibling properties and therefore
- * requires a follow-up grammar pass to reconstruct. Returns an empty array
- * when the value is absent, malformed, or dict-flattened.
+ * {@link CantContextSourceDef}. Takes the `[{source, query, max_entries}]`
+ * list that {@link groupContextSources} rebuilds from the keyed block.
+ * Returns an empty array when the value is absent or malformed.
  */
 function extractContextSources(value: unknown): CantContextSourceDef[] {
   if (!Array.isArray(value)) return [];

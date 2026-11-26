@@ -21,7 +21,11 @@
  *   that the `agent_skills` junction is missing (requires a parseable file).
  * - **D-006** `extra-skills`      — `agent_skills` binds a skill that is not
  *   present in the manifest's declared `skills[]`.
- * - **D-007** `cant-parse-error`  — the file on disk failed to parse.
+ * - **D-007** `cant-parse-error`  — the file on disk failed to read or, when the
+ *   caller supplies {@link BuildDoctorReportOptions.cantParses}, to parse. An
+ *   unedited seed (file digest equals the stored `cant_sha256`) with a packaged
+ *   template of the same name is refreshed from that template by
+ *   {@link reconcileDoctor} (T14654).
  * - **D-008** `legacy-path`       — row uses the pre-T889 `.cleo/agents/`
  *   path instead of `.cleo/cant/agents/`.
  * - **D-009** `deprecated-live`   — a deprecated agent is still registered
@@ -47,11 +51,13 @@
 import { createHash } from 'node:crypto';
 import { access, readdir, readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { basename, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import type { AgentDoctorCode, AgentDoctorFinding, DoctorReport } from '@cleocode/contracts';
+import { resolveAgentTemplates } from '../agents/resolveAgentTemplates.js';
 import { rerouteLegacyStarterBundlePaths } from '../agents/seed-install.js';
 import { getCleoGlobalCantAgentsDir, getCleoLegacyGlobalAgentsDir } from '../paths.js';
+import { installAgentFromCant } from './agent-install.js';
 
 // ---------------------------------------------------------------------------
 // Public API shapes
@@ -88,6 +94,17 @@ export interface BuildDoctorReportOptions {
    * here; production callers should leave it `undefined`.
    */
   homeDir?: string;
+  /**
+   * Whether a `.cant` file parses with the current CANT grammar. Core does not
+   * depend on `@cleocode/cant`, so the CLI supplies the real parser here. When
+   * omitted, or when it throws (parser unavailable), no parse check runs.
+   */
+  cantParses?: (cantPath: string) => Promise<boolean>;
+  /**
+   * Override the packaged agent templates directory consulted for D-007 seed
+   * refreshes; defaults to {@link resolveAgentTemplates}.
+   */
+  templatesDir?: string | null;
 }
 
 /**
@@ -117,6 +134,11 @@ export interface ReconcileDoctorOptions {
    * the registry from disk state that wasn't vetted.
    */
   rehydrateFromSeed?: boolean;
+  /**
+   * Override the packaged agent templates directory used to refresh an
+   * unparseable unedited seed (D-007); defaults to {@link resolveAgentTemplates}.
+   */
+  templatesDir?: string | null;
 }
 
 /**
@@ -145,6 +167,7 @@ interface DoctorAgentRow {
   cant_path: string | null;
   cant_sha256: string | null;
   skills: string | null;
+  installed_from?: string | null;
 }
 
 /** Shape of the skill-join rows used to detect D-005 / D-006 drift. */
@@ -184,6 +207,27 @@ interface TierScan {
  */
 function sha256Hex(bytes: Buffer): string {
   return createHash('sha256').update(bytes).digest('hex');
+}
+
+/**
+ * Resolve the packaged template a seed agent can be refreshed from, but only
+ * when refreshing loses nothing: the row came from a seed, the file on disk
+ * is byte-identical to what was installed, and a template of the same name
+ * ships (T14654).
+ *
+ * @param row - Registry row of the agent.
+ * @param fileHash - SHA-256 of the file on disk.
+ * @param templatesDir - Packaged templates directory, or `null` when absent.
+ * @returns The template path, or `null` when the file must not be replaced.
+ */
+async function refreshableSeedTemplate(
+  row: Pick<DoctorAgentRow, 'agent_id' | 'cant_sha256' | 'installed_from'>,
+  fileHash: string,
+  templatesDir: string | null,
+): Promise<string | null> {
+  if (row.installed_from !== 'seed' || row.cant_sha256 !== fileHash || !templatesDir) return null;
+  const template = join(templatesDir, `${row.agent_id}.cant`);
+  return (await exists(template)) ? template : null;
 }
 
 /**
@@ -329,6 +373,8 @@ export async function buildDoctorReport(
   }
 
   const scans = resolveTierDirs(options);
+  const templatesDir =
+    options.templatesDir !== undefined ? options.templatesDir : resolveAgentTemplates();
 
   // --- D-001 / D-003 / D-005 / D-006 / D-007: filesystem-driven walk -------
   for (const scan of scans) {
@@ -339,7 +385,7 @@ export async function buildDoctorReport(
 
       const row = db
         .prepare(
-          'SELECT id, agent_id, tier, cant_path, cant_sha256, skills FROM agent_registry_agents WHERE agent_id = ? AND tier = ?',
+          'SELECT id, agent_id, tier, cant_path, cant_sha256, skills, installed_from FROM agent_registry_agents WHERE agent_id = ? AND tier = ?',
         )
         .get(agentId, scan.tier) as DoctorAgentRow | undefined;
 
@@ -369,9 +415,10 @@ export async function buildDoctorReport(
 
       // D-003 — sha256 drift
       let parsedSkills: string[] | null = null;
+      let actualHash = '';
       try {
         const buf = await readFile(path);
-        const actualHash = sha256Hex(buf);
+        actualHash = sha256Hex(buf);
         if (row.cant_sha256 && actualHash !== row.cant_sha256) {
           findings.push({
             code: 'D-003',
@@ -388,6 +435,30 @@ export async function buildDoctorReport(
           severity: 'error',
           subject: `${scan.tier}:${agentId}`,
           message: `Failed to read .cant file ${path}: ${readErr instanceof Error ? readErr.message : String(readErr)}`,
+        });
+        continue;
+      }
+
+      // D-007 — the file does not parse with the current grammar (T14654).
+      let parses = true;
+      try {
+        if (options.cantParses) parses = await options.cantParses(path);
+      } catch {
+        // Parser unavailable: the parse check did not run.
+      }
+      if (!parses) {
+        const template = await refreshableSeedTemplate(row, actualHash, templatesDir);
+        const tierFlag = scan.tier === 'global' ? ' --global' : '';
+        findings.push({
+          code: 'D-007',
+          severity: 'error',
+          subject: `${scan.tier}:${agentId}`,
+          message: template
+            ? `${path} does not parse with the current CANT grammar. It is an unedited seed, so --repair refreshes it from the packaged template ${template}.`
+            : `${path} does not parse with the current CANT grammar and was edited after install or has no packaged template, so it is left alone. Rewrite it in the current syntax${templatesDir ? ` (see ${join(templatesDir, `${agentId}.cant`)})` : ''}, then reinstall it.`,
+          fixCommand: template
+            ? 'cleo agent doctor --repair'
+            : `cleo agent install ${path} --force${tierFlag}`,
         });
         continue;
       }
@@ -573,9 +644,60 @@ export async function reconcileDoctor(
         }
         break;
       }
+      case 'D-007': {
+        // Refresh an unparseable seed from its packaged template, only when the
+        // file is byte-identical to what was installed (T14654).
+        const [tier, agentId] = finding.subject.split(':');
+        const row = db
+          .prepare(
+            'SELECT agent_id, cant_path, cant_sha256, installed_from FROM agent_registry_agents WHERE agent_id = ? AND tier = ?',
+          )
+          .get(agentId ?? '', tier ?? '') as
+          | Pick<DoctorAgentRow, 'agent_id' | 'cant_path' | 'cant_sha256' | 'installed_from'>
+          | undefined;
+        let fileHash: string | null = null;
+        try {
+          if (row?.cant_path) fileHash = sha256Hex(await readFile(row.cant_path));
+        } catch {
+          // Unreadable file: nothing to refresh.
+        }
+        const templatesDir =
+          options.templatesDir !== undefined ? options.templatesDir : resolveAgentTemplates();
+        const template =
+          row?.cant_path && fileHash
+            ? await refreshableSeedTemplate(row, fileHash, templatesDir)
+            : null;
+        const cantPath = row?.cant_path ? resolve(row.cant_path) : null;
+        // The install writes to <projectRoot>/.cleo/cant/agents/<id>.cant or
+        // <globalDir>/<id>.cant; derive both from the row so it lands in place.
+        const projectRoot = cantPath ? resolve(cantPath, '..', '..', '..', '..') : '';
+        const inPlace =
+          tier === 'global' ||
+          (tier === 'project' &&
+            cantPath === join(projectRoot, '.cleo', 'cant', 'agents', `${agentId}.cant`));
+        if (!template || !cantPath || !inPlace || (tier !== 'global' && tier !== 'project')) {
+          skipped.push(finding.code);
+          break;
+        }
+        try {
+          installAgentFromCant(db, {
+            cantSource: template,
+            targetTier: tier,
+            installedFrom: 'seed',
+            projectRoot,
+            globalCantDir: dirname(cantPath),
+            force: true,
+          });
+          repaired.push(finding.code);
+        } catch {
+          // installAgentFromCant rolls back its own file + row on failure.
+          skipped.push(finding.code);
+        }
+        break;
+      }
       default: {
         // D-001 (rehydrate-from-seed), D-004/D-005/D-006 (skill reconciliation),
-        // D-007 (cant parse), D-008 (path migration), D-009 (deprecated-live),
+        // D-007 (edited or template-less unparseable file), D-008 (path migration), D-009 (deprecated-live),
         // D-010 (legacy JSON import) all require explicit opt-in flags that
         // are validated by the CLI layer. Mark them as skipped so the caller
         // knows they weren't auto-repaired.
