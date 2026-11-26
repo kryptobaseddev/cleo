@@ -1,8 +1,9 @@
 ---
 id: brain-reads-cleo-db
 tasks: [T14583]
-kind: fix
+kind: breaking
 summary: "@cleocode/brain substrate adapters read the project and global cleo.db (prefixed tables) through the core snapshot opener instead of the legacy brain.db, tasks.db, conduit.db, nexus.db and signaldock.db"
+breaking: "Removed from @cleocode/brain: getBrainDb, getTasksDb and getConduitDb (replacement: readProjectStore(ctx, read)); getNexusDb (replacement: readProjectStore(ctx, read), since the code graph is project-scope); getAgentRegistryDb (replacement: readGlobalStore(read)); getBrainDbPath, getTasksDbPath, getConduitDbPath and getNexusDbPath (replacement: getProjectStorePath()); getAgentRegistryDbPath (replacement: getGlobalStorePath()). The readers open a read-only snapshot for one synchronous read and close it, instead of returning a caller-owned writable handle. The agent-registry substrate no longer emits declared agent connection edges."
 ---
 
 `getAllSubstrates()` returned an empty or stale graph because every adapter
