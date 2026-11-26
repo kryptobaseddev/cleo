@@ -12,4 +12,6 @@ node kinds whose query failed in `BrainSubstrateResult.failedKinds`. An edge
 whose unloaded endpoint is of a failed kind is dropped and counted in that
 substrate's error. An edge to an absent node of a kind that loaded keeps the
 old behaviour (a stub), even when another query of the same substrate failed.
+When a store cannot be opened or its read throws, every node kind the adapter
+owns counts as failed.
 `StoreErrorSink` is exported from the package index.

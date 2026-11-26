@@ -9,7 +9,13 @@
  * Node IDs are prefixed with "conduit:" to prevent collisions.
  */
 
-import { allTyped, readProjectStore, substrateResult, tryNodeQuery } from '../db-connections.js';
+import {
+  allTyped,
+  readProjectStore,
+  storeFailureSink,
+  substrateResult,
+  tryNodeQuery,
+} from '../db-connections.js';
 import { resolveDefaultProjectContext } from '../project-context.js';
 import type {
   BrainEdge,
@@ -109,7 +115,7 @@ export function getConduitSubstrate(options: BrainQueryOptions = {}): BrainSubst
         });
       }
     },
-    (message) => errors.push(message),
+    storeFailureSink(errors, failedKinds, ['message']),
   );
 
   return substrateResult(nodes, edges, errors, failedKinds);

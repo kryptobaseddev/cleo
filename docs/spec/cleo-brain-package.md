@@ -129,7 +129,7 @@ Callers MUST cite Layer-1 files when updating this spec. Section 16 lists them.
 
 | Substrate | Node ID prefix | Node kinds | Adapter |
 |---|---|---|---|
-| `brain` (memory) | `brain:` | `observation`, `decision`, `pattern`, `learning` | `packages/brain/src/adapters/brain.ts:167` |
+| `brain` (memory) | `brain:` | `observation`, `decision`, `pattern`, `learning` | `packages/brain/src/adapters/brain.ts:168` |
 | `nexus` | `nexus:` | `symbol`, `file` | `packages/brain/src/adapters/nexus.ts:46` |
 | `tasks` | `tasks:` | `task`, `session` | `packages/brain/src/adapters/tasks.ts:66` |
 | `conduit` | `conduit:` | `message` | `packages/brain/src/adapters/conduit.ts:48` |
@@ -146,11 +146,11 @@ Typed memory: observations, decisions, patterns, learnings. Node weight comes
 from `quality_score`; `minWeight` filters low-weight rows. Intra-memory edges
 come from `brain_page_edges`. Bridges:
 
-- `brain_page_edges` whose `to_id` starts with `task:` → `tasks:*` (`brain.ts:343`)
-- `brain_page_edges` whose `to_id` looks like a NEXUS ID (contains `::`, or has a `/` and no `:`) → `nexus:*` (`brain.ts:352`)
-- `brain_memory_links` rows → `tasks:*` (`brain.ts:387`)
-- `brain_observations.files_modified_json` entries → `nexus:*`, edge type `modified_by` (`brain.ts:408`)
-- `brain_decisions.context_task_id` → `tasks:*`, edge type `applies_to` (`brain.ts:432`)
+- `brain_page_edges` whose `to_id` starts with `task:` → `tasks:*` (`brain.ts:344`)
+- `brain_page_edges` whose `to_id` looks like a NEXUS ID (contains `::`, or has a `/` and no `:`) → `nexus:*` (`brain.ts:353`)
+- `brain_memory_links` rows → `tasks:*` (`brain.ts:388`)
+- `brain_observations.files_modified_json` entries → `nexus:*`, edge type `modified_by` (`brain.ts:409`)
+- `brain_decisions.context_task_id` → `tasks:*`, edge type `applies_to` (`brain.ts:433`)
 
 ### 4.2 nexus
 
@@ -266,11 +266,11 @@ schema change. The wire contract enumerates built-ins for autocompletion in
 
 | Bridge | Edge type | Source mechanism | File:line |
 |---|---|---|---|
-| memory → tasks (page edges) | the row's `edge_type` | `brain_page_edges` with `to_id` starting `task:` | `packages/brain/src/adapters/brain.ts:343` |
-| memory → nexus (page edges) | the row's `edge_type` | `brain_page_edges` whose `to_id` is NEXUS-style | `packages/brain/src/adapters/brain.ts:352` |
-| memory → tasks (memory links) | the row's `link_type` | `brain_memory_links` rows | `packages/brain/src/adapters/brain.ts:387` |
-| memory → nexus (files modified) | `modified_by` | `brain_observations.files_modified_json` | `packages/brain/src/adapters/brain.ts:408` |
-| memory → tasks (decision context) | `applies_to` | `brain_decisions.context_task_id` | `packages/brain/src/adapters/brain.ts:432` |
+| memory → tasks (page edges) | the row's `edge_type` | `brain_page_edges` with `to_id` starting `task:` | `packages/brain/src/adapters/brain.ts:344` |
+| memory → nexus (page edges) | the row's `edge_type` | `brain_page_edges` whose `to_id` is NEXUS-style | `packages/brain/src/adapters/brain.ts:353` |
+| memory → tasks (memory links) | the row's `link_type` | `brain_memory_links` rows | `packages/brain/src/adapters/brain.ts:388` |
+| memory → nexus (files modified) | `modified_by` | `brain_observations.files_modified_json` | `packages/brain/src/adapters/brain.ts:409` |
+| memory → tasks (decision context) | `applies_to` | `brain_decisions.context_task_id` | `packages/brain/src/adapters/brain.ts:433` |
 | conduit → agent-registry | `messages` | aggregated `from_agent_id → to_agent_id` counts | `packages/brain/src/adapters/conduit.ts:104` |
 
 Every bridge carries `substrate: 'cross'`.
@@ -335,7 +335,7 @@ carries `substrates`, `limit`, `minWeight` and `projectCtx`
 and each adapter caps itself at `ceil(limit / 5)`. Within a substrate the
 adapter MAY split its budget by kind: the memory adapter spends 40% on
 observations, 25% on decisions, 20% on patterns and 15% on learnings
-(`brain.ts:194`, `:226`, `:258`, `:287`); the tasks adapter 80% tasks, 20%
+(`brain.ts:195`, `:227`, `:259`, `:288`); the tasks adapter 80% tasks, 20%
 sessions.
 
 ### 7.3 Merge and stub pass
@@ -375,11 +375,16 @@ A failed read is reported, never returned as a silently empty substrate:
   restore in progress, a malformed file), the reader reports
   `store cannot be opened: <message>` (`db-connections.ts:95`), and every
   substrate on that store lists it. A missing store is not an error: the
-  substrate is empty.
+  substrate is empty. When a store cannot be opened or its read throws, the
+  adapter's sink (`storeFailureSink`, `db-connections.ts:195`) marks every
+  node kind the adapter owns as failed, so edges into that substrate (for
+  example conduit's agent edges when the global store is unopenable) are
+  dropped and counted, never stubbed. NEXUS stubs are real `nexus_nodes`
+  lookups and are not affected.
 - **Edges to unloaded nodes.** When a memory node query fails, a page edge or
   memory link whose endpoint is of that kind and did not load is dropped, not
   emitted as a dangling edge, and counted as `dropped <n> edge(s) whose <kind>
-  endpoint did not load because its node query failed`, one message per kind (`brain.ts:320`).
+  endpoint did not load because its node query failed`, one message per kind (`brain.ts:321`).
   An endpoint of a kind that loaded keeps its edge. Node queries run through
   `tryNodeQuery` (`db-connections.ts:172`), which records the failed kind in
   the result's `failedKinds`.

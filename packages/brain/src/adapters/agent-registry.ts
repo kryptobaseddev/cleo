@@ -22,7 +22,13 @@
  * @task T14583 (read the global cleo.db)
  */
 
-import { allTyped, readGlobalStore, substrateResult, tryNodeQuery } from '../db-connections.js';
+import {
+  allTyped,
+  readGlobalStore,
+  storeFailureSink,
+  substrateResult,
+  tryNodeQuery,
+} from '../db-connections.js';
 import type {
   BrainEdge,
   BrainNode,
@@ -92,7 +98,7 @@ export function getAgentRegistrySubstrate(options: BrainQueryOptions = {}): Brai
         });
       }
     },
-    (message) => errors.push(message),
+    storeFailureSink(errors, failedKinds, ['agent']),
   );
 
   return substrateResult(nodes, edges, errors, failedKinds);

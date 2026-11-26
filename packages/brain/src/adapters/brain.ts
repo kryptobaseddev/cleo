@@ -18,6 +18,7 @@
 import {
   allTyped,
   readProjectStore,
+  storeFailureSink,
   substrateResult,
   tryNodeQuery,
   tryQuery,
@@ -441,7 +442,7 @@ export function getBrainSubstrate(options: BrainQueryOptions = {}): BrainSubstra
         }
       }
     },
-    (message) => errors.push(message),
+    storeFailureSink(errors, failedKinds, ['observation', 'decision', 'pattern', 'learning']),
   );
 
   return substrateResult(nodes, edges, errors, failedKinds);

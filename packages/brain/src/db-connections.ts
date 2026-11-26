@@ -183,6 +183,27 @@ export function tryNodeQuery<T>(
 }
 
 /**
+ * Builds the store error sink of an adapter: a whole-store failure (an open
+ * failure or a thrown read) records the message and marks every node kind the
+ * adapter owns as failed, since none of them loaded (T14659).
+ *
+ * @param errors - Collects the failure message.
+ * @param failedKinds - Receives every kind in `kinds` on failure.
+ * @param kinds - The node kinds the adapter loads from this store.
+ * @returns The sink to pass to {@link readProjectStore} or {@link readGlobalStore}.
+ */
+export function storeFailureSink(
+  errors: string[],
+  failedKinds: Set<BrainNodeKind>,
+  kinds: readonly BrainNodeKind[],
+): StoreErrorSink {
+  return (message) => {
+    errors.push(message);
+    for (const kind of kinds) failedKinds.add(kind);
+  };
+}
+
+/**
  * Builds an adapter result, joining the recorded failures into `error`.
  *
  * @param nodes - Nodes read from the substrate.

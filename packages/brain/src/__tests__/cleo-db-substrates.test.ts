@@ -33,6 +33,7 @@ let brokenGraph: BrainGraph;
 let partialGraph: BrainGraph;
 let tasksKindGraph: BrainGraph;
 let unopenableGraph: BrainGraph;
+let unopenableGlobalGraph: BrainGraph;
 
 beforeAll(async () => {
   dir = mkdtempSync(join(tmpdir(), 'cleo-brain-t14583-'));
@@ -164,6 +165,15 @@ beforeAll(async () => {
       tasksDbPath: unopenableStore,
     },
   });
+
+  // A global store that exists but is not a database, beside the healthy
+  // project store: conduit's a1 → a2 edge points at agents that never loaded.
+  const badHome = join(dir, 'bad-home');
+  mkdirSync(badHome, { recursive: true });
+  writeFileSync(join(badHome, 'cleo.db'), 'not a sqlite database, just text '.repeat(200));
+  vi.stubEnv('CLEO_HOME', badHome);
+  unopenableGlobalGraph = getAllSubstrates({ limit: 500, projectCtx });
+  vi.stubEnv('CLEO_HOME', home);
 });
 
 afterAll(() => {
@@ -272,6 +282,16 @@ describe('getAllSubstrates() over the consolidated cleo.db (T14583)', () => {
       /^tasks_tasks: .*; dropped 1 edge\(s\) whose task target did not load because its node query failed$/,
     );
     expect(tasksKindGraph.counts.edges.cross).toBe(0);
+  });
+
+  it('drops edges into a substrate whose store cannot be opened, with no fake stub (T14659)', () => {
+    const edges = unopenableGlobalGraph.edges.map((e) => `${e.source}|${e.type}|${e.target}`);
+    expect(edges).not.toContain('agent-registry:a1|messages|agent-registry:a2');
+    expect(unopenableGlobalGraph.nodes.some((n) => n.substrate === 'agent-registry')).toBe(false);
+    expect(unopenableGlobalGraph.errors?.['agent-registry']).toMatch(
+      /^store cannot be opened: .*; dropped 1 edge\(s\) whose agent target did not load because its node query failed$/,
+    );
+    expect(unopenableGlobalGraph.counts.edges.cross).toBe(graph.counts.edges.cross - 1);
   });
 
   it('reports a failed nexus stub read (T14656)', () => {

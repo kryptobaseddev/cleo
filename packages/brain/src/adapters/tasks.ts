@@ -12,6 +12,7 @@
 import {
   allTyped,
   readProjectStore,
+  storeFailureSink,
   substrateResult,
   tryNodeQuery,
   tryQuery,
@@ -225,7 +226,7 @@ export function getTasksSubstrate(options: BrainQueryOptions = {}): BrainSubstra
         }
       }
     },
-    (message) => errors.push(message),
+    storeFailureSink(errors, failedKinds, ['task', 'session']),
   );
 
   return substrateResult(nodes, edges, errors, failedKinds);
