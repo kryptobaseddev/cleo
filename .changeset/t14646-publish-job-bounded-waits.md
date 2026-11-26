@@ -10,10 +10,14 @@ summary: "every wait in the release publish job has its own timeout, so a stuck 
   still waiting on the registry when the budget runs out is abandoned instead
   of holding the gate past it, and the report after a timeout uses each
   package's latest answer instead of polling the registry one more time.
-- `release.yml` Publish: every `pnpm publish` of a release shares one 60 min
-  deadline (`PUBLISH_BUDGET_S`) and every `npm view` is bounded at 60s. A
-  package not published by the deadline fails as `FAIL-TIMEOUT` with its name.
-  The job timeout rises from 210 to 270 minutes to cover the worst case its
-  comment now adds up: 251 minutes.
+- `release.yml` Publish: waves 1-5 share a 20 min publish deadline
+  (`SMALL_WAVES_BUDGET_S`) and the CLI wave has its own 75 min deadline
+  (`CLI_WAVE_BUDGET_S`), which starts after the stable dependency gate and
+  sits above the slowest recorded publish (55m33s). Every `npm view` is bounded
+  at 30s, `pnpm install` at 10 min and each artifact download at 5 min. A
+  package not published by its deadline fails as `FAIL-TIMEOUT` with its name,
+  and the diagnosis guide says to re-run the failed jobs so the remaining waves
+  publish. The job timeout rises from 210 to 355 minutes (GitHub's cap is 360)
+  to cover the worst case its comment now adds up: 341 minutes.
 - `scripts/release-canary-soak.mjs` exports `soakWorstCaseMs()` (45 min), the
   number the job budget is checked against in `release-rc-gate.test.mjs`.

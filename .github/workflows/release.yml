@@ -691,21 +691,27 @@ jobs:
     name: Publish
     needs: [build-verify, prebuild, cant-napi]
     runs-on: ubuntu-latest
-    # T14646: every wait in the Publish step is bounded, so a pathological run
-    # fails with its gate's own message before this timeout kills the job.
+    # T14646: every wait in this job is bounded, so a pathological run fails
+    # with its gate's own message before this timeout kills the job.
     # Worst case of a stable release (candidate, then release), in minutes:
-    #   candidate publish   63  PUBLISH_BUDGET_S (60) + one npm view after
-    #                           the deadline and the kill grace (3)
+    #   candidate publish   98  waves 1-5 share SMALL_WAVES_BUDGET_S (20);
+    #                           the CLI wave has CLI_WAVE_BUDGET_S (75), above
+    #                           gh#1479's 55m33s cleo publish; plus, per
+    #                           deadline, two npm views and their kill grace
     #   candidate registry  30  BLOCKING_GATE_BUDGET (a hard deadline;
     #                           each fetch is bounded too, execute-payload.mjs)
     #   candidate soak      45  soakWorstCaseMs() in release-canary-soak.mjs
-    #   release publish     63  as above; the stable dependency gate's 30
-    #   dependency gate     30  pauses the publish budget
-    #   other steps         20  checkout, install, downloads, GitHub Release
-    #   total              251  < 270. release-rc-gate.test.mjs recomputes it.
-    # gh#1479 recorded a single publish taking 55m33s; a healthy release
-    # finishes in minutes.
-    timeout-minutes: 270
+    #   release publish     98  as above
+    #   dependency gate     30  between waves 5 and 6; the CLI wave's budget
+    #                           starts after it
+    #   install             10  timeout-minutes on Install dependencies
+    #   downloads           20  timeout-minutes (5) on each of the 4 downloads
+    #   other steps         10  checkout, setup, verify, stage, GitHub Release:
+    #                           no bound of their own, covered by this reserve
+    #   total              341  < 355 (GitHub's cap is 360).
+    #                           release-rc-gate.test.mjs recomputes it.
+    # A healthy release finishes in minutes.
+    timeout-minutes: 355
     env:
       VERSION: ${{ needs.build-verify.outputs.version }}
     # T14192: supervisor-attach runs whenever the GitHub Release exists, even
@@ -739,6 +745,7 @@ jobs:
           cache: 'pnpm'
 
       - name: Download build output
+        timeout-minutes: 5
         uses: actions/download-artifact@v4
         with:
           name: release-build-output
@@ -756,6 +763,7 @@ jobs:
       # (lafs, animations, caamp, cleo-os rebuild themselves), which needs the
       # toolchain in node_modules.
       - name: Install dependencies
+        timeout-minutes: 10
         run: pnpm install --frozen-lockfile
 
       # T14102: nothing ships unless the tagged commit is a first-parent commit
@@ -772,6 +780,7 @@ jobs:
           node packages/cleo/dist/cli/index.js release verify-tag "${VERSION}"
 
       - name: Download GitHub Release assets
+        timeout-minutes: 5
         uses: actions/download-artifact@v4
         with:
           name: release-assets
@@ -783,6 +792,7 @@ jobs:
       # prebuild`, so it cannot start until all required prebuild artifacts
       # are present.
       - name: Download worktree-napi prebuilt binaries
+        timeout-minutes: 5
         uses: actions/download-artifact@v4
         with:
           path: crates/worktree-napi
@@ -853,6 +863,7 @@ jobs:
       # napi-rs generated loader (napi/index.cjs) prefers the native binary and
       # falls back to napi/cant.wasm32-wasi.wasm when none matches the host.
       - name: Download cant-napi binaries (8 native triples + WASI)
+        timeout-minutes: 5
         uses: actions/download-artifact@v4
         with:
           path: packages/cant/napi
@@ -937,17 +948,24 @@ jobs:
           # fails the job on lag alone. Wait up to 30 min, backing off
           # 15s -> 60s between polls; every poll logs each package's stalled rung.
           BLOCKING_GATE_BUDGET=(POSTDEPLOY_TIMEOUT_MS=1800000 POSTDEPLOY_BACKOFF=2 POSTDEPLOY_MAX_INTERVAL_MS=60000)
-          # T14646: one deadline bounds every `pnpm publish` of a
-          # publish_release call (all six waves), so a publish npm sits on
-          # fails here with its package named instead of running into the job
-          # timeout. gh#1479's slowest call took 55m33s. Every `npm view` is a
+          # T14646: a deadline bounds every `pnpm publish`, so a publish npm
+          # sits on fails here with its package named instead of running into
+          # the job timeout. Waves 1-5 (17 packages, each historically done in
+          # seconds to a few minutes) share SMALL_WAVES_BUDGET_S; the CLI wave
+          # gets its own CLI_WAVE_BUDGET_S, above gh#1479's 55m33s cleo
+          # publish, so earlier waves never eat into it. Every `npm view` is a
           # registry fetch bounded by NPM_VIEW_TIMEOUT_S on its own.
-          PUBLISH_BUDGET_S=3600
-          NPM_VIEW_TIMEOUT_S=60
+          SMALL_WAVES_BUDGET_S=1200
+          CLI_WAVE_BUDGET_S=4500
+          NPM_VIEW_TIMEOUT_S=30
+          # `start_publish_window <seconds>`: the deadline for the next waves.
+          start_publish_window() {
+            PUBLISH_WINDOW_S="$1"
+            PUBLISH_DEADLINE=$(( $(date +%s) + PUBLISH_WINDOW_S ))
+          }
           publish_release() {
             local VERSION="$1"
             local TAG="$2"
-            PUBLISH_DEADLINE=$(( $(date +%s) + PUBLISH_BUDGET_S ))
             PUBLISH_ARGS="--tag $TAG --access public --no-git-checks --provenance"
             # Publishes run in background subshells, which cannot append to a
             # parent array; failures are collected in a file instead.
@@ -1027,7 +1045,7 @@ jobs:
                 left=$(( PUBLISH_DEADLINE - $(date +%s) ))
                 if (( left <= 0 )); then
                   PUBLISH_EXIT=124
-                  PUBLISH_OUTPUT="publish budget (${PUBLISH_BUDGET_S}s) for v$VERSION spent before attempt $attempt"
+                  PUBLISH_OUTPUT="publish budget (${PUBLISH_WINDOW_S}s) for v$VERSION spent before attempt $attempt"
                   break
                 fi
                 PUBLISH_OUTPUT=$(timeout -k 30 "$left" pnpm publish $PUBLISH_ARGS 2>&1) || PUBLISH_EXIT=$?
@@ -1036,7 +1054,7 @@ jobs:
                 fi
                 # timeout(1): 124 = killed at the deadline, 137 = needed SIGKILL.
                 if [[ $PUBLISH_EXIT -eq 124 || $PUBLISH_EXIT -eq 137 ]]; then
-                  PUBLISH_OUTPUT+=$'\n'"pnpm publish killed: the ${PUBLISH_BUDGET_S}s publish budget for v$VERSION ran out"
+                  PUBLISH_OUTPUT+=$'\n'"pnpm publish killed: the ${PUBLISH_WINDOW_S}s publish budget for v$VERSION ran out"
                   break
                 fi
                 if echo "$PUBLISH_OUTPUT" | grep -qi "TLOG_CREATE_ENTRY_ERROR\|rekor.sigstore.dev.*aborted\|tlog entry"; then
@@ -1059,7 +1077,7 @@ jobs:
                   echo "✓ SKIP-RACE: @cleocode/$npm_name@$VERSION was published concurrently or pre-exists"
                 elif [[ $PUBLISH_EXIT -eq 124 || $PUBLISH_EXIT -eq 137 ]]; then
                   PUBLISH_OUTCOME=FAIL-TIMEOUT
-                  echo "::error::@cleocode/$npm_name was not published within the ${PUBLISH_BUDGET_S}s publish budget (T14646)"
+                  echo "::error::@cleocode/$npm_name was not published within the ${PUBLISH_WINDOW_S}s publish budget (T14646)"
                   echo "$npm_name" >> "$FAILED_LOG"
                 elif echo "$PUBLISH_OUTPUT" | grep -qi "cannot publish over the previously published"; then
                   # 403 "cannot publish over" — version exists but registry cache missed our pre-check
@@ -1113,6 +1131,7 @@ jobs:
             # graph (dependencies + peerDependencies + optionalDependencies).
             #
             # Wave 1 — no @cleocode/* dependency at all.
+            start_publish_window "$SMALL_WAVES_BUDGET_S"
             publish_pkg paths
             publish_pkg lafs
             publish_pkg agents
@@ -1149,18 +1168,16 @@ jobs:
             # with the BLOCKING_GATE_BUDGET defined above (T14615).
             local STABLE_DEPENDENCY_EXIT=0
             if [[ "$TAG" == "latest" && "$PUBLISH_HALTED" == "0" ]]; then
-              local gate_started
-              gate_started=$(date +%s)
               env "${BLOCKING_GATE_BUDGET[@]}" node scripts/execute-payload.mjs \
                 --version "$VERSION" --dist-tag "$TAG" --before-package cleo \
                 --output-dir /tmp/stable-dependencies || {
                   STABLE_DEPENDENCY_EXIT=$?
                   PUBLISH_HALTED=1
                 }
-              # The gate has its own budget; it does not spend the CLI's publish budget.
-              PUBLISH_DEADLINE=$(( PUBLISH_DEADLINE + $(date +%s) - gate_started ))
             fi
-            # Wave 6 — the CLI depends on playbooks + runtime (wave 5).
+            # Wave 6 — the CLI depends on playbooks + runtime (wave 5). Its
+            # window starts after the dependency gate, which has its own budget.
+            start_publish_window "$CLI_WAVE_BUDGET_S"
             publish_pkg cleo
             run_wave 6
             # mcp-adapter (external-only MCP bridge) and studio (SvelteKit web
@@ -1211,6 +1228,13 @@ jobs:
               echo "  If error mentions 'cannot publish over previously published':"
               echo "    → Version conflict: this version already exists on npm"
               echo "    → This should have been caught as SKIP — check already_published() logic"
+              echo ""
+              echo "  If the outcome is FAIL-TIMEOUT (not published within the publish budget):"
+              echo "    → npm or the registry stalled; later waves were not attempted"
+              echo "    → Fix: re-run the failed jobs once npm is healthy:"
+              echo "         gh run rerun $GITHUB_RUN_ID --failed"
+              echo "      Packages already on npm are skipped (SKIP-EXISTS / SKIP-RACE /"
+              echo "      SKIP-CONFLICT), so only the missing ones and the remaining waves publish."
               echo ""
               echo "  NOTE: 403 'cannot publish over' is NOT an OIDC failure."
               echo "        OIDC trusted publisher IS working if any packages published successfully."
