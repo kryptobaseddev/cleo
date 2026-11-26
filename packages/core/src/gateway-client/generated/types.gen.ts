@@ -13859,6 +13859,14 @@ export type QueryDocsDoctorData = {
          * Comma-separated repair classes to scope the plan (and apply) to, e.g. publication-ledger-drift (T14174)
          */
         only?: string;
+        /**
+         * With archiveInto: the docs_publications path of a gone row whose blob it alone references (T14651)
+         */
+        publication?: string;
+        /**
+         * Archive the only-held blob of the publication row into this adopted doc; the next run prunes the row (T14651)
+         */
+        archiveInto?: string;
     };
     path?: never;
     query?: never;
@@ -14006,6 +14014,14 @@ export type MutateDocsDoctorData = {
          * Comma-separated repair classes to scope the plan (and apply) to, e.g. publication-ledger-drift (T14174)
          */
         only?: string;
+        /**
+         * With archiveInto: the docs_publications path of a gone row whose blob it alone references (T14651)
+         */
+        publication?: string;
+        /**
+         * Archive the only-held blob of the publication row into this adopted doc; the next run prunes the row (T14651)
+         */
+        archiveInto?: string;
     };
     path?: never;
     query?: never;
