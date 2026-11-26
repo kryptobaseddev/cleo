@@ -471,9 +471,15 @@ describe('W2-3 installAgentFromCant — real sqlite + real .cant', () => {
     }
   });
 
-  // T14655: repeated force installs keep only the newest backups.
-  it('prunes .bak-<instant> backups to the newest AGENT_CANT_BACKUPS_KEPT', async () => {
+  // T14655: pruning removes only old backups of packaged template bytes. A
+  // backup of edited content and a user's own `.bak-*` file are never removed.
+  it('prunes packaged-byte backups only, keeping edited backups and user files', async () => {
     const { AGENT_CANT_BACKUPS_KEPT, installAgentFromCant } = await import('../agent-install.js');
+    const { resolveAgentTemplates } = await import('../../agents/resolveAgentTemplates.js');
+    const packaged = readFileSync(
+      join(resolveAgentTemplates() ?? '', 'project-code-worker.cant'),
+      'utf8',
+    );
     const db = env.openDb();
     vi.useFakeTimers({ toFake: ['Date'] });
     try {
@@ -483,20 +489,30 @@ describe('W2-3 installAgentFromCant — real sqlite + real .cant', () => {
         installedFrom: 'manual',
         globalCantDir: env.globalCantDir,
       } as const;
-      const total = AGENT_CANT_BACKUPS_KEPT + 3;
-      for (let v = 0; v <= total; v++) {
-        vi.setSystemTime(new Date(Date.UTC(2026, 10, 26, 0, 0, v)));
-        const src = writeSource(srcDir, 'fixture-agent.cant', `${FIXTURE_MINIMAL_CANT}# v${v}\n`);
-        installAgentFromCant(db, { ...base, cantSource: src, force: v > 0 });
+      const edit = (n: number): string => `${packaged}# user edit ${n}\n`;
+      // Edited, then packaged, edited, packaged ...: every install replaces
+      // the previous bytes, so backups alternate edited / packaged content.
+      const versions = [edit(0)];
+      for (let n = 1; n <= AGENT_CANT_BACKUPS_KEPT + 2; n++) versions.push(packaged, edit(n));
+      versions.push(packaged);
+      let second = 0;
+      for (const [i, body] of versions.entries()) {
+        vi.setSystemTime(new Date(Date.UTC(2026, 10, 26, 0, 0, second++)));
+        const src = writeSource(srcDir, 'project-code-worker.cant', body);
+        installAgentFromCant(db, { ...base, cantSource: src, force: i > 0 });
+        if (i === 0) {
+          writeFileSync(join(env.globalCantDir, 'project-code-worker.cant.bak-notes'), 'mine');
+        }
       }
       const backups = readdirSync(env.globalCantDir)
-        .filter((f) => f.startsWith('fixture-agent.cant.bak-'))
-        .sort();
-      expect(backups).toHaveLength(AGENT_CANT_BACKUPS_KEPT);
-      // The newest backup holds the bytes the last install replaced.
-      expect(readFileSync(join(env.globalCantDir, backups.at(-1) ?? ''), 'utf8')).toBe(
-        `${FIXTURE_MINIMAL_CANT}# v${total - 1}\n`,
-      );
+        .filter((f) => f.startsWith('project-code-worker.cant.bak-'))
+        .map((f) => readFileSync(join(env.globalCantDir, f), 'utf8'));
+      expect(backups.filter((b) => b === packaged)).toHaveLength(AGENT_CANT_BACKUPS_KEPT);
+      // The first edit survived every later replacement, as did each edit.
+      for (let n = 0; n <= AGENT_CANT_BACKUPS_KEPT + 2; n++) expect(backups).toContain(edit(n));
+      expect(
+        readFileSync(join(env.globalCantDir, 'project-code-worker.cant.bak-notes'), 'utf8'),
+      ).toBe('mine');
     } finally {
       vi.useRealTimers();
       db.close();

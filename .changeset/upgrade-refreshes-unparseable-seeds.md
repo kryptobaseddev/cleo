@@ -16,6 +16,8 @@ summary: "cleo upgrade refreshes unedited agent seeds that no longer parse and r
   template (`cleo agent install <template> --force`) instead of reinstalling the
   same broken bytes; with no packaged template there is no fix command until
   the file is rewritten.
-- Installs keep only the newest 3 `.bak-<instant>` copies of a replaced file.
+- Installs keep only the newest 3 `.bak-<instant>` backups holding packaged
+  template bytes. A backup of any other (possibly edited) content, and any file
+  not named exactly as the install names its backups, is never removed.
 - The parser is imported inside the check, so a failed `@cleocode/cant` import
   yields the D-012 finding instead of aborting `cleo agent doctor`.
