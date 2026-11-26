@@ -784,6 +784,76 @@ export function replaceAcRowPlan(
 }
 
 /**
+ * Plan converting legacy text rows that hold a typed gate's JSON into typed
+ * (`evidence_bound`) rows, in place (T14635, `cleo doctor gate-text`). Every
+ * other row is kept exactly; each converted row keeps its ordinal and uid, so
+ * its evidence bindings survive and go stale on the gate text. The superseded
+ * text is kept as a history row, reason `convert`.
+ *
+ * @param taskId - Task whose rows are converted.
+ * @param existing - Current AC rows.
+ * @param conversions - Zero-based acceptance index → the gate parsed from that row's text.
+ * @returns A full-set plan for {@link applyAcPlan}.
+ * @throws CleoError when a target row is not a text row projecting the acceptance entry.
+ * @task T14635
+ */
+export function convertGateTextRowsPlan(
+  taskId: string,
+  existing: readonly AcRow[],
+  conversions: ReadonlyMap<number, { original: string; gate: AcceptanceGate }>,
+): AcUpdatePlan {
+  const sorted = [...existing].sort((a, b) => a.ordinal - b.ordinal);
+  const inserts: AcInsertRow[] = [];
+  const history: AcUpdatePlan['history'] = [];
+  for (const [index, row] of sorted.entries()) {
+    const conversion = conversions.get(index);
+    if (!conversion) {
+      inserts.push({
+        id: row.id,
+        taskId,
+        ordinal: row.ordinal,
+        text: row.text,
+        kind: row.kind,
+        sourceKey: row.sourceKey,
+        targetTaskId: row.targetTaskId,
+        projection: row.projection,
+        contentHash: row.contentHash,
+        ...carriedIdentity(row),
+      });
+      continue;
+    }
+    if (row.kind !== 'text' || row.text !== conversion.original.trim()) {
+      // @sync-invariant none:input-shape a gate-text row that does not match its acceptance entry is refused before any write; nothing is written
+      throw new CleoError(
+        ExitCode.VALIDATION_ERROR,
+        `Acceptance criterion ${index + 1} of ${taskId} does not match its stored text row; refusing to convert it`,
+        { fix: `cleo show ${taskId} --full  # check the acceptance array and its AC rows agree` },
+      );
+    }
+    inserts.push({
+      ...buildInsertRow(taskId, conversion.gate, row.ordinal),
+      ...carriedIdentity(row),
+    });
+    history.push({
+      acId: row.id,
+      ...(row.uid ? { acUid: row.uid } : {}),
+      previousText: row.text,
+      reason: 'convert',
+    });
+  }
+  if (history.length !== conversions.size) {
+    // @sync-invariant none:input-shape a conversion index past the stored rows is refused before any write; nothing is written
+    throw new CleoError(
+      ExitCode.VALIDATION_ERROR,
+      `${taskId} has fewer AC rows than acceptance entries; refusing to convert gate text`,
+      { fix: `cleo doctor acceptance-drift  # the two acceptance stores disagree for ${taskId}` },
+    );
+  }
+  assertUniqueGeneratedRows(taskId, inserts);
+  return { inserts, history, fullDelete: true };
+}
+
+/**
  * Plan removal of a parent-owned child projection row while preserving the
  * remaining AC UUIDs, ordinals, kind/source metadata, and bindings.
  */

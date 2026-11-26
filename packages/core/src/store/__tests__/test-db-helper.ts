@@ -11,10 +11,11 @@
 import { mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { Task } from '@cleocode/contracts';
+import type { AcceptanceItem, Task } from '@cleocode/contracts';
 import { afterAll, beforeAll, vi } from 'vitest';
 import { canonicalProjectId } from '../../nexus/identity.js';
 import { registerProjectOnEncounter } from '../../paths.js';
+import { applyAcPlan, planAcUpdate } from '../../tasks/ac-table.js';
 import { awaitBackgroundOps } from '../background-ops.js';
 import type { DataAccessor } from '../data-accessor.js';
 import { getNativeTasksDb, resetDbState } from '../sqlite.js';
@@ -370,5 +371,24 @@ export function optOutOfForeignKeys(): void {
   afterAll(() => {
     if (prev === undefined) delete process.env[TEST_FOREIGN_KEYS_OFF_ENV];
     else process.env[TEST_FOREIGN_KEYS_OFF_ENV] = prev;
+  });
+}
+
+/**
+ * Append a text criterion to a task the way writes stored it before T12292
+ * refused typed gate JSON as text: the string goes into `acceptance_json` and
+ * projects as a `text` AC row. Used to seed legacy gate-JSON text rows (T14635).
+ */
+export async function seedLegacyTextAcceptance(
+  accessor: DataAccessor,
+  taskId: string,
+  text: string,
+): Promise<void> {
+  const task = await accessor.loadSingleTask(taskId);
+  if (!task) throw new Error(`seedLegacyTextAcceptance: no task ${taskId}`);
+  const acceptance: AcceptanceItem[] = [...((task.acceptance ?? []) as AcceptanceItem[]), text];
+  await accessor.transaction(async (tx) => {
+    await tx.updateTaskFields(taskId, { acceptanceJson: JSON.stringify(acceptance) });
+    await applyAcPlan(tx, taskId, planAcUpdate(taskId, await tx.getAcRows(taskId), acceptance));
   });
 }

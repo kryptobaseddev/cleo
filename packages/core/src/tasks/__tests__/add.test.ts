@@ -11,7 +11,11 @@ import { ExitCode } from '@cleocode/contracts';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { setConfigValue } from '../../config.js';
 import { CleoError } from '../../errors.js';
-import { createTestDb, type TestDbEnv } from '../../store/__tests__/test-db-helper.js';
+import {
+  createTestDb,
+  seedLegacyTextAcceptance,
+  type TestDbEnv,
+} from '../../store/__tests__/test-db-helper.js';
 import type { DataAccessor } from '../../store/data-accessor.js';
 import { getNativeTasksDb, resetDbState } from '../../store/sqlite.js';
 import {
@@ -597,6 +601,47 @@ describe('addTask (integration)', () => {
     expect((await accessor.loadSingleTask('T001'))?.acceptance).toEqual(
       JSON.parse(persisted.stdout),
     );
+    expect((await accessor.getAcRows('T001')).slice(0, 2)).toEqual(before);
+  });
+
+  it('keeps a legacy gate-JSON text row beside a typed gate when children project (T14635)', async () => {
+    const gate: AcceptanceGate = {
+      kind: 'test',
+      req: 'PARENT-TYPED',
+      description: 'Parent harness remains executable',
+      command: 'node',
+      args: ['absent-parent.mjs'],
+      expect: 'exit0',
+      timeoutMs: 1800000,
+    };
+    // Stored before T12292 refused gate JSON as text; seeded past that boundary.
+    const legacy = JSON.stringify(gate);
+    await addTask(
+      {
+        title: 'Legacy parent',
+        description: 'Legacy gate-JSON text beside a typed gate',
+        type: 'epic',
+        skipContainmentInvariant: true,
+      },
+      env.tempDir,
+      accessor,
+    );
+    await seedLegacyTextAcceptance(accessor, 'T001', legacy);
+    await reqAdd(env.tempDir, 'T001', gate, accessor);
+    const before = await accessor.getAcRows('T001');
+    expect(before.map((row) => row.kind)).toEqual(['text', 'evidence_bound']);
+
+    await addTask(
+      { title: 'Only child', description: 'Projects onto the legacy parent', parentId: 'T001' },
+      env.tempDir,
+      accessor,
+    );
+
+    expect((await accessor.loadSingleTask('T001'))?.acceptance).toEqual([
+      legacy,
+      gate,
+      'Complete child T002: Only child',
+    ]);
     expect((await accessor.getAcRows('T001')).slice(0, 2)).toEqual(before);
   });
 

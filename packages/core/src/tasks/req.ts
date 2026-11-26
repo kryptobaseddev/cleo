@@ -22,10 +22,12 @@ import {
   acItemToText,
   applyAcPlan,
   buildAcRowId,
+  convertGateTextRowsPlan,
   directTextSourceKey,
   planAcUpdate,
   replaceAcRowPlan,
 } from './ac-table.js';
+import { isTypedGateJson } from './acceptance-input.js';
 import { commandGateCmdProblem } from './command-gate-cmd.js';
 import { joinCommandLine, splitCommandLine } from './command-line.js';
 import { minCountReporterProblem } from './test-report-counts.js';
@@ -721,6 +723,118 @@ export async function reqMigrate(
     };
   };
   return apply ? acc.transaction(migrate) : migrate();
+}
+
+/** One text criterion holding a typed gate's JSON, found by {@link reqConvertGateText}. */
+export interface GateTextConversion {
+  /** Zero-based index in the task's acceptance array. */
+  index: number;
+  /** The stored text criterion. */
+  original: string;
+  /** The validated gate it converts to; null when it cannot be converted. */
+  gate: AcceptanceGate | null;
+  /** Why the criterion cannot be converted; null when it can. */
+  problem: string | null;
+}
+
+/** Result of {@link reqConvertGateText}. */
+export interface GateTextConversionResult {
+  /** The task inspected. */
+  taskId: string;
+  /** Every gate-JSON text criterion on the task. */
+  conversions: GateTextConversion[];
+  /** Criteria converted to typed gates (0 without `apply`). */
+  applied: number;
+}
+
+/**
+ * Convert text criteria stored as a typed gate's JSON into the typed gate
+ * (T14635).
+ *
+ * @remarks
+ * Before T12292, `cleo add --acceptance '<gate-json>'` stored the gate as prose,
+ * which carries no gate meaning; writes now refuse that input, so `cleo
+ * decompose` refuses such a task. This parses each such criterion through the
+ * same checks as `cleo req add` (schema, command shape, countable `minCount`,
+ * a REQ-ID unique on the task) and, with `apply`, replaces it in place: the
+ * criterion keeps its position, ordinal and uid, and the old text is kept in
+ * the AC history (reason `convert`). Criteria that fail a check are reported
+ * with the problem and left as they are.
+ *
+ * @param projectRoot - Absolute path to the project root.
+ * @param taskId - Task to inspect.
+ * @param apply - When true, writes the conversions in one transaction.
+ * @param accessor - Optional pre-created accessor (for testing).
+ * @returns Every gate-JSON text criterion and how many were converted.
+ * @throws CleoError E_NOT_FOUND for an unknown task; E_VALIDATION when the AC
+ *   rows do not project the acceptance array (nothing is written).
+ * @example
+ * ```typescript
+ * const preview = await reqConvertGateText(root, 'T42', false);
+ * if (preview.conversions.every((c) => c.gate)) await reqConvertGateText(root, 'T42', true);
+ * ```
+ * @task T14635
+ */
+export async function reqConvertGateText(
+  projectRoot: string,
+  taskId: string,
+  apply: boolean,
+  accessor?: DataAccessor,
+): Promise<GateTextConversionResult> {
+  const acc = accessor ?? (await getTaskAccessor(projectRoot));
+  const convert = async (tx?: TransactionAccessor): Promise<GateTextConversionResult> => {
+    const task = await loadTask(acc, taskId);
+    const acceptance = (task.acceptance ?? []) as AcceptanceItem[];
+    const usedRequirements = new Set(
+      acceptance.flatMap((item) => (typeof item === 'object' && item.req ? [item.req] : [])),
+    );
+    const conversions: GateTextConversion[] = [];
+    for (const [index, item] of acceptance.entries()) {
+      if (typeof item !== 'string' || !isTypedGateJson(item.trim())) continue;
+      try {
+        const gate = parseGateJson(item.trim());
+        refuseArgsInCmd(gate, projectRoot);
+        refuseUncountableMinCount(gate);
+        if (gate.req && usedRequirements.has(gate.req)) {
+          conversions.push({
+            index,
+            original: item,
+            gate: null,
+            problem: `REQ-ID "${gate.req}" already exists on task ${taskId}`,
+          });
+          continue;
+        }
+        if (gate.req) usedRequirements.add(gate.req);
+        conversions.push({ index, original: item, gate, problem: null });
+      } catch (err) {
+        if (!(err instanceof CleoError)) throw err;
+        conversions.push({ index, original: item, gate: null, problem: err.message });
+      }
+    }
+    const convertible = new Map(
+      conversions.flatMap((c) =>
+        c.gate ? [[c.index, { original: c.original, gate: c.gate }]] : [],
+      ),
+    );
+    if (!tx || convertible.size === 0) return { taskId, conversions, applied: 0 };
+
+    const updated = acceptance.map((item, i) => convertible.get(i)?.gate ?? item);
+    const now = new Date().toISOString();
+    await tx.updateTaskFields(taskId, { acceptanceJson: JSON.stringify(updated), updatedAt: now });
+    const rows = await tx.getAcRows(taskId);
+    await applyAcPlan(tx, taskId, convertGateTextRowsPlan(taskId, rows, convertible));
+    await tx.appendLog({
+      timestamp: now,
+      action: 'req_gate_text_converted',
+      taskId,
+      actor: process.env['CLEO_AGENT_ID'] ?? 'cleo',
+      details: { indexes: [...convertible.keys()] },
+      before: { acceptance },
+      after: { acceptance: updated },
+    });
+    return { taskId, conversions, applied: convertible.size };
+  };
+  return apply ? acc.transaction(convert) : convert();
 }
 
 /**
