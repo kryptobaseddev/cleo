@@ -2151,7 +2151,7 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
         outcome.error.code,
         outcome.error.message,
         'update',
-        undefined,
+        outcome.error.fix,
         'details' in outcome.error ? outcome.error.details : undefined,
       );
     }
@@ -2201,7 +2201,11 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
         attachmentId: outcome.result.attachmentId,
         sha256: outcome.result.sha256,
         previousSha256: outcome.result.previousSha256 ?? undefined,
-        summary: `Updated doc '${outcome.result.slug}'${outcome.result.lifecycleStatus ? ` (status: ${outcome.result.lifecycleStatus})` : ''}`,
+        // T14660 — a supersession records the successor as `docs supersede` did.
+        summary:
+          outcome.result.supersededBy !== undefined
+            ? `Superseded '${outcome.result.slug}' → '${outcome.result.supersededBy}'`
+            : `Updated doc '${outcome.result.slug}'${outcome.result.lifecycleStatus ? ` (status: ${outcome.result.lifecycleStatus})` : ''}`,
       });
     } catch {
       /* best-effort */

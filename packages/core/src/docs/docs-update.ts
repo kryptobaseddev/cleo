@@ -92,7 +92,7 @@ export const DOCS_UPDATE_LIFECYCLE_STATUS_LIST = ALLOWED_STATUSES.join('|');
  *
  * @task T10161
  */
-export type DocsUpdateError =
+export type DocsUpdateError = (
   | { code: 'E_NOT_FOUND'; message: string }
   | { code: 'E_INVALID_INPUT'; message: string }
   | { code: 'E_DOC_SCHEMA_MISMATCH'; message: string; details?: Record<string, unknown> }
@@ -117,7 +117,14 @@ export type DocsUpdateError =
        */
       code: 'E_DOC_BASE_UNSUPPORTED';
       message: string;
-    };
+    }
+) & {
+  /**
+   * A runnable `cleo …` command that resolves the refusal, forwarded as the
+   * LAFS envelope's structured `fix` (T14660). Set on the supersession refusals.
+   */
+  fix?: string;
+};
 
 /**
  * Successful update result returned by {@link updateDocBySlug}.
@@ -183,6 +190,11 @@ export interface DocsUpdateOk {
    * @task T13674
    */
   headVersionUid?: string;
+  /**
+   * Successor slug when this update superseded the doc (`--status superseded
+   * --superseded-by`, T14660), so the dispatch audit names who superseded what.
+   */
+  supersededBy?: string;
   dryRun?: true;
   wouldWrite?: boolean;
   wouldChange?: boolean;
@@ -213,6 +225,8 @@ interface AuditRevision {
   lifecycleStatus: DocsLifecycleStatus;
   /** Agent identity that authored this revision. */
   attachedBy: string;
+  /** Successor slug named by `--superseded-by` with this revision (T14660). */
+  supersededBy?: string;
 }
 
 interface AuditLine {
@@ -450,6 +464,12 @@ export async function updateDocBySlug(
       error: {
         code: 'E_INVALID_INPUT',
         message: 'Provide file or content, or status alone for a lifecycle-only change',
+        // T14660: a bare --superseded-by is missing only its --status.
+        ...(params.supersededBy !== undefined
+          ? {
+              fix: `cleo docs update ${requestedSlug} --status superseded --superseded-by ${params.supersededBy}`,
+            }
+          : {}),
       },
     };
   }
@@ -513,6 +533,7 @@ export async function updateDocBySlug(
         // @sync-invariant none:input-shape a successor without a lifecycle-only --status superseded is refused before any write
         code: 'E_INVALID_INPUT',
         message: `--superseded-by needs --status superseded and no --file or --content — e.g. \`cleo docs update ${requestedSlug} --status superseded --superseded-by ${successorRef}\``,
+        fix: `cleo docs update ${requestedSlug} --status superseded --superseded-by ${successorRef}`,
       },
     };
   }
@@ -605,6 +626,7 @@ export async function updateDocBySlug(
       error: {
         code: 'E_INVALID_STATUS', // @sync-invariant docs.lifecycle.transitions
         message: `doc '${slug}' is superseded${oldRow.supersededBy ? ` (by ${oldRow.supersededBy})` : ''}; a superseded doc cannot change its status or content — add the new content as a new doc and name it the successor with \`cleo docs update ${slug} --status superseded --superseded-by NEW_SLUG\``,
+        fix: `cleo docs update ${slug} --status superseded --superseded-by NEW_SLUG`,
       },
     };
   }
@@ -620,6 +642,7 @@ export async function updateDocBySlug(
           // @sync-invariant none:input-shape an unknown successor slug is refused before any write
           code: 'E_NOT_FOUND',
           message: `successor '${successorRef}' does not match any doc — add it first (\`cleo docs add\`), then name it with --superseded-by`,
+          fix: `cleo docs add OWNER_ID FILE --slug ${successorRef}`,
         },
       };
     }
@@ -630,6 +653,7 @@ export async function updateDocBySlug(
           // @sync-invariant none:input-shape a doc cannot supersede itself; refused before any write
           code: 'E_INVALID_INPUT',
           message: `doc '${slug}' cannot be its own successor — name the doc that replaces it`,
+          fix: `cleo docs update ${slug} --status superseded --superseded-by NEW_SLUG`,
         },
       };
     }
@@ -827,6 +851,7 @@ export async function updateDocBySlug(
         ...(params.message !== undefined ? { message: params.message } : {}),
         lifecycleStatus: status,
         attachedBy,
+        ...(successor !== null ? { supersededBy: successor.slug } : {}),
       },
     });
     return {
@@ -851,6 +876,7 @@ export async function updateDocBySlug(
               : `slug '${slug}' bytes unchanged but lifecycle status changed from '${oldRow.lifecycleStatus}' to '${status}'`,
         ownerVersion: getCanonicalCleoVersion(projectRoot),
         docVersion: oldRow.docVersion,
+        ...(successor !== null ? { supersededBy: successor.slug } : {}),
         ...(noopHead !== undefined ? { headVersionUid: noopHead } : {}),
       },
     };
