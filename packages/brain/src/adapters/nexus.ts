@@ -10,9 +10,16 @@
  * Node IDs are prefixed with "nexus:" to prevent collisions.
  */
 
+import { getErrorMessage } from '@cleocode/contracts/errors.js';
 import { allTyped, readProjectStore } from '../db-connections.js';
 import { resolveDefaultProjectContext } from '../project-context.js';
-import type { BrainEdge, BrainNode, BrainNodeKind, BrainQueryOptions } from '../types.js';
+import type {
+  BrainEdge,
+  BrainNode,
+  BrainNodeKind,
+  BrainQueryOptions,
+  BrainSubstrateResult,
+} from '../types.js';
 
 /** Raw row from nexus_nodes. */
 interface NexusNodeRow {
@@ -46,15 +53,13 @@ function mapKind(nexusKind: string): BrainNodeKind {
  * @param options - Query options (limit, projectCtx).
  * @returns Nodes and edges from the NEXUS substrate.
  */
-export function getNexusSubstrate(options: BrainQueryOptions = {}): {
-  nodes: BrainNode[];
-  edges: BrainEdge[];
-} {
+export function getNexusSubstrate(options: BrainQueryOptions = {}): BrainSubstrateResult {
   const ctx = options.projectCtx ?? resolveDefaultProjectContext();
   const perSubstrateLimit = Math.ceil((options.limit ?? 500) / 5);
 
   const nodes: BrainNode[] = [];
   const edges: BrainEdge[] = [];
+  let error: string | undefined;
 
   readProjectStore(ctx, (db) => {
     try {
@@ -116,10 +121,12 @@ export function getNexusSubstrate(options: BrainQueryOptions = {}): {
           substrate: 'nexus',
         });
       }
-    } catch {
-      // Return partial results on error
+    } catch (err) {
+      // Keep the partial results, but report the failure instead of
+      // returning a silently short substrate (T14647).
+      error = getErrorMessage(err);
     }
   });
 
-  return { nodes, edges };
+  return error === undefined ? { nodes, edges } : { nodes, edges, error };
 }

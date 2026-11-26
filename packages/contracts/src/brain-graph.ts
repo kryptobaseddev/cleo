@@ -183,6 +183,28 @@ export interface BrainGraph {
   };
   /** `true` when the response was capped by the node limit. */
   truncated: boolean;
+  /**
+   * Read errors per substrate, present only when an adapter's query failed.
+   *
+   * A substrate listed here returned partial (possibly empty) results because
+   * its SQL failed, so an empty substrate is never mistaken for an empty store.
+   */
+  errors?: Partial<Record<BrainSubstrate, string>>;
+}
+
+/**
+ * Result of one Brain substrate adapter (`getBrainSubstrate`, `getTasksSubstrate`, …).
+ *
+ * `error` is set when the adapter's read failed part-way: `nodes`/`edges` then
+ * hold whatever was read before the failure.
+ */
+export interface BrainSubstrateResult {
+  /** Nodes read from the substrate. */
+  nodes: BrainNode[];
+  /** Edges read from the substrate. */
+  edges: BrainEdge[];
+  /** Message of the SQL error that cut the read short, when one occurred. */
+  error?: string;
 }
 
 // ---------------------------------------------------------------------------

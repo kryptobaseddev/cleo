@@ -22,8 +22,9 @@
  * @task T14583 (read the global cleo.db)
  */
 
+import { getErrorMessage } from '@cleocode/contracts/errors.js';
 import { allTyped, readGlobalStore } from '../db-connections.js';
-import type { BrainEdge, BrainNode, BrainQueryOptions } from '../types.js';
+import type { BrainEdge, BrainNode, BrainQueryOptions, BrainSubstrateResult } from '../types.js';
 
 /** Raw row from `agent_registry_agents`. */
 interface AgentRow {
@@ -43,14 +44,12 @@ interface AgentRow {
  * @param options - Query options (limit).
  * @returns Nodes (and no edges) from the AGENT-REGISTRY substrate.
  */
-export function getAgentRegistrySubstrate(options: BrainQueryOptions = {}): {
-  nodes: BrainNode[];
-  edges: BrainEdge[];
-} {
+export function getAgentRegistrySubstrate(options: BrainQueryOptions = {}): BrainSubstrateResult {
   const perSubstrateLimit = Math.ceil((options.limit ?? 500) / 5);
 
   const nodes: BrainNode[] = [];
   const edges: BrainEdge[] = [];
+  let error: string | undefined;
 
   readGlobalStore((db) => {
     try {
@@ -84,10 +83,12 @@ export function getAgentRegistrySubstrate(options: BrainQueryOptions = {}): {
           },
         });
       }
-    } catch {
-      // Return partial results on error
+    } catch (err) {
+      // Keep the partial results, but report the failure instead of
+      // returning a silently short substrate (T14647).
+      error = getErrorMessage(err);
     }
   });
 
-  return { nodes, edges };
+  return error === undefined ? { nodes, edges } : { nodes, edges, error };
 }

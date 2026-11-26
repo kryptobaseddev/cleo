@@ -15,9 +15,10 @@
  * Node IDs are prefixed with "brain:" to prevent collisions.
  */
 
+import { getErrorMessage } from '@cleocode/contracts/errors.js';
 import { allTyped, readProjectStore } from '../db-connections.js';
 import { resolveDefaultProjectContext } from '../project-context.js';
-import type { BrainEdge, BrainNode, BrainQueryOptions } from '../types.js';
+import type { BrainEdge, BrainNode, BrainQueryOptions, BrainSubstrateResult } from '../types.js';
 
 /** Raw row from brain_observations. */
 interface ObservationRow {
@@ -152,16 +153,14 @@ function taskRefToBrainNodeId(taskRef: string): string {
  * @param options - Query options (limit, minWeight).
  * @returns Nodes and edges from the BRAIN substrate.
  */
-export function getBrainSubstrate(options: BrainQueryOptions = {}): {
-  nodes: BrainNode[];
-  edges: BrainEdge[];
-} {
+export function getBrainSubstrate(options: BrainQueryOptions = {}): BrainSubstrateResult {
   const ctx = options.projectCtx ?? resolveDefaultProjectContext();
   const minWeight = options.minWeight ?? 0;
   const perSubstrateLimit = Math.ceil((options.limit ?? 500) / 5);
 
   const nodes: BrainNode[] = [];
   const edges: BrainEdge[] = [];
+  let error: string | undefined;
 
   readProjectStore(ctx, (db) => {
     try {
@@ -396,10 +395,12 @@ export function getBrainSubstrate(options: BrainQueryOptions = {}): {
           });
         }
       }
-    } catch {
-      // Return partial results on error
+    } catch (err) {
+      // Keep the partial results, but report the failure instead of
+      // returning a silently short substrate (T14647).
+      error = getErrorMessage(err);
     }
   });
 
-  return { nodes, edges };
+  return error === undefined ? { nodes, edges } : { nodes, edges, error };
 }
