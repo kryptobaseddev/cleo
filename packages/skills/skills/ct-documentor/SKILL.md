@@ -1,7 +1,7 @@
 ---
 name: ct-documentor
 description: Documentation coordinator with CLEO style guide compliance. Routes every canonical-doc write (spec, adr, research, handoff, note, llm-readme) through the docs SSoT via `cleo docs add` / `cleo docs publish` / `cleo docs fetch` — never raw filesystem writes. Carries the CLEO writing and review guides as references and coordinates ct-spec-writer and ct-adr-recorder. Use when creating or updating documentation files, consolidating scattered documentation, or validating documentation against style standards. Triggers on documentation tasks, doc update requests, or style guide compliance checks.
-version: 3.40.0
+version: 3.41.0
 protocol: null
 dependencies:
   - ct-spec-writer
@@ -16,13 +16,13 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 3.40.0
+  version: 3.41.0
   tier: core
   install: harness
   covers:
     - packages/cleo/src/cli/commands/docs.ts
     - packages/contracts/src/docs-taxonomy.ts
-  lastReviewed: 2026-11-14
+  lastReviewed: 2026-11-25
   stability: stable
 ---
 
@@ -94,7 +94,12 @@ hygiene checks; it never edits doc content. `--apply` runs every repair class
 at once; on a live shared store, scope it with `--only <class,…>` (T14174), for
 example `cleo docs doctor --apply --only publication-ledger-drift`. The dry run's
 `repairCounts` shows planned repairs per class, and an unknown class is refused
-with the valid list.
+with the valid list. A gone row that is its blob's only reference is archived
+into the doc an in-sync sibling row of its stream publishes; a mirror
+`cleo docs modernize` merged or deleted has no such sibling, so name the doc:
+`cleo docs doctor --only publication-ledger-drift --apply --publication <path> --archive-into <slug>`
+archives the blob and the next run prunes the row (T14651).
+`W_DOCS_MODERNIZE_PUBLICATION_KEPT` prints that command for each kept row.
 
 `cleo docs migrate` (T13360) imports legacy docs + history into the re-keyed
 conduit store inside the migration safety harness (pre-step backup, verified
