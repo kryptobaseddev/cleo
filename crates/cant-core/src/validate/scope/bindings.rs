@@ -472,13 +472,14 @@ fn collect_name_refs_from_expr(expr: &Expression, refs: &mut Vec<(String, Span)>
 
 /// S12: Imported agent permissions MUST NOT exceed importing context.
 ///
-/// This requires cross-file analysis. At the single-document level, we
-/// cannot fully enforce this. This function provides the building block:
-/// given a set of "allowed" permissions and an agent definition, it
-/// checks for escalation.
+/// Given the permissions held by the importing context (by domain) and an
+/// agent defined in the imported file `imported_path`, reports every
+/// permission the agent declares that the context does not hold. The
+/// cross-file walk in `check_import_graph` calls this for each import edge.
 pub fn check_permission_escalation(
     agent: &AgentDef,
     allowed_permissions: &std::collections::HashMap<String, Vec<String>>,
+    imported_path: &str,
 ) -> Vec<Diagnostic> {
     let mut diags = Vec::new();
 
@@ -489,8 +490,8 @@ pub fn check_permission_escalation(
                     diags.push(Diagnostic::error(
                         "S12",
                         format!(
-                            "Agent '{}' declares permission '{}: {}' which exceeds the permissions of the importing context. Imported agents MUST NOT escalate privileges.",
-                            agent.name.value, perm.domain, access_val
+                            "Agent '{}' in imported file '{}' declares permission '{}: {}' which exceeds the permissions of the importing context. Imported agents MUST NOT escalate privileges.",
+                            agent.name.value, imported_path, perm.domain, access_val
                         ),
                         perm.span,
                     ));
@@ -502,8 +503,8 @@ pub fn check_permission_escalation(
                 diags.push(Diagnostic::error(
                     "S12",
                     format!(
-                        "Agent '{}' declares permission '{}: {}' which exceeds the permissions of the importing context. Imported agents MUST NOT escalate privileges.",
-                        agent.name.value, perm.domain, access_val
+                        "Agent '{}' in imported file '{}' declares permission '{}: {}' which exceeds the permissions of the importing context. Imported agents MUST NOT escalate privileges.",
+                        agent.name.value, imported_path, perm.domain, access_val
                     ),
                     perm.span,
                 ));

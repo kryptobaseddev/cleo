@@ -229,7 +229,9 @@ pub fn parse_document(
 ///
 /// This is the primary entry point for consumers who want to lint a `.cant` file.
 /// It calls [`validate::validate`] internally, running all rule modules
-/// (scope, pipeline purity, types, hooks, workflows).
+/// (scope, pipeline purity, types, hooks, workflows). The cross-file import
+/// rules S03, S11 and S12 need the document's file location; use
+/// [`validate_document_file`] to run them too.
 ///
 /// # Arguments
 ///
@@ -241,6 +243,28 @@ pub fn parse_document(
 /// means the document passed all validation rules.
 pub fn validate_document(doc: &dsl::ast::CantDocument) -> Vec<validate::diagnostic::Diagnostic> {
     validate::validate(doc)
+}
+
+/// Validates a parsed [`CantDocument`](dsl::ast::CantDocument) read from `file`.
+///
+/// Runs every rule [`validate_document`] runs plus the cross-file import
+/// rules (S03 circular imports, S11 import depth, S12 permission escalation),
+/// which need the file's location to resolve its imports. Calls
+/// [`validate::validate_file`].
+///
+/// # Arguments
+///
+/// * `doc` - A parsed CANT document (obtained from [`parse_document`]).
+/// * `file` - The path `doc` was read from; imports resolve relative to it.
+///
+/// # Returns
+///
+/// All diagnostics; an empty vector means every rule passed.
+pub fn validate_document_file(
+    doc: &dsl::ast::CantDocument,
+    file: &std::path::Path,
+) -> Vec<validate::diagnostic::Diagnostic> {
+    validate::validate_file(doc, file)
 }
 
 /// Renders a parsed [`dsl::ast::CantDocument`] back into a `.cant` source string.

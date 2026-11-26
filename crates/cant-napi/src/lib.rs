@@ -221,7 +221,7 @@ pub fn cant_parse_document(content: String) -> JsParseDocumentResult {
 
 // ── Validation ──────────────────────────────────────────────────────
 
-/// A validation diagnostic from the 42-rule validation engine.
+/// A validation diagnostic from the cant-core validation engine.
 #[napi(object)]
 pub struct JsDiagnostic {
     /// The rule ID (e.g., "S01", "P06", "W08").
@@ -253,15 +253,19 @@ pub struct JsValidateResult {
 
 /// Parse and validate a `.cant` document in one call.
 ///
-/// First parses the document, then runs all 42 validation rules.
-/// Returns parse errors if parsing fails, or validation diagnostics
+/// First parses the document, then runs the validation rules: the 41
+/// implemented numbered rules (S04 has no validator) plus the hierarchy
+/// lints. Returns parse errors if parsing fails, or validation diagnostics
 /// if parsing succeeds.
 ///
 /// # Arguments
 ///
 /// * `content` - The raw `.cant` file content to parse and validate.
+/// * `file_path` - The path `content` was read from. When given, imports
+///   resolve relative to it and the cross-file rules S03 (circular imports),
+///   S11 (import depth) and S12 (permission escalation) run as well.
 #[napi]
-pub fn cant_validate_document(content: String) -> JsValidateResult {
+pub fn cant_validate_document(content: String, file_path: Option<String>) -> JsValidateResult {
     let doc = match cant_core::parse_document(&content) {
         Ok(doc) => doc,
         Err(errors) => {
@@ -286,7 +290,10 @@ pub fn cant_validate_document(content: String) -> JsValidateResult {
         }
     };
 
-    let diagnostics = cant_core::validate_document(&doc);
+    let diagnostics = match file_path {
+        Some(path) => cant_core::validate_document_file(&doc, std::path::Path::new(&path)),
+        None => cant_core::validate_document(&doc),
+    };
     let js_diagnostics: Vec<JsDiagnostic> = diagnostics
         .iter()
         .map(|d| JsDiagnostic {

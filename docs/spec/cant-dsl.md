@@ -47,16 +47,21 @@ MM-002.
 **Validation rules**: the validator defines 41 of the 42 numbered rules in Section 4:
 S01–S03, S05–S13, P01–P07, T01–T07, H01–H04 and W01–W11 (counted from the rule-id string
 literals under `crates/cant-core/src/validate/`), plus the eight hierarchy rules above.
-S04 is never defined. `validate()` (`crates/cant-core/src/validate/mod.rs:31`) does not run
-all of them:
+S04 is never defined.
 
-- **S03** (circular imports, `check_circular_import`) and **S12** (permission escalation,
-  `check_permission_escalation`) are never called.
-- **S11** (import depth) runs against the fresh `ValidationContext` that `validate()`
-  creates, whose import chain is always empty, so it never fires.
-
-So a cyclic import chain, an over-deep chain and an imported agent that escalates
-permissions all validate cleanly today. T14603 tracks the fix. Limits use the defaults in `ValidationLimits`
+`cleo cant validate <file>` runs all of them. The cross-file rules S03 (circular imports),
+S11 (import depth) and S12 (permission escalation) need the file's location, so they run
+only through `validate_file` (`crates/cant-core/src/validate/mod.rs`, exposed as
+`cant_core::validate_document_file` and the optional `filePath` argument of
+`cantValidateDocument`). It walks the import graph from the file
+(`scope::check_import_graph`): `./` and `../` specifiers resolve relative to the importing
+file, `@name` and bare specifiers to `.cleo/skills/<name>.cant` under the project root, and
+a specifier without `.cant` also tries `<specifier>.cant` (Section 6.2). An import that does
+not resolve or parse is skipped, since S04 is not implemented; `node_modules` lookup is not
+implemented. S12 checks each imported file's agents against the permissions held by the
+agents of the file importing it; a file that defines no agents has no permission context,
+so its imports are not checked. The single-document `validate()` cannot resolve imports and
+runs every rule except S03, S11 and S12. Limits use the defaults in `ValidationLimits`
 (`validate/context.rs`); `.cleo/config.json` is not read (see Appendix B).
 
 **Runtime**: only pipelines execute (Section 7.1). The TypeScript `WorkflowExecutor` was
@@ -1645,7 +1650,8 @@ pub struct TextEdit {
 
 This section defines 42 numbered validation rules organized into five categories: Scope (S),
 Pipeline Purity (P), Types (T), Hooks (H), and Workflows (W), plus three rules (W12, W13, P08)
-for constructs the parser does not implement. `cant-core` emits 41 of the 42 (all but S04);
+for constructs the parser does not implement. `cant-core` emits 41 of the 42 (all but S04;
+S03, S11 and S12 need the file's location, see Implementation Status);
 W12, W13 and P08 have no validator. See [Implementation Status](#implementation-status).
 
 For each rule, the specification provides:

@@ -108,9 +108,13 @@ const cantParseCommand = defineCommand({
   },
 });
 
-/** cleo cant validate — run the 42-rule validation suite on a .cant file */
+/** cleo cant validate — run cant-core's validation rules on a .cant file and its imports */
 const cantValidateCommand = defineCommand({
-  meta: { name: 'validate', description: 'Run the 42-rule validation suite on a .cant file' },
+  meta: {
+    name: 'validate',
+    description:
+      'Validate a .cant file and its imports: 41 of the 42 numbered rules (S04 is not implemented) plus 8 hierarchy lints',
+  },
   args: { file: { type: 'positional', description: '.cant file to validate', required: true } },
   async run({ args }) {
     const filePath = resolveFilePath(args.file as string);

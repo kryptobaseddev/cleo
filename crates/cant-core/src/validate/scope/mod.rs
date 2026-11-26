@@ -13,7 +13,7 @@ pub use bindings::{
     check_unresolved_refs,
 };
 pub use imports::{
-    check_circular_import, check_import_depth, check_import_path_traversal,
+    check_circular_import, check_import_depth, check_import_graph, check_import_path_traversal,
     check_import_symlink_escape,
 };
 pub use names::{
