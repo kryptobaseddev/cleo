@@ -7,28 +7,37 @@ from five substrates: **brain** (memory), **nexus** (code graph), **tasks**,
 **conduit** (legacy messages) and **agent-registry** (agents). CLEO Studio
 (`packages/studio`) is its consumer.
 
-> **Known defect (T14583).** The adapters do not read the live store yet.
-> `src/db-connections.ts` and `src/cleo-home.ts` open the legacy per-domain
-> files (`brain.db`, `tasks.db`, `conduit.db` under the project `.cleo/`;
-> `nexus.db` and `signaldock.db` under CLEO home) and query bare table names
-> (`tasks`, `sessions`, `messages`, `agents`, `nexus_nodes`, …). The live store
-> is one `cleo.db` per scope with prefixed tables (`tasks_tasks`,
-> `agent_registry_agents`, …), and those legacy files are gone or stale. A
-> missing file makes its substrate return no nodes, so `getAllSubstrates()`
-> returns an empty or stale graph until T14583 moves the adapters to `cleo.db`.
+## Store
+
+The adapters read the consolidated store, one `cleo.db` per scope, with
+prefixed table names:
+
+- **Project** `<project>/.cleo/cleo.db`: `tasks_*`, `brain_*`, `conduit_*` and
+  the `nexus_*` code graph (project-resident per ADR-090).
+- **Global** `<cleoHome>/cleo.db`: `agent_registry_*`.
+
+Each read opens a read-only snapshot through the core store chokepoint
+(`openCleoDbSnapshot` in `@cleocode/core/store/open-cleo-db`): no migrations,
+no cached handle, closed after the read. The legacy per-domain files
+(`brain.db`, `tasks.db`, `conduit.db`, `nexus.db`, `signaldock.db`) are never
+read (T12095, T14583). A missing or unreadable store makes its substrates
+return no nodes.
 
 ## Substrates
 
 Every node carries a substrate-prefixed ID so cross-substrate edges can
 reference nodes unambiguously, e.g. `brain:O-abc` vs `nexus:sym-123`.
 
-| Substrate        | File the adapter opens today (T14583) | Node kinds                               |
-|------------------|---------------------------------------|------------------------------------------|
-| `brain`          | `brain.db` (project)                  | observation, decision, pattern, learning |
-| `nexus`          | `nexus.db` (global)                   | symbol, file                             |
-| `tasks`          | `tasks.db` (project)                  | task, session                            |
-| `conduit`        | `conduit.db` (project)                | message                                  |
-| `agent-registry` | `signaldock.db` (global)              | agent                                    |
+| Substrate        | Store    | Tables                                                          | Node kinds                               |
+|------------------|----------|-----------------------------------------------------------------|------------------------------------------|
+| `brain`          | project  | `brain_observations`, `_decisions`, `_patterns`, `_learnings`, `_page_edges`, `_memory_links` | observation, decision, pattern, learning |
+| `nexus`          | project  | `nexus_nodes`, `nexus_relations`                                | symbol, file                             |
+| `tasks`          | project  | `tasks_tasks`, `tasks_sessions`, `tasks_task_relations`, `tasks_task_dependencies` | task, session                            |
+| `conduit`        | project  | `conduit_messages`                                              | message                                  |
+| `agent-registry` | global   | `agent_registry_agents`                                         | agent                                    |
+
+The agent registry has no agent-to-agent connection table, so agent→agent
+edges come only from conduit message pairs.
 
 Conduit is legacy (T13933); agent messaging now runs on AgentMBX.
 
@@ -42,7 +51,8 @@ console.log(`${graph.nodes.length} nodes across ${Object.keys(graph.counts.nodes
 ```
 
 `BrainQueryOptions` also takes `substrates` (query a subset) and `projectCtx`
-(the project paths to read). After loading, `getAllSubstrates` fetches a stub
+(the project to read; its `tasksDbPath` names the project `cleo.db`, and
+`brainDbPath` is the same file). After loading, `getAllSubstrates` fetches a stub
 node (`meta.isStub: true`) for any edge target not already loaded, so
 cross-substrate edges are kept.
 
@@ -58,10 +68,10 @@ import {
 } from '@cleocode/brain/adapters';
 ```
 
-The root entry point also exports the path helpers (`getBrainDbPath`,
-`getTasksDbPath`, …), the raw connection getters (`getBrainDb`, `getTasksDb`,
-…) and `resolveDefaultProjectContext`. They resolve the legacy files described
-above.
+The root entry point also exports the path helpers (`getProjectStorePath`,
+`getGlobalStorePath`, `getCleoProjectDir`, `getCleoHome`), the snapshot
+readers (`readProjectStore`, `readGlobalStore`) and
+`resolveDefaultProjectContext`.
 
 ## Wire Format
 

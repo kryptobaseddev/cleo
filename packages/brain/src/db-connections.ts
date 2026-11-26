@@ -1,60 +1,28 @@
 /**
- * Read-only SQLite connection helpers for the Living Brain substrate adapters.
+ * Read-only store access for the Living Brain substrate adapters.
  *
- * Uses node:sqlite (Node.js built-in).
+ * The adapters read the consolidated stores, never the legacy per-domain files
+ * (`brain.db`, `tasks.db`, `conduit.db`, `nexus.db`, `signaldock.db`), which are
+ * decoys or retired (T12095, T14583):
  *
- * Global databases (nexus.db, signaldock.db) are shared across all projects
- * and use module-level caches — their path is fixed per machine and never
- * changes between requests.
+ * - **Project `cleo.db`** (`<project>/.cleo/cleo.db`): `tasks_*`, `brain_*`,
+ *   `conduit_*` and the `nexus_*` code graph (ADR-090).
+ * - **Global `cleo.db`** (`<cleoHome>/cleo.db`): `agent_registry_*`.
  *
- * Per-project databases (brain.db, tasks.db, conduit.db) are resolved from
- * the active {@link ProjectContext} passed by the caller. No cross-request
- * caching is performed: opening SQLite with `node:sqlite` is sub-millisecond,
- * and caching across different ProjectContexts is the precise bug this
- * module's Studio counterpart was rewritten to avoid.
- *
- * This file is a trimmed mirror of
- * `packages/studio/src/lib/server/db/connections.ts`, containing only the
- * getters required by the substrate adapters.
- *
- * ## E4-T5 transition (T11516 · SG-DB-SUBSTRATE-V2)
- *
- * This module now depends on `@cleocode/core` and delegates to
- * {@link openDualScopeDb} for new consolidated `cleo.db` access.  The legacy
- * per-domain DB getters ({@link getNexusDb}, {@link getBrainDb}, etc.) still
- * open the old per-domain files via per-line-allowed raw opens because the
- * substrate adapters in this package still target those legacy table schemas.
- * The full exodus to the consolidated `cleo.db` schema happens in E6 (T11249),
- * at which point the per-line `// db-open-allowed` markers and the legacy
- * getters are removed.
+ * Every read goes through the store chokepoint's snapshot opener
+ * ({@link openCleoDbSnapshot}): a read-only handle with no migrations and no
+ * singleton, opened for one read and closed after it. Opening is
+ * sub-millisecond, and no handle is cached across project contexts.
  *
  * @task T969
- * @task T11516 (E4-T5)
+ * @task T14583 (consolidated cleo.db through the store chokepoint)
  */
 
 import { existsSync } from 'node:fs';
-import { createRequire } from 'node:module';
-import { dirname, join } from 'node:path';
-import type { DatabaseSync as _DatabaseSyncType } from 'node:sqlite';
-import { applyPerfPragmas } from '@cleocode/core/store/sqlite-pragmas.js';
-import { dbExists, getAgentRegistryDbPath, getNexusDbPath } from './cleo-home.js';
+import type { DatabaseSync } from 'node:sqlite';
+import { openCleoDbSnapshot } from '@cleocode/core/store/open-cleo-db.js';
+import { getGlobalStorePath } from './cleo-home.js';
 import type { ProjectContext } from './project-context.js';
-
-/**
- * Re-export of the dual-scope `cleo.db` chokepoint.
- *
- * Callers that target the new consolidated schema (E4+) should use
- * `openDualScopeDb` directly rather than the legacy per-domain getters below.
- *
- * @see packages/core/src/store/dual-scope-db.ts
- */
-export { openDualScopeDb } from '@cleocode/core/db';
-
-const _require = createRequire(import.meta.url);
-type DatabaseSync = _DatabaseSyncType;
-const { DatabaseSync } = _require('node:sqlite') as {
-  DatabaseSync: new (...args: ConstructorParameters<typeof _DatabaseSyncType>) => DatabaseSync;
-};
 
 // ---------------------------------------------------------------------------
 // Typed row helper
@@ -92,148 +60,50 @@ export function allTyped<T>(stmt: PreparedStatementLike, ...params: unknown[]): 
 }
 
 // ---------------------------------------------------------------------------
-// Global singleton caches (path never changes per process)
-// ---------------------------------------------------------------------------
-
-/** Cached nexus.db connection — global, path is machine-scoped. */
-let nexusDb: DatabaseSync | null = null;
-
-/** Cached signaldock.db connection — global, path is machine-scoped. */
-let signaldockDb: DatabaseSync | null = null;
-
-// ---------------------------------------------------------------------------
-// Global DB getters (cached per process)
+// Store readers
 // ---------------------------------------------------------------------------
 
 /**
- * Returns a read-only connection to the global nexus.db.
- * Returns null when the file does not exist on disk.
+ * Runs `read` against a read-only snapshot of the store at `path`.
  *
- * @remarks
- * Uses `applyPerfPragmas` from `@cleocode/core` (SSoT, T9045).
- * The raw open is per-line-allowed during the E4 → E6 transition; substrate
- * adapters still target legacy nexus.db table names. Full exodus in E6 (T11249).
+ * @param path - Absolute path to a consolidated `cleo.db`.
+ * @param read - Synchronous read; the handle is closed when it returns.
+ * @returns The read's result, or null when the store is missing or cannot be
+ *   opened (a restore in progress, a malformed file), so the substrate degrades
+ *   to no nodes.
  */
-export function getNexusDb(): DatabaseSync | null {
-  if (nexusDb) return nexusDb;
-  const path = getNexusDbPath();
-  if (!dbExists(path)) return null;
-  nexusDb = new DatabaseSync(path, { open: true }); // db-open-allowed: E4-T5 coexistence (schema-guard-exempt: legacy read adapters run no schema code) — adapters target legacy nexus.db schema; full exodus in E6 (T11249)
-  applyPerfPragmas(nexusDb);
-  return nexusDb;
-}
-
-/**
- * Returns a read-only connection to the global signaldock.db.
- * Returns null when the file does not exist on disk.
- *
- * @remarks
- * Uses `applyPerfPragmas` from `@cleocode/core` (SSoT, T9045).
- * The raw open is per-line-allowed during the E4 → E6 transition; substrate
- * adapters still target legacy signaldock.db table names. Full exodus in E6 (T11249).
- */
-export function getAgentRegistryDb(): DatabaseSync | null {
-  if (signaldockDb) return signaldockDb;
-  const path = getAgentRegistryDbPath();
-  if (!dbExists(path)) return null;
-  signaldockDb = new DatabaseSync(path, { open: true }); // db-open-allowed: E4-T5 coexistence (schema-guard-exempt: legacy read adapters run no schema code) — adapters target legacy signaldock.db schema; full exodus in E6 (T11249)
-  applyPerfPragmas(signaldockDb);
-  return signaldockDb;
-}
-
-// ---------------------------------------------------------------------------
-// Per-project DB getters (NOT cached — resolved from ProjectContext)
-// ---------------------------------------------------------------------------
-
-/**
- * Detect the brain.db malformation signature (T10303) without taking a
- * dependency on `@cleocode/core`. The reader side does NOT auto-recover —
- * recovery is owned by the writer side in `@cleocode/core/store/memory-sqlite.ts`.
- * Reader-side detection returns `null` so substrate adapters degrade
- * gracefully (matches the existing "DB doesn't exist" semantics).
- *
- * @internal — brain-package-local.
- * @task T10303
- */
-function isMalformationError(err: unknown): boolean {
-  if (!(err instanceof Error)) return false;
-  const code = (err as Error & { code?: string; errcode?: number }).code;
-  const errcode = (err as Error & { errcode?: number }).errcode;
-  if (code === 'ERR_SQLITE_ERROR' && errcode === 11) return true;
-  return /malformed/i.test(err.message ?? '');
-}
-
-/**
- * Opens a connection to brain.db for the given project context.
- *
- * Each call opens a fresh DatabaseSync against the path stored in `ctx`.
- * Returns null when brain.db does not exist for the project OR when the
- * file is detected as malformed (T10303). Reader-side malformation is
- * handled by returning null — recovery is owned by the writer side in
- * `@cleocode/core/store/memory-sqlite.ts:getBrainDb`, which runs the
- * `recoverMalformedBrainDb()` pipeline before the next process re-opens.
- *
- * @param ctx - The active project context.
- *
- * @remarks
- * Uses `applyPerfPragmas` from `@cleocode/core` (SSoT, T9045).
- * The raw open is per-line-allowed during the E4 → E6 transition; substrate
- * adapters still target legacy brain.db table names. Full exodus in E6 (T11249).
- */
-export function getBrainDb(ctx: ProjectContext): DatabaseSync | null {
-  const path = ctx.brainDbPath;
+function readStore<T>(path: string, read: (db: DatabaseSync) => T): T | null {
   if (!existsSync(path)) return null;
+  let snapshot: ReturnType<typeof openCleoDbSnapshot>;
   try {
-    const __db = new DatabaseSync(path, { open: true }); // db-open-allowed: E4-T5 coexistence (schema-guard-exempt: legacy read adapters run no schema code) — adapters target legacy brain.db schema; full exodus in E6 (T11249)
-    applyPerfPragmas(__db);
-    return __db;
-  } catch (err) {
-    if (isMalformationError(err)) return null;
-    throw err;
+    snapshot = openCleoDbSnapshot(path, { readOnly: true });
+  } catch {
+    return null;
+  }
+  try {
+    return read(snapshot.db);
+  } finally {
+    snapshot.close();
   }
 }
 
 /**
- * Opens a connection to tasks.db for the given project context.
+ * Runs `read` against the project-scope `cleo.db` named by `ctx`.
  *
- * Each call opens a fresh DatabaseSync against the path stored in `ctx`.
- * Returns null when tasks.db does not exist for the project.
- *
- * @param ctx - The active project context.
- *
- * @remarks
- * Uses `applyPerfPragmas` from `@cleocode/core` (SSoT, T9045).
- * The raw open is per-line-allowed during the E4 → E6 transition; substrate
- * adapters still target legacy tasks.db table names. Full exodus in E6 (T11249).
+ * @param ctx - The active project context; `tasksDbPath` names its `cleo.db`.
+ * @param read - Synchronous read against the project store.
+ * @returns The read's result, or null when the store is missing or unreadable.
  */
-export function getTasksDb(ctx: ProjectContext): DatabaseSync | null {
-  const path = ctx.tasksDbPath;
-  if (!existsSync(path)) return null;
-  const __db = new DatabaseSync(path, { open: true }); // db-open-allowed: E4-T5 coexistence (schema-guard-exempt: legacy read adapters run no schema code) — adapters target legacy tasks.db schema; full exodus in E6 (T11249)
-  applyPerfPragmas(__db);
-  return __db;
+export function readProjectStore<T>(ctx: ProjectContext, read: (db: DatabaseSync) => T): T | null {
+  return readStore(ctx.tasksDbPath, read);
 }
 
 /**
- * Opens a connection to conduit.db for the given project context.
+ * Runs `read` against the global-scope `cleo.db` under CLEO home.
  *
- * conduit.db lives alongside brain.db in the project's `.cleo/` directory.
- * Its path is derived from the brain.db path since `ProjectContext` does not
- * carry a dedicated `conduitDbPath` field.
- *
- * Returns null when conduit.db does not exist for the project.
- *
- * @param ctx - The active project context.
- *
- * @remarks
- * Uses `applyPerfPragmas` from `@cleocode/core` (SSoT, T9045).
- * The raw open is per-line-allowed during the E4 → E6 transition; substrate
- * adapters still target legacy conduit.db table names. Full exodus in E6 (T11249).
+ * @param read - Synchronous read against the global store.
+ * @returns The read's result, or null when the store is missing or unreadable.
  */
-export function getConduitDb(ctx: ProjectContext): DatabaseSync | null {
-  const path = join(dirname(ctx.brainDbPath), 'conduit.db');
-  if (!existsSync(path)) return null;
-  const __db = new DatabaseSync(path, { open: true }); // db-open-allowed: E4-T5 coexistence (schema-guard-exempt: legacy read adapters run no schema code) — adapters target legacy conduit.db schema; full exodus in E6 (T11249)
-  applyPerfPragmas(__db);
-  return __db;
+export function readGlobalStore<T>(read: (db: DatabaseSync) => T): T | null {
+  return readStore(getGlobalStorePath(), read);
 }

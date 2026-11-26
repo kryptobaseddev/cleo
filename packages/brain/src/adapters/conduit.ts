@@ -1,46 +1,35 @@
 /**
  * CONDUIT substrate adapter for the Living Brain API.
  *
- * Queries conduit.db and returns BrainNodes/BrainEdges for agent-to-agent messages.
+ * Queries the project `cleo.db` (`conduit_messages`) and returns
+ * BrainNodes/BrainEdges for agent-to-agent messages.
  * Each message becomes a node; `from_agent_id → to_agent_id` becomes an edge.
- * Co-authoring agent pairs produce cross-substrate edges to SIGNALDOCK.
+ * Co-authoring agent pairs produce cross-substrate edges to AGENT-REGISTRY.
  *
  * Node IDs are prefixed with "conduit:" to prevent collisions.
  */
 
-import { allTyped, getConduitDb } from '../db-connections.js';
+import { allTyped, readProjectStore } from '../db-connections.js';
 import { resolveDefaultProjectContext } from '../project-context.js';
 import type { BrainEdge, BrainNode, BrainQueryOptions } from '../types.js';
 
-/** Raw row from conduit messages table. */
+/** Raw row from `conduit_messages`. */
 interface MessageRow {
   id: string;
   content: string;
   from_agent_id: string | null;
   to_agent_id: string | null;
-  /** UNIX epoch seconds (INTEGER column in conduit.db). */
-  created_at: number;
+  /** ISO-8601 timestamp, normalised by the query; null when unparseable. */
+  created_at: string | null;
   conversation_id: string | null;
 }
 
 /**
- * Converts a UNIX epoch seconds value to an ISO-8601 string.
- * Returns null when the value is not a finite positive number.
- *
- * @param epoch - UNIX timestamp in seconds.
- * @returns ISO-8601 string or null.
- */
-function epochToIso(epoch: number): string | null {
-  if (!Number.isFinite(epoch) || epoch <= 0) return null;
-  return new Date(epoch * 1000).toISOString();
-}
-
-/**
- * Returns all BrainNodes and BrainEdges sourced from conduit.db.
+ * Returns all BrainNodes and BrainEdges sourced from `conduit_messages`.
  *
  * Fetches the most recent messages (capped at perSubstrateLimit).
  * Synthesizes agent→agent edges and cross-substrate agent references
- * pointing to signaldock.
+ * pointing to the agent registry.
  *
  * @param options - Query options (limit).
  * @returns Nodes and edges from the CONDUIT substrate.
@@ -50,71 +39,71 @@ export function getConduitSubstrate(options: BrainQueryOptions = {}): {
   edges: BrainEdge[];
 } {
   const ctx = options.projectCtx ?? resolveDefaultProjectContext();
-  const db = getConduitDb(ctx);
-  if (!db) return { nodes: [], edges: [] };
-
   const perSubstrateLimit = Math.ceil((options.limit ?? 500) / 5);
 
   const nodes: BrainNode[] = [];
   const edges: BrainEdge[] = [];
 
-  try {
-    // Most recent messages
-    const msgRows = allTyped<MessageRow>(
-      db.prepare(
-        `SELECT id, content, from_agent_id, to_agent_id, created_at, conversation_id
-         FROM messages
+  readProjectStore(ctx, (db) => {
+    try {
+      // Most recent messages
+      const msgRows = allTyped<MessageRow>(
+        db.prepare(
+          `SELECT id, content, from_agent_id, to_agent_id,
+                strftime('%Y-%m-%dT%H:%M:%S', created_at) AS created_at, conversation_id
+         FROM main.conduit_messages
          ORDER BY created_at DESC
          LIMIT ?`,
-      ),
-      perSubstrateLimit,
-    );
+        ),
+        perSubstrateLimit,
+      );
 
-    const agentPairs = new Map<string, { count: number; from: string; to: string }>();
+      const agentPairs = new Map<string, { count: number; from: string; to: string }>();
 
-    for (const row of msgRows) {
-      // Message node — truncate content for label
-      const label = row.content.length > 80 ? `${row.content.slice(0, 80)}…` : row.content;
-      nodes.push({
-        id: `conduit:${row.id}`,
-        kind: 'message',
-        substrate: 'conduit',
-        label,
-        createdAt: epochToIso(row.created_at),
-        meta: {
-          from_agent_id: row.from_agent_id,
-          to_agent_id: row.to_agent_id,
-          conversation_id: row.conversation_id,
-          created_at: row.created_at,
-        },
-      });
+      for (const row of msgRows) {
+        // Message node — truncate content for label
+        const label = row.content.length > 80 ? `${row.content.slice(0, 80)}…` : row.content;
+        nodes.push({
+          id: `conduit:${row.id}`,
+          kind: 'message',
+          substrate: 'conduit',
+          label,
+          createdAt: row.created_at,
+          meta: {
+            from_agent_id: row.from_agent_id,
+            to_agent_id: row.to_agent_id,
+            conversation_id: row.conversation_id,
+            created_at: row.created_at,
+          },
+        });
 
-      // Aggregate agent pairs for social-graph edges
-      if (row.from_agent_id && row.to_agent_id) {
-        const key = `${row.from_agent_id}→${row.to_agent_id}`;
-        const existing = agentPairs.get(key);
-        if (existing) {
-          existing.count++;
-        } else {
-          agentPairs.set(key, { count: 1, from: row.from_agent_id, to: row.to_agent_id });
+        // Aggregate agent pairs for social-graph edges
+        if (row.from_agent_id && row.to_agent_id) {
+          const key = `${row.from_agent_id}→${row.to_agent_id}`;
+          const existing = agentPairs.get(key);
+          if (existing) {
+            existing.count++;
+          } else {
+            agentPairs.set(key, { count: 1, from: row.from_agent_id, to: row.to_agent_id });
+          }
         }
       }
-    }
 
-    // Cross-substrate: agent social graph edges pointing to signaldock agent nodes
-    for (const [, pair] of agentPairs) {
-      const weight = Math.min(1.0, pair.count / 10);
-      edges.push({
-        source: `agent-registry:${pair.from}`,
-        target: `agent-registry:${pair.to}`,
-        type: 'messages',
-        weight,
-        substrate: 'cross',
-      });
+      // Cross-substrate: agent social graph edges pointing to agent-registry nodes
+      for (const [, pair] of agentPairs) {
+        const weight = Math.min(1.0, pair.count / 10);
+        edges.push({
+          source: `agent-registry:${pair.from}`,
+          target: `agent-registry:${pair.to}`,
+          type: 'messages',
+          weight,
+          substrate: 'cross',
+        });
+      }
+    } catch {
+      // Return partial results on error
     }
-  } catch {
-    // Return partial results on error
-  }
+  });
 
   return { nodes, edges };
 }

@@ -35,15 +35,7 @@
  * @task T990
  */
 
-import {
-  type BrainGraph,
-  getAgentRegistryDb,
-  getAllSubstrates,
-  getBrainDb,
-  getConduitDb,
-  getNexusDb,
-  getTasksDb,
-} from '@cleocode/brain';
+import { type BrainGraph, getAllSubstrates, readProjectStore } from '@cleocode/brain';
 import { computeBridges } from '$lib/graph/adapters/cross-substrate.js';
 import type { GraphEdge, GraphNode } from '$lib/graph/types.js';
 import {
@@ -122,9 +114,10 @@ export interface PageData {
 /**
  * Compute cross-substrate bridge edges for the given graph.
  *
- * Wraps Agent D's {@link computeBridges} with the DB handles obtained
- * from `@cleocode/brain`. Returns an empty array if the project context
- * is missing or the DBs can't be opened.
+ * Wraps Agent D's {@link computeBridges} with a read-only snapshot of the
+ * project `cleo.db` from `@cleocode/brain`, which holds both the brain and
+ * task tables the bridges read (T14583). Returns an empty array if the project
+ * context is missing or the store can't be opened.
  */
 function computeBridgesForGraph(graph: BrainGraph, ctx: App.Locals['projectCtx']): GraphEdge[] {
   if (!ctx) return [];
@@ -138,13 +131,9 @@ function computeBridgesForGraph(graph: BrainGraph, ctx: App.Locals['projectCtx']
   }));
 
   try {
-    return computeBridges(kitNodes, {
-      brainDb: getBrainDb(ctx) ?? undefined,
-      tasksDb: getTasksDb(ctx) ?? undefined,
-      conduitDb: getConduitDb(ctx) ?? undefined,
-      nexusDb: getNexusDb() ?? undefined,
-      signaldockDb: getAgentRegistryDb() ?? undefined,
-    });
+    return (
+      readProjectStore(ctx, (db) => computeBridges(kitNodes, { brainDb: db, tasksDb: db })) ?? []
+    );
   } catch (err) {
     console.warn('[brain/load] bridge computation failed:', err);
     return [];

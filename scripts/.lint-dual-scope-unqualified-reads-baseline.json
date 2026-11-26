@@ -2,18 +2,10 @@
   "generatedAt": "2026-09-12T20:31:14.008Z",
   "note": "Unqualified reads of tables resident in BOTH cleo.db scopes (gh#1283). Counts may only DECREASE. Regenerate with: node scripts/lint-dual-scope-unqualified-reads.mjs --update-baseline",
   "ambiguousTables": 27,
-  "totalFindings": 656,
+  "totalFindings": 650,
   "counts": {
     "crates/cleo-supervisor/src/lease_handler.rs": {
       "_writer_leases": 2
-    },
-    "packages/brain/src/adapters/brain.ts": {
-      "brain_decisions": 1,
-      "brain_learnings": 1,
-      "brain_memory_links": 1,
-      "brain_observations": 1,
-      "brain_page_edges": 1,
-      "brain_patterns": 1
     },
     "packages/cleo/src/dispatch/domains/memory.ts": {
       "brain_backfill_runs": 1,
