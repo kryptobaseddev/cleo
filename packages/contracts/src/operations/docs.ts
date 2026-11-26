@@ -1170,6 +1170,18 @@ export interface DocsDoctorParams {
    * `apply`, written. Diagnostics still cover every class.
    */
   only?: string;
+  /**
+   * The ledger path whose only-held blob {@link archiveInto} names a doc for
+   * (T14651), exactly as `cleo docs status` lists it. Given together with
+   * `archiveInto`.
+   */
+  publication?: string;
+  /**
+   * Archive the only-held blob of the gone row at {@link publication} into this
+   * adopted doc (T14651): the route for a merged or deleted mirror, which has no
+   * in-sync sibling row to find its doc by. The next run prunes the row.
+   */
+  archiveInto?: string;
 }
 
 /**

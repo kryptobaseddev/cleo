@@ -962,6 +962,15 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
           }
         : {}),
       ...(backupReceiptPath !== undefined ? { backupReceiptPath } : {}),
+      // T14651: a caller-named archive target; core refuses a half-given pair.
+      ...(params.publication !== undefined || params.archiveInto !== undefined
+        ? {
+            archiveInto: {
+              publishedPath: params.publication ?? '',
+              slug: params.archiveInto ?? '',
+            },
+          }
+        : {}),
       // T14188: mirrors and git come from the invoking checkout.
       checkoutRoot: resolveInvokingCheckout(),
     });

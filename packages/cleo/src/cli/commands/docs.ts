@@ -1950,6 +1950,18 @@ const doctorCommand = defineCommand({
         'doc-version-skew, empty-provenance, wikilinks-drift, legacy-blob-coverage, ' +
         'conduit-history-gaps, publication-ledger-drift. Other classes are left untouched.',
     },
+    publication: {
+      type: 'string',
+      description:
+        'With --archive-into: the docs_publications path (as `cleo docs status` lists it) of a ' +
+        'gone row whose blob it references alone (T14651)',
+    },
+    'archive-into': {
+      type: 'string',
+      description:
+        'Archive the only-held blob of the --publication row into this adopted doc, so the next ' +
+        'run prunes the row (T14651): the route for a mirror cleo docs modernize merged or deleted',
+    },
     ...docsOutputArgs,
   },
   async run({ args }) {
@@ -1957,6 +1969,8 @@ const doctorCommand = defineCommand({
     const repair = args.repair === true;
     const olderThanDays = parseOlderThanDays(args['older-than-days']);
     const only = typeof args.only === 'string' ? args.only : undefined;
+    const publication = typeof args.publication === 'string' ? args.publication : undefined;
+    const archiveInto = typeof args['archive-into'] === 'string' ? args['archive-into'] : undefined;
     await dispatchFromCli(
       apply || repair ? 'mutate' : 'query',
       'docs',
@@ -1966,6 +1980,8 @@ const doctorCommand = defineCommand({
         repair,
         ...(olderThanDays !== undefined ? { olderThanDays } : {}),
         ...(only !== undefined ? { only } : {}),
+        ...(publication !== undefined ? { publication } : {}),
+        ...(archiveInto !== undefined ? { archiveInto } : {}),
       },
       { command: 'docs doctor' },
     );

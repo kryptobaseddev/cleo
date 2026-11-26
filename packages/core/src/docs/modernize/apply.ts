@@ -852,7 +852,8 @@ interface PublicationChange {
  * it: a blob no attachments row, conduit version or surviving ledger row holds
  * is first imported as a prior version of the change's doc; when that doc is
  * not adopted or the bytes are not local, the row is kept and a warning names
- * the doctor repair.
+ * the doctor's named-target archive (`--publication <path> --archive-into
+ * <slug>`, T14651) that repairs it.
  */
 async function movePublications(
   journal: StepJournal,
@@ -863,9 +864,8 @@ async function movePublications(
 ): Promise<void> {
   if (changes.length === 0) return;
   const { resolvePublishedMirror } = await import('../docs-ops.js');
-  const { buildLedgerArchive, importLedgerArchive, readBlobHolderShas } = await import(
-    '../doctor.js'
-  );
+  const { buildLedgerArchive, docsDoctorArchiveCommand, importLedgerArchive, readBlobHolderShas } =
+    await import('../doctor.js');
   const ledger = await readDocsPublications(projectRoot);
   const present = new Map(ledger.map((r) => [publicationKey(r), r]));
   let holders: Set<string> | undefined;
@@ -898,14 +898,22 @@ async function movePublications(
       if ((moved === null || targetExisted) && !(await heldElsewhere(pub))) {
         const built = slug ? await buildLedgerArchive(projectRoot, slug, pub.lastBlobSha) : null;
         if (built === null || built === 'unadopted') {
+          // T14651: name the doctor's named-target archive, the one route that
+          // repairs a row with no in-sync sibling; it runs once the removal is
+          // committed (the doctor prunes only a row proven gone).
+          const repair = docsDoctorArchiveCommand(pub.publishedPath, slug ?? '<slug>');
+          const why = !slug
+            ? 'no doc holds its content; name the one that should keep it as <slug>'
+            : built === 'unadopted'
+              ? `'${slug}' has no conduit history yet: adopt it with cleo docs migrate first`
+              : `its bytes are not in this device's blob store: run the repair on a device that holds them`;
           pushWarning({
             // @sync-invariant none:local-only the warning reports a ledger row modernize kept; it rejects nothing and writes nothing
             code: 'W_DOCS_MODERNIZE_PUBLICATION_KEPT',
             message:
               `kept the docs_publications row ${pub.publishedPath} (owner ${pub.ownerId}, blob ${pub.blobName}): ` +
-              `it is the only reference to blob ${pub.lastBlobSha.slice(0, 12)}…, which could not be archived into ` +
-              `${slug ? `'${slug}' (${built === 'unadopted' ? 'no conduit history yet: adopt it with cleo docs migrate' : 'bytes not found locally'})` : 'any doc'}; ` +
-              'then run cleo docs doctor --only publication-ledger-drift --apply',
+              `it is the only reference to blob ${pub.lastBlobSha.slice(0, 12)}…, which could not be archived (${why}). ` +
+              `Commit the tree change, then run ${repair} to archive the blob, and run it again to prune the row`,
           });
           continue;
         }

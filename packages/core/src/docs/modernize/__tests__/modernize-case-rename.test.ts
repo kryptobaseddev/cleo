@@ -16,6 +16,7 @@
  * @task T14610
  */
 
+import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import type * as Fs from 'node:fs';
 import {
@@ -33,13 +34,15 @@ import type * as FsPromises from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, sep } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { drainWarnings } from '../../../output.js';
 import { createAttachmentStore } from '../../../store/attachment-store.js';
 import { backfillBlobStoreBytes } from '../../../store/blob-keep.js';
 import { closeDb } from '../../../store/sqlite.js';
 import type { DocsPublicationRecord } from '../../docs-ops.js';
 import { listDocVersions, statusDocs } from '../../docs-ops.js';
 import { updateDocBySlug } from '../../docs-update.js';
-import { readBlobHolderShas } from '../../doctor.js';
+import type { DocsDoctorOptions } from '../../doctor.js';
+import { readBlobHolderShas, runDocsDoctor } from '../../doctor.js';
 import {
   insertDocsPublication,
   readDocsPublications,
@@ -421,6 +424,148 @@ describe('modernize tree apply: merged, deleted and linked mirrors (T14631)', ()
     expect(existsSync(join(docsRoot, 'adr', 'store-notes.md'))).toBe(false);
     expect((await ledgerRows(projectRoot)).map((r) => r.lastBlobSha)).toEqual([oldSha]);
     expect(receipt.ops.some((o) => o.op === 'move-publication')).toBe(false);
+  });
+
+  /** Turn the fixture's stand-in `.git` into a real repository with `docs/` committed. */
+  function gitInit(): void {
+    rmSync(join(projectRoot, '.git'), { recursive: true, force: true });
+    git(['init', '-q', '-b', 'main']);
+    git(['add', 'docs']);
+    git(['commit', '-q', '-m', 'seed']);
+  }
+
+  function git(args: string[]): void {
+    execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], {
+      cwd: projectRoot,
+      stdio: 'ignore',
+    });
+  }
+
+  /** The doctor options the warning's printed `cleo docs doctor …` command names. */
+  function followPrinted(message: string): DocsDoctorOptions {
+    const cmd =
+      /cleo docs doctor (--only \S+) --apply --publication (\S+) --archive-into (\S+)/.exec(
+        message,
+      );
+    expect(cmd, message).not.toBeNull();
+    const [, only = '', publishedPath = '', slug = ''] = cmd ?? [];
+    return {
+      apply: true,
+      only: [only.replace('--only ', '')],
+      archiveInto: { publishedPath, slug },
+      backupReceiptPath: receiptFile(),
+    };
+  }
+
+  function receiptFile(): string {
+    const path = join(projectRoot, 'backup-receipt.json');
+    writeFileSync(path, '{}');
+    return path;
+  }
+
+  /** Delete the drifted mirror through modernize, commit the removal, and return the kept-row warning. */
+  async function deleteKeptMirror(adopted: boolean): Promise<{ oldSha: string; message: string }> {
+    const slug = await survivorSlug();
+    const oldSha = await seedDriftedMirror(slug, adopted);
+    gitInit();
+    const plan = await planDocsModernize({
+      root: docsRoot,
+      projectRoot,
+      decide: { connection: null },
+      overrides: { 'adr/store-notes.md': { disposition: 'delete', reason: 'test: delete' } },
+    });
+    drainWarnings();
+    await applyDocsModernize({ plan, projectRoot, allowDirty: true });
+    const kept = drainWarnings()?.find((w) => w.code === 'W_DOCS_MODERNIZE_PUBLICATION_KEPT');
+    expect((await ledgerRows(projectRoot)).map((r) => r.lastBlobSha)).toEqual([oldSha]);
+    git(['add', '-A', 'docs']);
+    git(['commit', '-q', '-m', 'modernize']);
+    return { oldSha, message: kept?.message ?? '' };
+  }
+
+  it('the kept-row warning names a doctor command that archives the blob, then prunes the row (T14651)', async () => {
+    const { oldSha, message } = await deleteKeptMirror(false);
+    expect(message).toContain('cleo docs migrate');
+    const opts = followPrinted(message);
+    const slug = opts.archiveInto?.slug ?? '';
+    expect(opts.archiveInto?.publishedPath).toBe('docs/adr/store-notes.md');
+
+    // Before adoption the printed command changes nothing and says why.
+    const early = await runDocsDoctor(projectRoot, { ...opts, backupReceiptPath: receiptFile() });
+    expect(early.ok).toBe(true);
+    if (!early.ok) return;
+    expect(early.report.repairs.find((r) => r.kind === 'publication-ledger-drift')).toMatchObject({
+      action: 'republish-or-prune',
+      applied: false,
+    });
+
+    // Follow the warning: adopt the doc (an update gives it conduit history),
+    // then run the printed command twice.
+    expect(
+      (await updateDocBySlug(projectRoot, { slug, content: `${merged}\nAdopted.\n` })).ok,
+    ).toBe(true);
+    const archived = await runDocsDoctor(projectRoot, {
+      ...opts,
+      backupReceiptPath: receiptFile(),
+    });
+    expect(archived.ok).toBe(true);
+    if (!archived.ok) return;
+    expect(
+      archived.report.repairs.filter((r) => r.kind === 'publication-ledger-drift'),
+    ).toMatchObject([{ action: 'archive-publication', applied: true }]);
+    const versions = await listDocVersions({ ownerId: slug, projectRoot });
+    expect(versions.versions.map((v) => v.sha256)).toContain(oldSha);
+
+    const pruned = await runDocsDoctor(projectRoot, { ...opts, backupReceiptPath: receiptFile() });
+    expect(pruned.ok).toBe(true);
+    if (!pruned.ok) return;
+    expect(
+      pruned.report.repairs.filter((r) => r.kind === 'publication-ledger-drift'),
+    ).toMatchObject([{ action: 'prune-publication', applied: true }]);
+    expect(await ledgerRows(projectRoot)).toEqual([]);
+    expect(await readBlobHolderShas(projectRoot)).toContain(oldSha);
+  });
+
+  it('archives a kept row into a named doc, then prunes it; refuses a path with no gone row (T14651)', async () => {
+    const { oldSha } = await deleteKeptMirror(true);
+    const slug = await survivorSlug();
+    const only = ['publication-ledger-drift'];
+
+    const missing = await runDocsDoctor(projectRoot, {
+      only,
+      archiveInto: { publishedPath: 'docs/adr/nope.md', slug },
+    });
+    expect(missing.ok).toBe(false);
+    if (missing.ok) return;
+    expect(missing.error.code).toBe('E_DOCS_DOCTOR_ARCHIVE_ROW_NOT_FOUND');
+
+    // Without a named target the doctor has no in-sync sibling row to follow.
+    const unnamed = await runDocsDoctor(projectRoot, {
+      apply: true,
+      only,
+      backupReceiptPath: receiptFile(),
+    });
+    expect(unnamed.ok).toBe(true);
+    expect(await ledgerRows(projectRoot)).toHaveLength(1);
+
+    const archiveInto = { publishedPath: 'docs/adr/store-notes.md', slug };
+    const archived = await runDocsDoctor(projectRoot, {
+      apply: true,
+      only,
+      archiveInto,
+      backupReceiptPath: receiptFile(),
+    });
+    expect(archived.ok).toBe(true);
+    const versions = await listDocVersions({ ownerId: slug, projectRoot });
+    expect(versions.versions.map((v) => v.sha256)).toContain(oldSha);
+    const pruned = await runDocsDoctor(projectRoot, {
+      apply: true,
+      only,
+      archiveInto,
+      backupReceiptPath: receiptFile(),
+    });
+    expect(pruned.ok).toBe(true);
+    expect(await ledgerRows(projectRoot)).toEqual([]);
   });
 
   it('removes a non-survivor hard link to a kept file', async () => {
