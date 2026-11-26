@@ -694,12 +694,12 @@ jobs:
     # gh#1479 recorded a single @cleocode/cleo publish taking 55m33s (npm
     # accepted it; the registry sat on it). 60 minutes left ~4 minutes for the
     # other 17 packages, the GitHub Release and the stage/verify steps. Stable
-    # releases publish twice: ~110m for two slow calls, plus 15m each for the
-    # candidate registry check and candidate install/soak, plus 30m for the
-    # stable dependency wait (T14615) is ~170m. 195 leaves ~25m for sibling
-    # packages, staging and the GitHub Release; a healthy publish finishes in
-    # minutes.
-    timeout-minutes: 195
+    # releases publish twice: ~110m for two slow calls, plus 30m for the
+    # candidate registry check (T14630), 15m for the candidate install/soak,
+    # plus 30m for the stable dependency wait (T14615) is ~185m. 210 leaves
+    # ~25m for sibling packages, staging and the GitHub Release; a healthy
+    # publish finishes in minutes.
+    timeout-minutes: 210
     env:
       VERSION: ${{ needs.build-verify.outputs.version }}
     # T14192: supervisor-attach runs whenever the GitHub Release exists, even
@@ -923,6 +923,14 @@ jobs:
           # `canary`, then — once that candidate installs from npm and passes
           # the sandbox soak — the release itself to `latest`. VERSION and TAG
           # are function-local, so every helper below reads the phase's values.
+          #
+          # T14615/T14630: the one propagation budget every BLOCKING registry
+          # gate in this step shares (the stable dependency gate and the
+          # release candidate gate). v2026.11.12's core tarball 404'd for ~20
+          # min after npm accepted it, so a 15 min budget at a fixed interval
+          # fails the job on lag alone. Wait up to 30 min, backing off
+          # 15s -> 60s between polls; every poll logs each package's stalled rung.
+          BLOCKING_GATE_BUDGET=(POSTDEPLOY_TIMEOUT_MS=1800000 POSTDEPLOY_BACKOFF=2 POSTDEPLOY_MAX_INTERVAL_MS=60000)
           publish_release() {
             local VERSION="$1"
             local TAG="$2"
@@ -1107,14 +1115,11 @@ jobs:
             run_wave 5
             # T14516: npm accepting a dependency does not make it installable.
             # Reuse the candidate's metadata + tarball + dist-tag verifier;
-            # one shared budget covers all earlier waves, including cycles.
-            # T14615: v2026.11.12's core tarball 404'd for ~20 min after npm
-            # accepted it (metadata already listed the version) and a 15 min
-            # budget halted wave 6. Wait up to 30 min, backing off 15s -> 60s
-            # between polls; every poll logs each package's stalled rung.
+            # one shared budget covers all earlier waves, including cycles,
+            # with the BLOCKING_GATE_BUDGET defined above (T14615).
             local STABLE_DEPENDENCY_EXIT=0
             if [[ "$TAG" == "latest" && "$PUBLISH_HALTED" == "0" ]]; then
-              POSTDEPLOY_TIMEOUT_MS=1800000 POSTDEPLOY_BACKOFF=2 POSTDEPLOY_MAX_INTERVAL_MS=60000 node scripts/execute-payload.mjs \
+              env "${BLOCKING_GATE_BUDGET[@]}" node scripts/execute-payload.mjs \
                 --version "$VERSION" --dist-tag "$TAG" --before-package cleo \
                 --output-dir /tmp/stable-dependencies || {
                   STABLE_DEPENDENCY_EXIT=$?
@@ -1190,8 +1195,9 @@ jobs:
             publish_release "$RC_VERSION" canary
             # The gate. Both are blocking: no continue-on-error, no `|| true`.
             # The candidate must resolve from npm (metadata, tarball and the
-            # canary dist-tag, every package) ...
-            POSTDEPLOY_TIMEOUT_MS=900000 node scripts/execute-payload.mjs \
+            # canary dist-tag, every package), within the same bounded backoff
+            # budget as the stable dependency gate (T14630) ...
+            env "${BLOCKING_GATE_BUDGET[@]}" node scripts/execute-payload.mjs \
               --version "$RC_VERSION" \
               --dist-tag canary \
               --output-dir /tmp/rc-postdeploy

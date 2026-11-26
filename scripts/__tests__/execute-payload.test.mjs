@@ -27,6 +27,7 @@ import {
   main,
   parseArgs,
   readCreatedAt,
+  readPollSetting,
   readPublishedPackages,
   verifyAll,
 } from '../execute-payload.mjs';
@@ -385,9 +386,12 @@ describe('T14615 — the stable dependency gate waits out a transient tarball 40
    * Run the wave gate (`--before-package cleo`) against a fake registry whose
    * `core` tarball answers 404 for its first `failures` HEAD requests.
    * @param {number} failures - 404s before the tarball is served (Infinity = never).
+   * @param {'stable' | 'candidate'} [gate] - The stable wave gate, or the
+   *   release candidate gate (every package, `canary` dist-tag; T14630).
    * @returns {Promise<{ exit: number, lines: string[], coreHeads: number }>}
    */
-  async function runGate(failures) {
+  async function runGate(failures, gate = 'stable') {
+    const distTag = gate === 'stable' ? 'latest' : 'canary';
     const outputDir = await mkdtemp(path.join(tmpdir(), 'ep-t14615-'));
     const argv = process.argv;
     const env = { ...process.env };
@@ -395,7 +399,7 @@ describe('T14615 — the stable dependency gate waits out a transient tarball 40
     const sink = (/** @type {unknown[]} */ ...a) => lines.push(a.join(' '));
     vi.spyOn(console, 'log').mockImplementation(sink);
     vi.spyOn(console, 'error').mockImplementation(sink);
-    const served = stubFetch4();
+    const served = stubFetch4({ distTags: { [distTag]: '2026.9.8' } });
     let coreHeads = 0;
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, init) => {
       if (String(url).endsWith('/core-2026.9.8.tgz') && ++coreHeads <= failures) {
@@ -413,9 +417,8 @@ describe('T14615 — the stable dependency gate waits out a transient tarball 40
       '--version',
       '2026.9.8',
       '--dist-tag',
-      'latest',
-      '--before-package',
-      'cleo',
+      distTag,
+      ...(gate === 'stable' ? ['--before-package', 'cleo'] : []),
       '--output-dir',
       outputDir,
     ];
@@ -439,6 +442,14 @@ describe('T14615 — the stable dependency gate waits out a transient tarball 40
     expect(attempts[1]).toContain('attempt 2:');
     for (const line of attempts) expect(line).toContain('core (tarball HTTP 404)');
     expect(lines.some((l) => l.includes('[OK]   @cleocode/core@2026.9.8'))).toBe(true);
+  });
+
+  it('passes the release candidate gate when the tarball 404s twice and then 200s (T14630)', async () => {
+    const { exit, lines, coreHeads } = await runGate(2, 'candidate');
+    expect(exit).toBe(0);
+    expect(coreHeads).toBe(3);
+    expect(lines.filter((l) => l.includes('not yet installable'))).toHaveLength(2);
+    expect(lines.some((l) => l.includes('[OK]   @cleocode/cleo@2026.9.8'))).toBe(true);
   });
 
   it('still fails the wave when the registry never serves the tarball', async () => {
@@ -471,6 +482,40 @@ describe('T14615 — the stable dependency gate waits out a transient tarball 40
     });
     expect(results[0].ok).toBe(true);
     expect(waits).toEqual([15_000, 30_000, 60_000, 60_000]);
+  });
+});
+
+describe('T14630 — a poll setting that would make the loop spin is refused', () => {
+  const script = fileURLToPath(new URL('../execute-payload.mjs', import.meta.url));
+
+  it.each([
+    ['POSTDEPLOY_BACKOFF', ''],
+    ['POSTDEPLOY_BACKOFF', '0'],
+    ['POSTDEPLOY_BACKOFF', '-2'],
+    ['POSTDEPLOY_BACKOFF', '0.5'],
+    ['POSTDEPLOY_BACKOFF', 'two'],
+    ['POSTDEPLOY_MAX_INTERVAL_MS', ''],
+    ['POSTDEPLOY_MAX_INTERVAL_MS', '0'],
+    ['POSTDEPLOY_MAX_INTERVAL_MS', '-1'],
+    ['POSTDEPLOY_MAX_INTERVAL_MS', '60s'],
+  ])('%s=%j exits 2 with a clear error before polling', (name, value) => {
+    const result = spawnSync(
+      process.execPath,
+      [script, '--version', '2026.9.8', '--dist-tag', 'canary'],
+      { encoding: 'utf8', env: { ...process.env, [name]: value } },
+    );
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain(`ERROR: ${name} must be a number`);
+    expect(result.stderr).toContain(JSON.stringify(value));
+    expect(result.stdout).toBe('');
+  });
+
+  it('accepts valid values and falls back when unset', () => {
+    expect(readPollSetting({ POSTDEPLOY_BACKOFF: '2' }, 'POSTDEPLOY_BACKOFF', 1, 1)).toBe(2);
+    expect(readPollSetting({ POSTDEPLOY_BACKOFF: '1' }, 'POSTDEPLOY_BACKOFF', 1, 1)).toBe(1);
+    expect(readPollSetting({}, 'POSTDEPLOY_BACKOFF', 1, 1)).toBe(1);
+    expect(readPollSetting({ X: '60000' }, 'X', Number.POSITIVE_INFINITY)).toBe(60_000);
+    expect(readPollSetting({}, 'X', Number.POSITIVE_INFINITY)).toBe(Number.POSITIVE_INFINITY);
   });
 });
 
