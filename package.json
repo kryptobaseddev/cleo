@@ -133,7 +133,6 @@
     "js-tiktoken": "^1.0.21",
     "llmtxt": "^2026.5.15",
     "pino": "^10.3.1",
-    "pino-roll": "^4.0.0",
     "proper-lockfile": "^4.1.2",
     "write-file-atomic": "^7.0.1",
     "yaml": "^2.8.2",

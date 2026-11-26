@@ -290,11 +290,10 @@ The dispatch entry is authoritative; the `appendLog()` entry adds the state diff
 
 ## 12. Known gaps
 
-T14605 fixed the uninitialized file logger (CLI startup now starts it, §5.1) and the stale "preAction hook" comment in `packages/runtime/src/gateway/engine-error.ts`.
+T14605 fixed the uninitialized file logger (CLI startup now starts it, §5.1) and the stale "preAction hook" comment in `packages/runtime/src/gateway/engine-error.ts`. T14641 fixed `cleo doctor`'s `log_file` check, which now looks for the newest dated `cleo.<yyyy-MM-dd>.<n>.log` file instead of the configured `cleo.log` path the logger never writes, and removed the unused `pino-roll` dependency.
 
 1. **Required events with no emitter.** The §6 rows marked **none**.
 2. **Stale comment.** The header of `packages/cleo/src/dispatch/middleware/audit.ts` still names `.cleo/tasks.db`.
-3. **Health check path.** `cleo doctor`'s `log_file` check looks for the configured path itself (`.cleo/logs/cleo.log`), but the logger writes the dated `cleo.<yyyy-MM-dd>.<n>.log` files, so the check warns even when logs are written.
 
 ---
 

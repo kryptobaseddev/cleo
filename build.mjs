@@ -251,7 +251,6 @@ const sharedExternals = [
   'proper-lockfile',
   'write-file-atomic',
   'pino',
-  'pino-roll',
   'pino-pretty',
   'drizzle-orm',
   'ajv',
