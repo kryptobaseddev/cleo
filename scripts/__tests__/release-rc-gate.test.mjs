@@ -102,7 +102,7 @@ function runPublish({
   );
   script(
     'execute-payload.mjs',
-    `import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs';\nconst a = process.argv.slice(2);\nappendFileSync(${JSON.stringify(log)}, 'payload ' + a.join(' ') + '\\n');\nconst out = a[a.indexOf('--output-dir') + 1];\nconst v = a[a.indexOf('--version') + 1];\nif (${JSON.stringify(payloadVerdict ?? '')}) { mkdirSync(out, { recursive: true }); writeFileSync(out + '/deploy-summary-' + v + '.json', JSON.stringify({ verdict: ${JSON.stringify(payloadVerdict ?? '')} })); }\nprocess.exit(a.includes('--before-package') ? ${stablePayloadExit} : ${payloadExit});\n`,
+    `import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs';\nconst a = process.argv.slice(2);\nappendFileSync(${JSON.stringify(log)}, 'payload ' + a.join(' ') + '\\n');\nappendFileSync(${JSON.stringify(log)}, 'budget ' + ['POSTDEPLOY_TIMEOUT_MS', 'POSTDEPLOY_BACKOFF', 'POSTDEPLOY_MAX_INTERVAL_MS'].map((k) => k + '=' + (process.env[k] ?? '')).join(' ') + '\\n');\nconst out = a[a.indexOf('--output-dir') + 1];\nconst v = a[a.indexOf('--version') + 1];\nif (${JSON.stringify(payloadVerdict ?? '')}) { mkdirSync(out, { recursive: true }); writeFileSync(out + '/deploy-summary-' + v + '.json', JSON.stringify({ verdict: ${JSON.stringify(payloadVerdict ?? '')} })); }\nprocess.exit(a.includes('--before-package') ? ${stablePayloadExit} : ${payloadExit});\n`,
   );
   script(
     'release-canary-soak.mjs',
@@ -310,9 +310,27 @@ describe('T14516 — stable dependencies are installable before the CLI reaches 
   it('waits out registry propagation with a bounded backoff before halting the CLI wave (T14615)', () => {
     // v2026.11.12: core's tarball 404'd ~20 min after publish; 15 min halted wave 6.
     expect(publishStep.run).toContain(
-      'POSTDEPLOY_TIMEOUT_MS=1800000 POSTDEPLOY_BACKOFF=2 POSTDEPLOY_MAX_INTERVAL_MS=60000',
+      'BLOCKING_GATE_BUDGET=(POSTDEPLOY_TIMEOUT_MS=1800000 POSTDEPLOY_BACKOFF=2 POSTDEPLOY_MAX_INTERVAL_MS=60000)',
     );
-    expect(releaseYaml.jobs.publish['timeout-minutes']).toBeGreaterThanOrEqual(195);
+    expect(releaseYaml.jobs.publish['timeout-minutes']).toBeGreaterThanOrEqual(210);
+  });
+
+  it('the release candidate gate runs with the same budget as the stable gate, from one definition (T14630)', () => {
+    const { status, log } = runPublish({ rc: RC });
+    expect(status, log.join('\n')).toBe(0);
+    const budgetOf = (call) => log[log.indexOf(call) + 1];
+    const rcBudget = budgetOf(
+      `payload --version ${RC} --dist-tag canary --output-dir /tmp/rc-postdeploy`,
+    );
+    const stableBudget = budgetOf(
+      `payload --version ${VERSION} --dist-tag latest --before-package cleo --output-dir /tmp/stable-dependencies`,
+    );
+    expect(rcBudget).toBe(
+      'budget POSTDEPLOY_TIMEOUT_MS=1800000 POSTDEPLOY_BACKOFF=2 POSTDEPLOY_MAX_INTERVAL_MS=60000',
+    );
+    expect(stableBudget).toBe(rcBudget);
+    // Shared, not copied: the literal budget appears exactly once in the step.
+    expect(publishStep.run.split('POSTDEPLOY_TIMEOUT_MS=1800000')).toHaveLength(2);
   });
 });
 

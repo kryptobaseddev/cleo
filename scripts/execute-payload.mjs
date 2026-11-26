@@ -330,6 +330,35 @@ export const DEFAULT_TIMEOUT_MS = 900_000;
 export const DEFAULT_INTERVAL_MS = 15_000;
 
 /**
+ * Read a numeric poll setting from the environment, refusing a value that
+ * would make the poll loop spin (T14630).
+ *
+ * An empty string, `0`, a negative number or a non-number all reach the loop
+ * as a zero or `NaN` wait — `Math.min` with `NaN` is `NaN`, which `setTimeout`
+ * treats as 0 — so the gate hammers the registry instead of waiting. Unset
+ * falls back to `fallback`; set to anything else is a usage error.
+ *
+ * @param {Record<string, string | undefined>} env - Environment to read.
+ * @param {string} name - Variable name.
+ * @param {number} fallback - Value when the variable is unset.
+ * @param {number} [min] - Smallest accepted value (exclusive when 0).
+ * @returns {number} The validated value.
+ * @throws {Error} When the variable is set to an unusable value.
+ */
+export function readPollSetting(env, name, fallback, min = 0) {
+  const raw = env[name];
+  if (raw === undefined) return fallback;
+  const value = Number(raw);
+  const usable = raw.trim() !== '' && !Number.isNaN(value) && (min > 0 ? value >= min : value > 0);
+  if (!usable) {
+    throw new Error(
+      `${name} must be a number ${min > 0 ? `>= ${min}` : '> 0'}, got ${JSON.stringify(raw)}`,
+    );
+  }
+  return value;
+}
+
+/**
  * The convergence loop every wait on npm propagation shares (gh#1377, T13328).
  *
  * `attempt` is retried while it reports `settled: false` (the soft `pending`
@@ -559,10 +588,24 @@ export async function main() {
     return 2;
   }
 
-  const timeoutMs = Number(process.env.POSTDEPLOY_TIMEOUT_MS ?? DEFAULT_TIMEOUT_MS);
-  const intervalMs = Number(process.env.POSTDEPLOY_INTERVAL_MS ?? DEFAULT_INTERVAL_MS);
-  const backoff = Number(process.env.POSTDEPLOY_BACKOFF ?? 1);
-  const maxIntervalMs = Number(process.env.POSTDEPLOY_MAX_INTERVAL_MS ?? Number.POSITIVE_INFINITY);
+  let timeoutMs;
+  let intervalMs;
+  let backoff;
+  let maxIntervalMs;
+  try {
+    timeoutMs = readPollSetting(process.env, 'POSTDEPLOY_TIMEOUT_MS', DEFAULT_TIMEOUT_MS);
+    intervalMs = readPollSetting(process.env, 'POSTDEPLOY_INTERVAL_MS', DEFAULT_INTERVAL_MS);
+    // Below 1 the wait shrinks toward zero and the loop spins (T14630).
+    backoff = readPollSetting(process.env, 'POSTDEPLOY_BACKOFF', 1, 1);
+    maxIntervalMs = readPollSetting(
+      process.env,
+      'POSTDEPLOY_MAX_INTERVAL_MS',
+      Number.POSITIVE_INFINITY,
+    );
+  } catch (err) {
+    console.error(`ERROR: ${err instanceof Error ? err.message : String(err)}`);
+    return 2;
+  }
 
   /** @type {string[]} */
   let packages;
