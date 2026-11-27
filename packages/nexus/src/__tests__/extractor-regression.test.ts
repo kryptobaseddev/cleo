@@ -60,32 +60,26 @@ type NativeParser = {
 };
 type ParserConstructor = new () => NativeParser;
 
-let ParserClass: ParserConstructor | null = null;
+// A missing native module throws here, failing the file instead of letting its
+// tests pass without asserting anything (T14666).
+const ParserClass = _require('tree-sitter') as ParserConstructor;
 
-try {
-  ParserClass = _require('tree-sitter') as ParserConstructor;
-} catch {
-  // parser unavailable in this environment — tests will be skipped
+/**
+ * Load a grammar by package name, throwing when the package or the named
+ * export is missing so the test fails rather than passing vacuously.
+ */
+function loadGrammar(pkg: string, prop?: string): unknown {
+  const mod = _require(pkg) as Record<string, unknown>;
+  const grammar = prop ? mod[prop] : mod;
+  if (!grammar) throw new Error(`grammar ${pkg}${prop ? `.${prop}` : ''} is missing`);
+  return grammar;
 }
 
-function loadGrammar(pkg: string, prop?: string): unknown | null {
-  try {
-    const mod = _require(pkg) as Record<string, unknown>;
-    return prop ? (mod[prop] ?? null) : mod;
-  } catch {
-    return null;
-  }
-}
-
-function parseSource(source: string, grammar: unknown): unknown | null {
-  if (!ParserClass || !grammar) return null;
-  try {
-    const parser = new ParserClass();
-    parser.setLanguage(grammar);
-    return parser.parse(source).rootNode;
-  } catch {
-    return null;
-  }
+/** Parse source code with a grammar and return the root node; failures throw. */
+function parseSource(source: string, grammar: unknown): unknown {
+  const parser = new ParserClass();
+  parser.setLanguage(grammar);
+  return parser.parse(source).rootNode;
 }
 
 // ---------------------------------------------------------------------------
@@ -221,7 +215,7 @@ const JAVA_SNAPSHOT = {
 // ---------------------------------------------------------------------------
 
 describe('TypeScript extractor regression (fixture snapshot)', () => {
-  let grammar: unknown | null = null;
+  let grammar: unknown;
   let source: string;
 
   beforeAll(() => {
@@ -229,28 +223,14 @@ describe('TypeScript extractor regression (fixture snapshot)', () => {
     source = readFileSync(join(__dirname, 'fixtures/typescript/sample.ts'), 'utf8');
   });
 
-  it('skips gracefully when tree-sitter is unavailable', () => {
-    if (!ParserClass || !grammar) {
-      // Not a failure — CI without native modules is acceptable.
-      return;
-    }
-    expect(true).toBe(true);
-  });
-
   it('total definition count meets snapshot floor', () => {
-    if (!ParserClass || !grammar) return;
     const root = parseSource(source, grammar);
-    if (!root) return;
-
     const result = extractTypeScript(root, 'fixtures/typescript/sample.ts', 'typescript');
     assertFloor('TypeScript total definitions', result.definitions.length, TS_SNAPSHOT.total);
   });
 
   it('definition count by kind meets snapshot floor', () => {
-    if (!ParserClass || !grammar) return;
     const root = parseSource(source, grammar);
-    if (!root) return;
-
     const result = extractTypeScript(root, 'fixtures/typescript/sample.ts', 'typescript');
     const counts = countByKind(result.definitions);
 
@@ -260,19 +240,13 @@ describe('TypeScript extractor regression (fixture snapshot)', () => {
   });
 
   it('explicit import count meets snapshot floor', () => {
-    if (!ParserClass || !grammar) return;
     const root = parseSource(source, grammar);
-    if (!root) return;
-
     const result = extractTypeScript(root, 'fixtures/typescript/sample.ts', 'typescript');
     assertFloor('TypeScript imports', result.imports.length, TS_SNAPSHOT.imports);
   });
 
   it('heritage edge count meets snapshot floor', () => {
-    if (!ParserClass || !grammar) return;
     const root = parseSource(source, grammar);
-    if (!root) return;
-
     const result = extractTypeScript(root, 'fixtures/typescript/sample.ts', 'typescript');
     assertFloor('TypeScript heritage', result.heritage.length, TS_SNAPSHOT.heritage);
   });
@@ -283,7 +257,7 @@ describe('TypeScript extractor regression (fixture snapshot)', () => {
 // ---------------------------------------------------------------------------
 
 describe('Python extractor regression (fixture snapshot)', () => {
-  let grammar: unknown | null = null;
+  let grammar: unknown;
   let source: string;
 
   beforeAll(() => {
@@ -291,25 +265,14 @@ describe('Python extractor regression (fixture snapshot)', () => {
     source = readFileSync(join(__dirname, 'fixtures/python/sample.py'), 'utf8');
   });
 
-  it('skips gracefully when tree-sitter is unavailable', () => {
-    if (!ParserClass || !grammar) return;
-    expect(true).toBe(true);
-  });
-
   it('total definition count meets snapshot floor', () => {
-    if (!ParserClass || !grammar) return;
     const root = parseSource(source, grammar);
-    if (!root) return;
-
     const result = extractPython(root, 'fixtures/python/sample.py');
     assertFloor('Python total definitions', result.definitions.length, PY_SNAPSHOT.total);
   });
 
   it('definition count by kind meets snapshot floor', () => {
-    if (!ParserClass || !grammar) return;
     const root = parseSource(source, grammar);
-    if (!root) return;
-
     const result = extractPython(root, 'fixtures/python/sample.py');
     const counts = countByKind(result.definitions);
 
@@ -319,19 +282,13 @@ describe('Python extractor regression (fixture snapshot)', () => {
   });
 
   it('explicit import count meets snapshot floor', () => {
-    if (!ParserClass || !grammar) return;
     const root = parseSource(source, grammar);
-    if (!root) return;
-
     const result = extractPython(root, 'fixtures/python/sample.py');
     assertFloor('Python imports', result.imports.length, PY_SNAPSHOT.imports);
   });
 
   it('heritage edge count meets snapshot floor', () => {
-    if (!ParserClass || !grammar) return;
     const root = parseSource(source, grammar);
-    if (!root) return;
-
     const result = extractPython(root, 'fixtures/python/sample.py');
     assertFloor('Python heritage', result.heritage.length, PY_SNAPSHOT.heritage);
   });
@@ -342,7 +299,7 @@ describe('Python extractor regression (fixture snapshot)', () => {
 // ---------------------------------------------------------------------------
 
 describe('Go extractor regression (fixture snapshot)', () => {
-  let grammar: unknown | null = null;
+  let grammar: unknown;
   let source: string;
 
   beforeAll(() => {
@@ -350,25 +307,14 @@ describe('Go extractor regression (fixture snapshot)', () => {
     source = readFileSync(join(__dirname, 'fixtures/go/sample.go'), 'utf8');
   });
 
-  it('skips gracefully when tree-sitter is unavailable', () => {
-    if (!ParserClass || !grammar) return;
-    expect(true).toBe(true);
-  });
-
   it('total definition count meets snapshot floor', () => {
-    if (!ParserClass || !grammar) return;
     const root = parseSource(source, grammar);
-    if (!root) return;
-
     const result = extractGo(root, 'fixtures/go/sample.go');
     assertFloor('Go total definitions', result.definitions.length, GO_SNAPSHOT.total);
   });
 
   it('definition count by kind meets snapshot floor', () => {
-    if (!ParserClass || !grammar) return;
     const root = parseSource(source, grammar);
-    if (!root) return;
-
     const result = extractGo(root, 'fixtures/go/sample.go');
     const counts = countByKind(result.definitions);
 
@@ -378,19 +324,13 @@ describe('Go extractor regression (fixture snapshot)', () => {
   });
 
   it('explicit import count meets snapshot floor', () => {
-    if (!ParserClass || !grammar) return;
     const root = parseSource(source, grammar);
-    if (!root) return;
-
     const result = extractGo(root, 'fixtures/go/sample.go');
     assertFloor('Go imports', result.imports.length, GO_SNAPSHOT.imports);
   });
 
   it('heritage edge count (struct embeddings) meets snapshot floor', () => {
-    if (!ParserClass || !grammar) return;
     const root = parseSource(source, grammar);
-    if (!root) return;
-
     const result = extractGo(root, 'fixtures/go/sample.go');
     assertFloor('Go heritage (struct embeddings)', result.heritage.length, GO_SNAPSHOT.heritage);
   });
@@ -401,7 +341,7 @@ describe('Go extractor regression (fixture snapshot)', () => {
 // ---------------------------------------------------------------------------
 
 describe('Rust extractor regression (fixture snapshot)', () => {
-  let grammar: unknown | null = null;
+  let grammar: unknown;
   let source: string;
 
   beforeAll(() => {
@@ -409,25 +349,14 @@ describe('Rust extractor regression (fixture snapshot)', () => {
     source = readFileSync(join(__dirname, 'fixtures/rust/sample.rs'), 'utf8');
   });
 
-  it('skips gracefully when tree-sitter is unavailable', () => {
-    if (!ParserClass || !grammar) return;
-    expect(true).toBe(true);
-  });
-
   it('total definition count meets snapshot floor', () => {
-    if (!ParserClass || !grammar) return;
     const root = parseSource(source, grammar);
-    if (!root) return;
-
     const result = extractRust(root, 'fixtures/rust/sample.rs');
     assertFloor('Rust total definitions', result.definitions.length, RUST_SNAPSHOT.total);
   });
 
   it('definition count by kind meets snapshot floor', () => {
-    if (!ParserClass || !grammar) return;
     const root = parseSource(source, grammar);
-    if (!root) return;
-
     const result = extractRust(root, 'fixtures/rust/sample.rs');
     const counts = countByKind(result.definitions);
 
@@ -437,19 +366,13 @@ describe('Rust extractor regression (fixture snapshot)', () => {
   });
 
   it('explicit import (use) count meets snapshot floor', () => {
-    if (!ParserClass || !grammar) return;
     const root = parseSource(source, grammar);
-    if (!root) return;
-
     const result = extractRust(root, 'fixtures/rust/sample.rs');
     assertFloor('Rust imports', result.imports.length, RUST_SNAPSHOT.imports);
   });
 
   it('heritage edge count (trait impls) meets snapshot floor', () => {
-    if (!ParserClass || !grammar) return;
     const root = parseSource(source, grammar);
-    if (!root) return;
-
     const result = extractRust(root, 'fixtures/rust/sample.rs');
     assertFloor('Rust heritage (trait impls)', result.heritage.length, RUST_SNAPSHOT.heritage);
   });
@@ -483,14 +406,7 @@ describe('DEFINES edges regression (parse-loop, T1836)', () => {
     rmSync(tmpRepo, { recursive: true, force: true });
   });
 
-  it('skips gracefully when tree-sitter is unavailable', () => {
-    if (!ParserClass) return;
-    expect(true).toBe(true);
-  });
-
   it('defines edge count meets snapshot floor after runParseLoop', async () => {
-    if (!ParserClass) return;
-
     const fixturePath = 'fixtures/typescript/sample.ts';
     const graph = createKnowledgeGraph();
     const symbolTable = createSymbolTable();
@@ -506,8 +422,6 @@ describe('DEFINES edges regression (parse-loop, T1836)', () => {
   });
 
   it('defines edges have correct source (file node) and target (symbol node)', async () => {
-    if (!ParserClass) return;
-
     const fixturePath = 'fixtures/typescript/sample.ts';
     const graph = createKnowledgeGraph();
     const symbolTable = createSymbolTable();
@@ -554,14 +468,7 @@ describe('Confidence label regression — parse-loop edges (T1862)', () => {
     rmSync(tmpRepo, { recursive: true, force: true });
   });
 
-  it('skips gracefully when tree-sitter is unavailable', () => {
-    if (!ParserClass) return;
-    expect(true).toBe(true);
-  });
-
   it('>70% of emitted edges carry confidenceLabel EXTRACTED', async () => {
-    if (!ParserClass) return;
-
     const fixturePath = 'fixtures/typescript/sample.ts';
     const graph = createKnowledgeGraph();
     const symbolTable = createSymbolTable();
@@ -590,8 +497,6 @@ describe('Confidence label regression — parse-loop edges (T1862)', () => {
   });
 
   it('all defines edges carry confidenceLabel EXTRACTED', async () => {
-    if (!ParserClass) return;
-
     const fixturePath = 'fixtures/typescript/sample.ts';
     const graph = createKnowledgeGraph();
     const symbolTable = createSymbolTable();
@@ -622,7 +527,7 @@ describe('Confidence label regression — parse-loop edges (T1862)', () => {
 // ---------------------------------------------------------------------------
 
 describe('Access extractor regression — TypeScript fixture (T1837)', () => {
-  let grammar: unknown | null = null;
+  let grammar: unknown;
   let source: string;
 
   beforeAll(() => {
@@ -630,25 +535,14 @@ describe('Access extractor regression — TypeScript fixture (T1837)', () => {
     source = readFileSync(join(__dirname, 'fixtures/typescript/sample.ts'), 'utf8');
   });
 
-  it('skips gracefully when tree-sitter is unavailable', () => {
-    if (!ParserClass || !grammar) return;
-    expect(true).toBe(true);
-  });
-
   it('extracts at least 1 ACCESSES record from the TypeScript fixture', () => {
-    if (!ParserClass || !grammar) return;
     const root = parseSource(source, grammar);
-    if (!root) return;
-
     const accesses = extractAccesses(root as any, 'fixtures/typescript/sample.ts');
     assertFloor('TypeScript ACCESSES count', accesses.length, 1);
   });
 
   it('all TypeScript access records have a valid accessMode', () => {
-    if (!ParserClass || !grammar) return;
     const root = parseSource(source, grammar);
-    if (!root) return;
-
     const accesses = extractAccesses(root as any, 'fixtures/typescript/sample.ts');
     const validModes = new Set(['read', 'write', 'readwrite']);
     for (const acc of accesses) {
@@ -660,10 +554,7 @@ describe('Access extractor regression — TypeScript fixture (T1837)', () => {
   });
 
   it('TypeScript fixture contains at least one write-mode access', () => {
-    if (!ParserClass || !grammar) return;
     const root = parseSource(source, grammar);
-    if (!root) return;
-
     const accesses = extractAccesses(root as any, 'fixtures/typescript/sample.ts');
     const writtenAccesses = accesses.filter(
       (a) => a.accessMode === 'write' || a.accessMode === 'readwrite',
@@ -673,7 +564,7 @@ describe('Access extractor regression — TypeScript fixture (T1837)', () => {
 });
 
 describe('Access extractor regression — Python fixture (T1837)', () => {
-  let grammar: unknown | null = null;
+  let grammar: unknown;
   let source: string;
 
   beforeAll(() => {
@@ -681,25 +572,14 @@ describe('Access extractor regression — Python fixture (T1837)', () => {
     source = readFileSync(join(__dirname, 'fixtures/python/sample.py'), 'utf8');
   });
 
-  it('skips gracefully when tree-sitter is unavailable', () => {
-    if (!ParserClass || !grammar) return;
-    expect(true).toBe(true);
-  });
-
   it('extracts at least 1 ACCESSES record from the Python fixture', () => {
-    if (!ParserClass || !grammar) return;
     const root = parseSource(source, grammar);
-    if (!root) return;
-
     const accesses = extractAccesses(root as any, 'fixtures/python/sample.py');
     assertFloor('Python ACCESSES count', accesses.length, 1);
   });
 
   it('all Python access records have a valid accessMode', () => {
-    if (!ParserClass || !grammar) return;
     const root = parseSource(source, grammar);
-    if (!root) return;
-
     const accesses = extractAccesses(root as any, 'fixtures/python/sample.py');
     const validModes = new Set(['read', 'write', 'readwrite']);
     for (const acc of accesses) {
@@ -737,14 +617,7 @@ describe('METHOD_OVERRIDES edges regression (heritage-processor, T1846)', () => 
     rmSync(tmpRepo, { recursive: true, force: true });
   });
 
-  it('skips gracefully when tree-sitter is unavailable', () => {
-    if (!ParserClass) return;
-    expect(true).toBe(true);
-  });
-
   it('emits at least 1 method_overrides edge from TypeScript fixture with class hierarchy', async () => {
-    if (!ParserClass) return;
-
     const fixturePath = 'fixtures/typescript/sample.ts';
     const graph = createKnowledgeGraph();
     // Wire the symbol table through the ResolutionContext so processHeritage
@@ -775,8 +648,6 @@ describe('METHOD_OVERRIDES edges regression (heritage-processor, T1846)', () => 
   });
 
   it('method_overrides edges carry confidenceLabel EXTRACTED', async () => {
-    if (!ParserClass) return;
-
     const fixturePath = 'fixtures/typescript/sample.ts';
     const graph = createKnowledgeGraph();
     const resolutionCtx = createResolutionContext();
@@ -797,8 +668,7 @@ describe('METHOD_OVERRIDES edges regression (heritage-processor, T1846)', () => 
 
     const methodOverridesEdges = graph.relations.filter((r) => r.type === 'method_overrides');
 
-    // Skip if no overrides found (tree-sitter may not produce heritage in this env)
-    if (methodOverridesEdges.length === 0) return;
+    assertFloor('METHOD_OVERRIDES edge count (TypeScript fixture)', methodOverridesEdges.length, 1);
 
     for (const edge of methodOverridesEdges) {
       expect(
@@ -835,14 +705,7 @@ describe('METHOD_IMPLEMENTS edges regression (heritage-processor, T1847)', () =>
     rmSync(tmpRepo, { recursive: true, force: true });
   });
 
-  it('skips gracefully when tree-sitter is unavailable', () => {
-    if (!ParserClass) return;
-    expect(true).toBe(true);
-  });
-
   it('emits at least 1 method_implements edge from TypeScript fixture', async () => {
-    if (!ParserClass) return;
-
     const fixturePath = 'fixtures/typescript/sample.ts';
     const graph = createKnowledgeGraph();
     const resolutionCtx = createResolutionContext();
@@ -879,8 +742,6 @@ describe('METHOD_IMPLEMENTS edges regression (heritage-processor, T1847)', () =>
   });
 
   it('method_implements edges carry confidenceLabel', async () => {
-    if (!ParserClass) return;
-
     const fixturePath = 'fixtures/typescript/sample.ts';
     const graph = createKnowledgeGraph();
     const resolutionCtx = createResolutionContext();
@@ -901,8 +762,11 @@ describe('METHOD_IMPLEMENTS edges regression (heritage-processor, T1847)', () =>
 
     const methodImplementsEdges = graph.relations.filter((r) => r.type === 'method_implements');
 
-    // Skip if no method_implements found (tree-sitter may not produce heritage in this env)
-    if (methodImplementsEdges.length === 0) return;
+    assertFloor(
+      'METHOD_IMPLEMENTS edge count (TypeScript fixture)',
+      methodImplementsEdges.length,
+      1,
+    );
 
     for (const edge of methodImplementsEdges) {
       expect(
@@ -918,7 +782,7 @@ describe('METHOD_IMPLEMENTS edges regression (heritage-processor, T1847)', () =>
 // ---------------------------------------------------------------------------
 
 describe('Java extractor regression (fixture snapshot, T1861)', () => {
-  let grammar: unknown | null = null;
+  let grammar: unknown;
   let source: string;
 
   beforeAll(() => {
@@ -926,25 +790,14 @@ describe('Java extractor regression (fixture snapshot, T1861)', () => {
     source = readFileSync(join(__dirname, 'fixtures/java/sample.java'), 'utf8');
   });
 
-  it('skips gracefully when tree-sitter is unavailable', () => {
-    if (!ParserClass || !grammar) return;
-    expect(true).toBe(true);
-  });
-
   it('total definition count meets snapshot floor', () => {
-    if (!ParserClass || !grammar) return;
     const root = parseSource(source, grammar);
-    if (!root) return;
-
     const result = extractJava(root, 'fixtures/java/sample.java');
     assertFloor('Java total definitions', result.definitions.length, JAVA_SNAPSHOT.total);
   });
 
   it('definition count by kind meets snapshot floor', () => {
-    if (!ParserClass || !grammar) return;
     const root = parseSource(source, grammar);
-    if (!root) return;
-
     const result = extractJava(root, 'fixtures/java/sample.java');
     const counts = countByKind(result.definitions);
 
@@ -954,19 +807,13 @@ describe('Java extractor regression (fixture snapshot, T1861)', () => {
   });
 
   it('explicit import count meets snapshot floor', () => {
-    if (!ParserClass || !grammar) return;
     const root = parseSource(source, grammar);
-    if (!root) return;
-
     const result = extractJava(root, 'fixtures/java/sample.java');
     assertFloor('Java imports', result.imports.length, JAVA_SNAPSHOT.imports);
   });
 
   it('heritage edge count (extends / implements) meets snapshot floor', () => {
-    if (!ParserClass || !grammar) return;
     const root = parseSource(source, grammar);
-    if (!root) return;
-
     const result = extractJava(root, 'fixtures/java/sample.java');
     assertFloor(
       'Java heritage (extends/implements)',
