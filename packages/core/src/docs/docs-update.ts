@@ -415,6 +415,38 @@ export function isLifecycleStatus(raw: unknown): raw is DocsLifecycleStatus {
 }
 
 /**
+ * The flags of a `cleo docs update` call, re-emitted for its refusal's fix
+ * (every value shell-quoted; `--strict` is appended by the caller). Inline
+ * `--content` becomes `--content -`: the corrected body is piped on stdin.
+ *
+ * @param params - The refused update's parameters.
+ * @returns The flags, each with a leading space; empty when none were given.
+ * @task T14668
+ */
+function strictRerunFlags(params: DocsUpdateParams): string {
+  const flags: string[] = [];
+  if (typeof params.file === 'string' && params.file.length > 0) {
+    flags.push('--file', shellQuote(params.file));
+  } else if (typeof params.content === 'string') {
+    flags.push('--content', '-');
+  }
+  if (params.allowExternal === true) flags.push('--allow-external');
+  if (params.baseVersionUid !== undefined) {
+    flags.push('--base-version-uid', shellQuote(params.baseVersionUid));
+  }
+  if (params.status !== undefined) flags.push('--status', shellQuote(String(params.status)));
+  if (params.supersededBy !== undefined) {
+    flags.push('--superseded-by', shellQuote(params.supersededBy));
+  }
+  if (typeof params.message === 'string') flags.push('--message', shellQuote(params.message));
+  if (typeof params.attachedBy === 'string') {
+    flags.push('--attached-by', shellQuote(params.attachedBy));
+  }
+  if (params.dryRun === true) flags.push('--dry-run');
+  return flags.map((f) => ` ${f}`).join('');
+}
+
+/**
  * Update the attachment identified by `slug` to carry new bytes.
  *
  * Flow:
@@ -549,7 +581,7 @@ export async function updateDocBySlug(
       error: {
         // @sync-invariant none:input-shape a successor without a lifecycle-only --status superseded is refused before any write
         code: 'E_INVALID_INPUT',
-        message: `--superseded-by needs --status superseded and no --file or --content — e.g. \`cleo docs update ${requestedSlug} --status superseded --superseded-by ${successorRef}\``,
+        message: `--superseded-by needs --status superseded and no --file or --content — e.g. \`cleo docs update ${shellQuote(requestedSlug)} --status superseded --superseded-by ${shellQuote(successorRef)}\``,
         fix: `cleo docs update ${shellQuote(requestedSlug)} --status superseded --superseded-by ${shellQuote(successorRef)}`,
       },
     };
@@ -645,7 +677,7 @@ export async function updateDocBySlug(
       ok: false,
       error: {
         code: 'E_INVALID_STATUS', // @sync-invariant docs.lifecycle.transitions
-        message: `doc '${slug}' is superseded${oldRow.supersededBy ? ` (by ${oldRow.supersededBy})` : ''}; a superseded doc cannot change its status or content — add the new content as a new doc and name it the successor with \`cleo docs update ${slug} --status superseded --superseded-by NEW_SLUG\``,
+        message: `doc '${slug}' is superseded${oldRow.supersededBy ? ` (by ${oldRow.supersededBy})` : ''}; a superseded doc cannot change its status or content — add the new content as a new doc and name it the successor with \`cleo docs update ${shellQuote(slug)} --status superseded --superseded-by NEW_SLUG\``,
         fix: `cleo docs update ${shellQuote(slug)} --status superseded --superseded-by NEW_SLUG`,
       },
     };
@@ -793,11 +825,17 @@ export async function updateDocBySlug(
           ok: false,
           error: {
             code: 'E_DOC_SCHEMA_MISMATCH',
-            message: `body for kind '${oldRow.type}' is missing required section(s): ${missingList} — add them and retry, or drop --strict to write with a warning`,
+            message:
+              `body for kind '${oldRow.type}' is missing required section(s): ${missingList} — ` +
+              `add a '## <name>' heading for each (${check.missing.map((m) => `## ${m}`).join(', ')}) ` +
+              (hasFile
+                ? 'to the file, then re-run the fix'
+                : 'to the body, then re-run the fix piping the corrected body on stdin') +
+              '. Dropping --strict would write the body as-is with a W_DOC_SCHEMA_MISMATCH warning.',
             details: { kind: oldRow.type, missing: check.missing, strict: true },
-            // T14668: re-running without --strict writes the body (with a
-            // W_DOC_SCHEMA_MISMATCH warning); a fetch resolved nothing.
-            fix: `cleo docs update ${shellQuote(slug)} --file ${hasFile ? shellQuote(params.file as string) : 'FILE'}`,
+            // T14668: the same --strict update with every original flag; it
+            // succeeds once the body carries the missing sections.
+            fix: `cleo docs update ${shellQuote(slug)}${strictRerunFlags(params)} --strict`,
           },
         };
       }

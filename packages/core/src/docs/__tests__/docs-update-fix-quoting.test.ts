@@ -63,7 +63,7 @@ describe('updateDocBySlug — refusal fixes quote interpolated values (T14668)',
     expect(res.error.fix).toBe(`cleo docs add OWNER_ID FILE --slug 'no such doc'`);
   });
 
-  it('names a resolving command for a strict schema mismatch', async () => {
+  it('keeps --strict and every original flag in the strict schema-mismatch fix', async () => {
     const { createAttachmentStore } = await import('../../store/attachment-store.js');
     const seed = '## Status\n\n## Date\n\n## Context\n\n## Decision\n\n## Consequences\n';
     await createAttachmentStore().put(
@@ -76,12 +76,59 @@ describe('updateDocBySlug — refusal fixes quote interpolated values (T14668)',
       { slug: 'adr-0001-quoting', type: 'adr' },
     );
     const { updateDocBySlug } = await import('../docs-update.js');
-    const file = await spacedFile('adr.md', '# ADR\n\nNo sections.\n');
-    const res = await updateDocBySlug(tempDir, { slug: 'adr-0001-quoting', file, strict: true });
+    // A conforming edit records a head version to name as the base.
+    const head = await updateDocBySlug(tempDir, {
+      slug: 'adr-0001-quoting',
+      content: `${seed}\nMore.\n`,
+    });
+    expect(head.ok, JSON.stringify(head)).toBe(true);
+    const base = head.ok ? head.result.headVersionUid : undefined;
+    expect(base).toBeDefined();
+
+    const file = await spacedFile('adr.md', '# ADR\n\n## Status\n\nNo other sections.\n');
+    const res = await updateDocBySlug(tempDir, {
+      slug: 'adr-0001-quoting',
+      file,
+      strict: true,
+      status: 'proposed',
+      message: 'add context',
+      ...(base !== undefined ? { baseVersionUid: base } : {}),
+    });
     expect(res.ok).toBe(false);
     if (res.ok) return;
     expect(res.error.code).toBe('E_DOC_SCHEMA_MISMATCH');
-    // Re-running without --strict writes the body; a fetch resolved nothing.
-    expect(res.error.fix).toBe(`cleo docs update adr-0001-quoting --file '${file}'`);
+    // The same --strict update, every flag kept: it succeeds once the file
+    // carries the missing sections. Never a bypass of --strict.
+    expect(res.error.fix).toBe(
+      `cleo docs update adr-0001-quoting --file '${file}' --base-version-uid ${base} ` +
+        `--status proposed --message 'add context' --strict`,
+    );
+    for (const section of ['Date', 'Context', 'Decision', 'Consequences']) {
+      expect(res.error.message).toContain(`## ${section}`);
+    }
+    expect(res.error.message).toContain('Dropping --strict');
+  });
+
+  it('pipes inline --content back on stdin in the strict fix', async () => {
+    const { createAttachmentStore } = await import('../../store/attachment-store.js');
+    const seed = '## Status\n\n## Date\n\n## Context\n\n## Decision\n\n## Consequences\n';
+    await createAttachmentStore().put(
+      Buffer.from(seed, 'utf-8'),
+      { kind: 'blob', storageKey: '', mime: 'text/markdown', size: seed.length },
+      'task',
+      'T9999',
+      'docs-update-fix-quoting-test',
+      undefined,
+      { slug: 'adr-0002-quoting', type: 'adr' },
+    );
+    const { updateDocBySlug } = await import('../docs-update.js');
+    const res = await updateDocBySlug(tempDir, {
+      slug: 'adr-0002-quoting',
+      content: '# ADR\n',
+      strict: true,
+    });
+    expect(res.ok).toBe(false);
+    if (res.ok) return;
+    expect(res.error.fix).toBe('cleo docs update adr-0002-quoting --content - --strict');
   });
 });

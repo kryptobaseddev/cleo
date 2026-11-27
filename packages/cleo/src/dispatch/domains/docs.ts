@@ -1551,7 +1551,7 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
                 error: {
                   code: 'E_SLUG_RESERVED',
                   message: SLUG_COLLISION_GUIDANCE.replaceAll('{slug}', slug ?? ''),
-                  fix: `cleo docs update ${slug ?? '<slug>'} --file <your-file>`,
+                  fix: `cleo docs update ${slug ? shellQuote(slug) : '<slug>'} --file <your-file>`,
                   details: {
                     suggestions: reservation.suggestions,
                     aliases: ['E_SLUG_TAKEN'],
@@ -1667,7 +1667,7 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
                   error: {
                     code: 'E_SLUG_RESERVED',
                     message: SLUG_COLLISION_GUIDANCE.replaceAll('{slug}', err.slug ?? ''),
-                    fix: `cleo docs update ${err.slug ?? '<slug>'} --file <your-file>`,
+                    fix: `cleo docs update ${err.slug ? shellQuote(err.slug) : '<slug>'} --file <your-file>`,
                     details: {
                       suggestions: err.suggestions,
                       aliases: ['E_SLUG_TAKEN'],
@@ -1820,7 +1820,7 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
                   error: {
                     code: 'E_SLUG_RESERVED',
                     message: SLUG_COLLISION_GUIDANCE.replaceAll('{slug}', err.slug ?? ''),
-                    fix: `cleo docs update ${err.slug ?? '<slug>'} --content "..."`,
+                    fix: `cleo docs update ${err.slug ? shellQuote(err.slug) : '<slug>'} --content "..."`,
                     details: {
                       suggestions: err.suggestions,
                       aliases: ['E_SLUG_TAKEN'],
@@ -1934,7 +1934,7 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
                   error: {
                     code: 'E_SLUG_RESERVED',
                     message: SLUG_COLLISION_GUIDANCE.replaceAll('{slug}', err.slug ?? ''),
-                    fix: `cleo docs update ${err.slug ?? '<slug>'} --file <your-file>`,
+                    fix: `cleo docs update ${err.slug ? shellQuote(err.slug) : '<slug>'} --file <your-file>`,
                     details: {
                       suggestions: err.suggestions,
                       aliases: ['E_SLUG_TAKEN'],

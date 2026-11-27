@@ -1,7 +1,8 @@
 /**
  * POSIX shell quoting for printed remedies (a refusal's `fix`, a next step).
  *
- * Dependency-free; safe to import from any layer (lib barrel contract).
+ * Dependency-free; safe to import from any layer. Import it from this module:
+ * the `lib/index.ts` barrel does not re-export it.
  *
  * @task T14668
  */
