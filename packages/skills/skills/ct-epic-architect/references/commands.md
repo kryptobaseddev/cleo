@@ -153,7 +153,7 @@ cleo tree {{EPIC_ID}}                      # Show epic subtree
 |-------|--------------|
 | `{{TASK_EXISTS_CMD}}` | `cleo exists` |
 | `{{TASK_PHASE_CMD}}` | `cleo phase show` |
-| `{{TASK_TREE_CMD}}` | `cleo tree` |
+| `{{TASK_TREE_CMD}}` | `cleo tree <rootId>` |
 | `{{TASK_ANALYZE_CMD}}` | `cleo analyze` |
 | `{{TASK_ARCHIVE_CMD}}` | `cleo archive` |
 | `{{TASK_VALIDATE_CMD}}` | `cleo check task <id>` |

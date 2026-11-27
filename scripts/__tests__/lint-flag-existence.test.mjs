@@ -143,6 +143,12 @@ describe('args the checker could not read before T14667', () => {
     expect(bad('cleo docs update my-slug --status superseded --superseded-by b --json')).toBeNull();
   });
 
+  it('inline registry args (cleo check schema, T14671)', () => {
+    // check.ts: `args: paramsToCittyArgs(getOperationParams('query', 'check', 'schema'))`.
+    expect(bad('cleo check schema --bogus')?.bad).toEqual(['--bogus']);
+    expect(bad('cleo check schema --type todo')).toBeNull();
+  });
+
   it('a sub-command defined in another module (cleo docs migrate)', () => {
     expect(bad('cleo docs migrate --bogus')?.bad).toEqual(['--bogus']);
     expect(bad('cleo docs migrate --dry-run --limit 5')).toBeNull();
@@ -216,12 +222,9 @@ describe('the gate catches the defects that motivated it', () => {
 });
 
 describe('guard classification reflects the runtime, not an assumption', () => {
-  // Measured against the shipped 2026.9.3 binary:
-  //   cleo list --zzzbogus          -> E_UNKNOWN_FLAG rc=6
-  //   cleo memory find --zzzbogus   -> accepted rc=0
-  // `assertKnownFlags` is installed at the lazy-command chokepoint, which wraps
-  // MANIFEST entries and passes `meta.name`. citty dispatches a `verb sub`
-  // invocation to the sub-command's own run, which the wrapper never reaches.
+  // `validateCommandPath` in `packages/cleo/src/cli/lazy-command.ts` asserts
+  // the flags at every level of the command path (T14671), so a `verb sub`
+  // rejects an unknown flag with E_UNKNOWN_FLAG exactly as a root verb does.
   const at = (text) => findFlagViolations(text, checker());
 
   it('a ROOT verb is rejected at runtime', () => {
@@ -230,10 +233,11 @@ describe('guard classification reflects the runtime, not an assumption', () => {
     expect(v[0].reason).toContain('E_UNKNOWN_FLAG');
   });
 
-  it('a SUB-command is silently accepted and discarded', () => {
+  it('a SUB-command is rejected at runtime too, never silently discarded', () => {
     const v = at('cleo memory decision-find --epic X');
-    expect(v[0].guard).toBe('silent');
-    expect(v[0].reason).toContain('ACCEPTED AND DISCARDED');
+    expect(v[0].guard).toBe('rejects');
+    expect(v[0].reason).toContain('E_UNKNOWN_FLAG');
+    expect(v[0].reason).not.toContain('DISCARDED');
   });
 });
 

@@ -182,8 +182,9 @@ cleo docs add T1234 docs/drafts/saml-setup.md \
   T10386) — pick one rather than overwriting silently.
 - If the slug is too close to an existing one the CLI surfaces a
   `W_SLUG_SIMILAR` warning with the top match + a `--allow-similar` hint
-  (T10361). Pass `--allow-similar` to proceed when the fork is intentional;
-  every bypass is logged to `.cleo/audit/similar-bypass.jsonl`.
+  (T10361). When the fork is intentional, pass `--allow-similar` with
+  `--new-because "<why>"` (T14109; `--allow-similar` alone is refused); the
+  reason is logged to `.cleo/audit/docs-new-because.jsonl`.
 - Unknown flags (typos, removed options) fail fast with `E_UNKNOWN_FLAG`
   + did-you-mean suggestions (T10359). The legacy "silently absorb as
   positional" behaviour from citty's `parseArgs` is rejected.

@@ -526,30 +526,13 @@ export function findPointerViolations(markdown, contracts, sourceForVerb) {
 // existed is absorbed as a positional and nothing reports it —
 // `cleo init --yes` sat in `worktree-cleanup.yml` since PR #868 doing nothing.
 //
-// #1276 (T12139) installed `assertKnownFlags` at the lazy-command chokepoint,
-// which is often described as covering every command. Measured against the
-// SHIPPED 2026.9.3 binary, it does not:
-//
-//   cleo list --zzzbogus           -> E_UNKNOWN_FLAG rc=6
-//   cleo find --zzzbogus           -> E_UNKNOWN_FLAG rc=6
-//   cleo memory find --zzzbogus    -> accepted rc=0
-//   cleo worktree list --zzzbogus  -> accepted rc=0
-//   cleo backup list --zzzbogus    -> accepted rc=0
-//   cleo docs list-types --zzzbogus-> accepted rc=0
-//
-// The chokepoint wraps MANIFEST entries — root verbs — and passes `meta.name`.
-// citty dispatches a `verb sub` invocation to the sub-command's own `run`,
-// which the wrapper never reaches. So the runtime rejects a bad flag on a root
-// LEAF verb and silently ignores one on any `verb sub`, except the five
-// sub-commands inside `docs.ts` that call `assertKnownFlags` by hand (T10359).
-//
-// Both are defects in the call site; they are not the same defect, and this
-// gate must not claim otherwise:
-//
-//   guard: 'rejects' — hard failure the moment the caller upgrades.
-//   guard: 'silent'  — the flag is accepted and discarded, which is the
-//                      original `cleo list --severity P0` shape: a confident
-//                      unfiltered answer indistinguishable from a real one.
+// #1276 (T12139) installed `assertKnownFlags` at the lazy-command chokepoint.
+// It originally wrapped only MANIFEST root verbs, so `cleo memory find
+// --zzzbogus` was accepted on the shipped 2026.9.3 binary. The chokepoint now
+// walks the whole command path (`validateCommandPath` in `lazy-command.ts`)
+// and asserts each level's flags, so an unknown flag on a root verb AND on a
+// `verb sub` is rejected with E_UNKNOWN_FLAG before anything runs: a
+// documented bad flag is a hard failure the moment the caller upgrades.
 // ---------------------------------------------------------------------------
 
 /**
@@ -578,30 +561,6 @@ export function loadGlobalFlags(source) {
   const close = source.indexOf(']', open);
   if (close === -1) return new Set();
   return new Set([...source.slice(open, close).matchAll(/'(--?[\w-]+)'/g)].map((m) => m[1]));
-}
-
-/**
- * Sub-commands that validate their own flags via a hand-wired
- * `assertKnownFlags(rawArgs, …, '<verb> <sub>')` call.
- *
- * Derived from the callsites rather than hardcoded, so a command that gains or
- * loses the guard changes this gate's verdict without anyone remembering to
- * edit a list.
- *
- * @param sources - iterable of command-module sources.
- * @returns set of `'<verb> <sub>'` labels.
- * @task T12191
- */
-export function extractHandWiredGuards(sources) {
-  const labels = new Set();
-  for (const source of sources) {
-    for (const m of source.matchAll(
-      /assertKnownFlags\([^)]*?'([a-z][\w-]*(?:\s+[a-z][\w-]*)?)'\s*\)/g,
-    )) {
-      labels.add(m[1]);
-    }
-  }
-  return labels;
 }
 
 /**
@@ -644,6 +603,13 @@ export function extractAcceptedFlags(source, name, registrySource) {
   const nextDefine = source.indexOf('defineCommand(', metaAt + 1);
   if (nextDefine !== -1 && nextDefine < m.index) return new Set();
 
+  // T14671: `args: paramsToCittyArgs(getOperationParams(…))` written inline.
+  const inline = source.slice(m.index + m[0].length - m[1].length).match(REGISTRY_ARGS_CALL);
+  if (inline?.index === 0) {
+    return registrySource
+      ? extractRegistryParamFlags(registrySource, inline[1], inline[2], inline[3])
+      : new Set();
+  }
   // T14667: `args: docsUpdateCliArgs` names a module const instead of an
   // inline literal; resolve it the same way a spread of it is resolved.
   if (m[1] !== '{') return argsConstFlags(source, m[1], registrySource, new Set());
@@ -996,7 +962,7 @@ export function subCommandModuleSource(source, modulePath, verb, sub, repoRoot) 
  * Build the flag checker shared by gates 14 and 15.
  *
  * Everything it compares against is read from SOURCE at call time — the global
- * flag list, the retired-flag map, the hand-wired guard labels and each
+ * flag list, the retired-flag map and each
  * command's `args` block. There is no second copy of any of them in this file,
  * because a gate whose allowlist drifts from the parser it models starts
  * rejecting flags the CLI accepts, which is worse than the silence it replaces.
@@ -1059,10 +1025,6 @@ export function makeFlagChecker(repoRoot) {
 
   const mod = (verb) => moduleByVerb.get(verb);
 
-  const handWired = extractHandWiredGuards(
-    [...moduleByVerb.keys()].map(sourceForVerb).filter(Boolean),
-  );
-
   /**
    * @param inv - one record from {@link extractInvocationsWithFlags}.
    * @returns violation record, or null when the invocation is clean or
@@ -1102,22 +1064,15 @@ export function makeFlagChecker(repoRoot) {
     const bad = inv.flags.filter((f) => !accepted.has(f) && !globalFlags.has(f) && !retired.has(f));
     if (bad.length === 0) return null;
 
-    // The runtime guard is installed at the lazy-command chokepoint, which
-    // wraps MANIFEST entries and so only ever sees the ROOT verb. A `verb sub`
-    // invocation is dispatched to the sub-command's own run, which the wrapper
-    // never reaches — measured on the shipped 2026.9.3 binary. The two cases
-    // are different defects and the report must not blur them.
-    const guard = isSub ? (handWired.has(label) ? 'rejects' : 'silent') : 'rejects';
+    // The lazy-command chokepoint asserts flags along the whole command path
+    // (T14671), so a `verb sub` rejects an unknown flag exactly as a root verb.
     return {
       ...inv,
       label,
-      guard,
+      guard: 'rejects',
       bad,
       accepted: [...accepted].sort(),
-      reason:
-        guard === 'rejects'
-          ? `\`cleo ${label}\` has no flag ${bad.join(', ')} — the CLI rejects it with E_UNKNOWN_FLAG (exit 6)`
-          : `\`cleo ${label}\` has no flag ${bad.join(', ')} — citty parses non-strictly and no guard reaches a sub-command, so it is ACCEPTED AND DISCARDED`,
+      reason: `\`cleo ${label}\` has no flag ${bad.join(', ')} — the CLI rejects it with E_UNKNOWN_FLAG (exit 6)`,
     };
   };
 
