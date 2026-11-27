@@ -1,7 +1,7 @@
 ---
 name: ct-documentor
 description: Documentation coordinator with CLEO style guide compliance. Routes every canonical-doc write (spec, adr, research, handoff, note, llm-readme) through the docs SSoT via `cleo docs add` / `cleo docs publish` / `cleo docs fetch` — never raw filesystem writes. Carries the CLEO writing and review guides as references and coordinates ct-spec-writer and ct-adr-recorder. Use when creating or updating documentation files, consolidating scattered documentation, or validating documentation against style standards. Triggers on documentation tasks, doc update requests, or style guide compliance checks.
-version: 3.43.0
+version: 3.44.0
 protocol: null
 dependencies:
   - ct-spec-writer
@@ -16,13 +16,13 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 3.43.0
+  version: 3.44.0
   tier: core
   install: harness
   covers:
     - packages/cleo/src/cli/commands/docs.ts
     - packages/contracts/src/docs-taxonomy.ts
-  lastReviewed: 2026-11-26
+  lastReviewed: 2026-11-27
   stability: stable
 ---
 
@@ -712,14 +712,16 @@ $ cleo docs add T123 file.md --slug cant-spec --type spec
     "fix": "Use `cleo docs update cantspec` if updating, or pass --allow-similar to add as a new doc.",
     "alternatives": [
       { "action": "update 'cantspec' instead", "command": "cleo docs update cantspec" },
-      { "action": "bypass the similarity check", "command": "cleo docs add T123 file.md --slug cant-spec --type spec --allow-similar" }
+      { "action": "bypass the similarity check", "command": "cleo docs add T123 file.md --slug cant-spec --type spec --allow-similar --new-because \"<why it is not cantspec>\"" }
     ]
   }
 }
 
 # Intentional add (true near-twin, not an update) — bypass + audit-log.
-$ cleo docs add T123 file.md --slug cant-spec --type spec --allow-similar
-# appends one JSONL line to .cleo/audit/similar-bypass.jsonl
+# --allow-similar alone is refused (E_VALIDATION): it needs --new-because.
+$ cleo docs add T123 file.md --slug cant-spec --type spec --allow-similar \
+    --new-because "CANT grammar spec, not the cantspec runtime notes"
+# the reason is recorded in .cleo/audit/docs-new-because.jsonl
 ```
 
 Project-level overrides live in `.cleo/canon.yml`:
@@ -732,8 +734,8 @@ similarity:
 
 `mode: block` is recommended for CI agents — it surfaces the intent
 mismatch as an exit code rather than a silently-printed warning that
-non-TTY callers ignore. The `--allow-similar` flag is ALWAYS the
-escape hatch and ALWAYS logged.
+non-TTY callers ignore. The escape hatch is `--allow-similar` together
+with `--new-because "<why>"`; the reason is ALWAYS logged.
 
 ### Publish to a git-tracked path (when the doc must live on disk)
 

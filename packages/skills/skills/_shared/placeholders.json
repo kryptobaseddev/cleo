@@ -176,8 +176,8 @@
       },
       {
         "token": "TASK_TREE_CMD",
-        "default": "cleo list --tree",
-        "description": "Command to show task hierarchy tree (use --parent for subtree)"
+        "default": "cleo tree",
+        "description": "Command to show the task hierarchy tree; follow it with the root task id ({{TASK_TREE_CMD}} {{EPIC_ID}})"
       }
     ]
   },

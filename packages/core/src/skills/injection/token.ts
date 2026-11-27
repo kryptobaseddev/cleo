@@ -70,7 +70,7 @@ const CLEO_DEFAULTS: TokenValues = {
   TASK_ADD_CMD: 'cleo add',
   TASK_EXISTS_CMD: 'cleo exists',
   TASK_PHASE_CMD: 'cleo phase show',
-  TASK_TREE_CMD: 'cleo list --tree',
+  TASK_TREE_CMD: 'cleo tree',
   SESSION_LIST_CMD: 'cleo session list',
   SESSION_START_CMD: 'cleo session start',
   SESSION_END_CMD: 'cleo session end',
