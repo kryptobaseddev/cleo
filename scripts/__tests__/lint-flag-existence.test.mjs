@@ -131,6 +131,32 @@ describe('registry-spread args (T13945)', () => {
   });
 });
 
+describe('args the checker could not read before T14667', () => {
+  // Each shape returned an EMPTY accepted-set, which the checker treats as
+  // "unresolvable", so any flag on these commands passed gates 14, 31 and 42.
+  const bad = (text) => checker().check(extractInvocationsWithFlags(text)[0]);
+
+  it('`args: <const>` built by paramsToCittyArgs (cleo docs update)', () => {
+    // docs.ts: `const docsUpdateArgs = paramsToCittyArgs(getOperationParams('mutate', 'docs', 'update'))`,
+    // spread into `docsUpdateCliArgs`, passed as `args: docsUpdateCliArgs`.
+    expect(bad('cleo docs update my-slug --bogus-flag x')?.bad).toEqual(['--bogus-flag']);
+    expect(bad('cleo docs update my-slug --status superseded --superseded-by b --json')).toBeNull();
+  });
+
+  it('a sub-command defined in another module (cleo docs migrate)', () => {
+    expect(bad('cleo docs migrate --bogus')?.bad).toEqual(['--bogus']);
+    expect(bad('cleo docs migrate --dry-run --limit 5')).toBeNull();
+  });
+
+  it("a group root's own args (cleo doctor)", () => {
+    const v = bad('cleo doctor --bogus');
+    expect(v?.bad).toEqual(['--bogus']);
+    expect(v?.label).toBe('doctor');
+    expect(v?.guard).toBe('rejects');
+    expect(bad('cleo doctor --detailed')).toBeNull();
+  });
+});
+
 describe('extractInvocationsWithFlags', () => {
   it('stops the tail at a backtick so two code spans are two invocations', () => {
     const invs = extractInvocationsWithFlags(
