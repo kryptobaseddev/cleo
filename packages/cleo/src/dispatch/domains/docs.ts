@@ -2093,7 +2093,12 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
     const { slug: rawSlug, file: filePath, content: inlineContent, status: rawStatus } = params;
 
     if (typeof rawSlug !== 'string' || rawSlug.length === 0) {
-      return lafsError('E_INVALID_INPUT', 'slug is required', 'update');
+      return lafsError(
+        'E_INVALID_INPUT',
+        'slug is required',
+        'update',
+        'cleo docs update SLUG --file ./new.md',
+      );
     }
 
     // At most one of file or content; with neither, --status alone is a
@@ -2136,6 +2141,7 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
         'E_INVALID_INPUT',
         `status must be one of: ${DOCS_UPDATE_LIFECYCLE_STATUS_LIST} — got '${String(rawStatus)}'`,
         'update',
+        `cleo docs update ${rawSlug} --status draft`,
       );
     }
 
