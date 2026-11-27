@@ -37,7 +37,7 @@
  */
 
 import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { isMain } from './lib/is-main.mjs';
 
 const REPO_ROOT = process.cwd();
@@ -637,19 +637,84 @@ export function extractAcceptedFlags(source, name, registrySource) {
   const metaAt = source.search(metaRe);
   if (metaAt === -1) return new Set();
 
-  const argsAt = source.indexOf('args: {', metaAt);
-  if (argsAt === -1) return new Set();
+  const argsMatch = /\bargs:\s*(\{|[A-Za-z_$][\w$]*)/g;
+  argsMatch.lastIndex = metaAt;
+  const m = argsMatch.exec(source);
+  if (!m) return new Set();
   const nextDefine = source.indexOf('defineCommand(', metaAt + 1);
-  if (nextDefine !== -1 && nextDefine < argsAt) return new Set();
+  if (nextDefine !== -1 && nextDefine < m.index) return new Set();
 
-  const bodyStart = argsAt + 'args: {'.length;
+  // T14667: `args: docsUpdateCliArgs` names a module const instead of an
+  // inline literal; resolve it the same way a spread of it is resolved.
+  if (m[1] !== '{') return argsConstFlags(source, m[1], registrySource, new Set());
+  return argsBodyFlags(
+    source,
+    balancedBody(source, m.index + m[0].length),
+    registrySource,
+    new Set(),
+  );
+}
+
+/**
+ * The text between the brace that opens at `start - 1` and its match.
+ *
+ * @param source - any source text.
+ * @param start - index just past an opening `{`.
+ * @returns the body, without the braces.
+ */
+function balancedBody(source, start) {
   let depth = 1;
-  let i = bodyStart;
+  let i = start;
   for (; i < source.length && depth > 0; i++) {
     if (source[i] === '{') depth++;
     else if (source[i] === '}') depth--;
   }
-  const body = source.slice(bodyStart, i - 1).replace(/\/\/[^\n]*/g, '');
+  return source.slice(start, i - 1);
+}
+
+/**
+ * Flags a module-level args const declares (T14667): `const X = { … }` is
+ * read as an args body, `const X = paramsToCittyArgs(getOperationParams(…))`
+ * through the operations registry. An unknown or cyclic name contributes
+ * nothing.
+ *
+ * @param source - the command module source.
+ * @param ident - the const's name.
+ * @param registrySource - `operations-registry.ts` source, or undefined.
+ * @param seen - names already being resolved (cycle guard).
+ * @returns accepted flag tokens.
+ */
+function argsConstFlags(source, ident, registrySource, seen) {
+  if (seen.has(ident)) return new Set();
+  seen.add(ident);
+  const decl = source.match(new RegExp(`\\bconst ${ident}(?:\\s*:[^=]+)?\\s*=\\s*`));
+  if (!decl) return new Set();
+  const at = decl.index + decl[0].length;
+  if (source[at] === '{')
+    return argsBodyFlags(source, balancedBody(source, at + 1), registrySource, seen);
+  const call = source.slice(at).match(REGISTRY_ARGS_CALL);
+  if (call?.index === 0 && registrySource) {
+    return extractRegistryParamFlags(registrySource, call[1], call[2], call[3]);
+  }
+  return new Set();
+}
+
+/** `paramsToCittyArgs(getOperationParams('<gateway>', '<domain>', '<op>'))`. */
+const REGISTRY_ARGS_CALL =
+  /paramsToCittyArgs\(\s*getOperationParams\(\s*'(query|mutate)',\s*'([\w.-]+)',\s*'([\w.-]+)'\s*\)\s*\)/;
+
+/**
+ * Flags an args object body declares: its own keys, registry spreads, and
+ * spreads of other consts in the same module (T14667).
+ *
+ * @param source - the command module source.
+ * @param rawBody - the text inside the args object's braces.
+ * @param registrySource - `operations-registry.ts` source, or undefined.
+ * @param seen - names already being resolved (cycle guard).
+ * @returns accepted flag tokens.
+ */
+function argsBodyFlags(source, rawBody, registrySource, seen) {
+  const body = rawBody.replace(/\/\/[^\n]*/g, '');
 
   const flags = new Set();
   for (const m of body.matchAll(/(?:^|[,{])\s*'?([a-z][\w-]*)'?\s*:\s*\{/gm)) {
@@ -677,11 +742,12 @@ export function extractAcceptedFlags(source, name, registrySource) {
     }
   }
   if (registrySource) {
-    const spreadRe =
-      /\.\.\.paramsToCittyArgs\(\s*getOperationParams\(\s*'(query|mutate)',\s*'([\w.-]+)',\s*'([\w.-]+)'\s*\)\s*\)/g;
-    for (const m of body.matchAll(spreadRe)) {
+    for (const m of body.matchAll(new RegExp(`\\.\\.\\.${REGISTRY_ARGS_CALL.source}`, 'g'))) {
       for (const f of extractRegistryParamFlags(registrySource, m[1], m[2], m[3])) flags.add(f);
     }
+  }
+  for (const [, ident] of body.matchAll(/\.\.\.([A-Za-z_$][\w$]*)\s*(?:,|$)/g)) {
+    for (const f of argsConstFlags(source, ident, registrySource, seen)) flags.add(f);
   }
   return flags;
 }
@@ -882,6 +948,51 @@ export function spreadCommandArgFlags(source, repoRoot) {
 }
 
 /**
+ * Source of the module that defines a group's sub-command when the group's
+ * own module only references it (T14667): `migrate: migrateCommand` resolves
+ * through `import { migrateCommand } from './docs/migrate.js'`, and
+ * `'gate-text': async () => (await import('./doctor-gate-text.js')).x`
+ * through its dynamic import.
+ *
+ * @param source - the group's module source.
+ * @param modulePath - that module's path under `packages/cleo/src/cli/commands`
+ *   without extension (from the command manifest).
+ * @param verb - the group's root verb.
+ * @param sub - the sub-command key.
+ * @param repoRoot - absolute repo root.
+ * @returns the defining module's source, or null when it cannot be located.
+ * @task T14667
+ */
+export function subCommandModuleSource(source, modulePath, verb, sub, repoRoot) {
+  const exportAt = source.search(new RegExp(`export const ${verb}Command\\s*[:=]`));
+  if (exportAt === -1 || !modulePath) return null;
+  const blockAt = source.indexOf('subCommands: {', exportAt);
+  if (blockAt === -1) return null;
+  const block = balancedBody(source, blockAt + 'subCommands: {'.length);
+  const key = sub.replace(/[-]/g, '\\-');
+  const entry = block.match(new RegExp(`(?:^|[,{\\s])'?${key}'?\\s*:\\s*([^,\\n]+)`));
+  if (!entry) return null;
+
+  let rel = entry[1].match(/import\('(\.{1,2}\/[\w./-]+)\.js'\)/)?.[1];
+  if (!rel) {
+    const ident = entry[1].match(/^([A-Za-z_$][\w$]*)/)?.[1];
+    if (!ident) return null;
+    rel = source.match(
+      new RegExp(`import\\s*\\{[^}]*\\b${ident}\\b[^}]*\\}\\s*from\\s*'(\\.{1,2}/[\\w./-]+)\\.js'`),
+    )?.[1];
+  }
+  if (!rel) return null;
+  try {
+    return readFileSync(
+      join(repoRoot, 'packages/cleo/src/cli/commands', dirname(modulePath), `${rel}.ts`),
+      'utf-8',
+    );
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Build the flag checker shared by gates 14 and 15.
  *
  * Everything it compares against is read from SOURCE at call time — the global
@@ -946,6 +1057,8 @@ export function makeFlagChecker(repoRoot) {
     return source;
   };
 
+  const mod = (verb) => moduleByVerb.get(verb);
+
   const handWired = extractHandWiredGuards(
     [...moduleByVerb.keys()].map(sourceForVerb).filter(Boolean),
   );
@@ -965,17 +1078,26 @@ export function makeFlagChecker(repoRoot) {
     const subs = extractRootSubCommands(source, inv.verb);
     const isGroup = subs.size > 0;
     // A group command's second token is only a sub-verb if it IS one; anything
-    // else is a positional, and the group itself declares no runnable args.
-    const target = isGroup ? (inv.sub && subs.has(inv.sub) ? inv.sub : null) : inv.verb;
-    if (target === null) return null;
+    // else is a positional or a flag, and the invocation runs the group's own
+    // root args (`cleo doctor --detailed`, T14667). A root without args stays
+    // unresolvable below.
+    const isSub = isGroup && inv.sub !== null && subs.has(inv.sub);
+    const target = isSub ? inv.sub : inv.verb;
 
-    const accepted = extractAcceptedFlags(source, target, registrySource);
+    // T14667: a sub-command defined in another module (`migrate: migrateCommand`
+    // imported from './docs/migrate.js') declares its args there.
+    let argsSource = source;
+    let accepted = extractAcceptedFlags(source, target, registrySource);
+    if (accepted.size === 0 && isSub) {
+      argsSource = subCommandModuleSource(source, mod(inv.verb), inv.verb, target, repoRoot);
+      if (argsSource) accepted = extractAcceptedFlags(argsSource, target, registrySource);
+    }
     if (accepted.size === 0) return null;
     // T14299: `cleo done` spreads `...completeCommandArgs` from complete.ts;
     // an imported sibling command's args object declares flags too.
-    for (const flag of spreadCommandArgFlags(source, repoRoot)) accepted.add(flag);
+    for (const flag of spreadCommandArgFlags(argsSource, repoRoot)) accepted.add(flag);
 
-    const label = isGroup ? `${inv.verb} ${target}` : inv.verb;
+    const label = isSub ? `${inv.verb} ${target}` : inv.verb;
     const retired = retiredFlags.get(target) ?? new Set();
     const bad = inv.flags.filter((f) => !accepted.has(f) && !globalFlags.has(f) && !retired.has(f));
     if (bad.length === 0) return null;
@@ -985,7 +1107,7 @@ export function makeFlagChecker(repoRoot) {
     // invocation is dispatched to the sub-command's own run, which the wrapper
     // never reaches — measured on the shipped 2026.9.3 binary. The two cases
     // are different defects and the report must not blur them.
-    const guard = isGroup ? (handWired.has(label) ? 'rejects' : 'silent') : 'rejects';
+    const guard = isSub ? (handWired.has(label) ? 'rejects' : 'silent') : 'rejects';
     return {
       ...inv,
       label,

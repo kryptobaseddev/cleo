@@ -45,7 +45,7 @@ export function checkGlobalIdentity(): CheckResult {
       status: 'failed',
       message: 'Global CLEOOS-IDENTITY.md exists but is empty',
       details: { path: identityPath, exists: true, size: 0 },
-      fix: 'cleo upgrade --refresh-identity',
+      fix: 'Delete the empty file, then run cleo upgrade (auto-deploys identity)',
     };
   }
 

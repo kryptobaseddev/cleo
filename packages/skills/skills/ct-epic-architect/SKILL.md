@@ -1,7 +1,7 @@
 ---
 name: ct-epic-architect
 description: Epic planning and task decomposition for breaking down large initiatives into atomic, executable tasks. Provides dependency analysis, wave-based parallel execution planning, hierarchy management, and research linking. Use when creating epics, decomposing initiatives into task trees, planning parallel workflows, or analyzing task dependencies. Triggers on epic creation, task decomposition requests, or planning phase work.
-version: 3.2.0
+version: 3.3.0
 protocol: decomposition
 adrRefs:
   - ADR-066
@@ -17,7 +17,7 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 3.2.0
+  version: 3.3.0
   tier: on-demand
   install: harness
   covers:
@@ -76,7 +76,7 @@ Context injection for epic planning and task decomposition tasks spawned via cle
 cleo find "auth" --status pending       # Related tasks
 cleo list --type epic --status pending  # Existing epics
 cleo phase show                         # Current phase
-cleo list --tree --parent T001          # Hierarchy view
+cleo tree T001                          # Hierarchy view
 ```
 
 ---

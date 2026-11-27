@@ -1,7 +1,7 @@
 ---
 name: ct-documentor
 description: Documentation coordinator with CLEO style guide compliance. Routes every canonical-doc write (spec, adr, research, handoff, note, llm-readme) through the docs SSoT via `cleo docs add` / `cleo docs publish` / `cleo docs fetch` — never raw filesystem writes. Carries the CLEO writing and review guides as references and coordinates ct-spec-writer and ct-adr-recorder. Use when creating or updating documentation files, consolidating scattered documentation, or validating documentation against style standards. Triggers on documentation tasks, doc update requests, or style guide compliance checks.
-version: 3.42.0
+version: 3.43.0
 protocol: null
 dependencies:
   - ct-spec-writer
@@ -16,7 +16,7 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 3.42.0
+  version: 3.43.0
   tier: core
   install: harness
   covers:
@@ -698,7 +698,7 @@ intent. Exact (`1.0`) matches fall through to the slug-collision path
 ```bash
 # Near-duplicate slug — warn mode is the project default.
 $ cleo docs add T123 file.md --slug cant-spec --type spec
-INFO Similar to 'cantspec' (score 0.89) — did you mean: cleo docs update cantspec? Pass --allow-similar to bypass.
+INFO Similar to 'cantspec' (score 0.89) — did you mean: `cleo docs update cantspec`? Pass --allow-similar to bypass.
 # (write proceeds because mode=warn)
 
 # Same input under `mode: block` (configured in .cleo/canon.yml) — exits 6.
@@ -708,7 +708,7 @@ $ cleo docs add T123 file.md --slug cant-spec --type spec
   "error": {
     "code": 6,
     "codeName": "E_SLUG_SIMILARITY",
-    "message": "Similar to 'cantspec' (score 0.89) — did you mean: cleo docs update cantspec? Pass --allow-similar to bypass.",
+    "message": "Similar to 'cantspec' (score 0.89) — did you mean: `cleo docs update cantspec`? Pass --allow-similar to bypass.",
     "fix": "Use `cleo docs update cantspec` if updating, or pass --allow-similar to add as a new doc.",
     "alternatives": [
       { "action": "update 'cantspec' instead", "command": "cleo docs update cantspec" },
