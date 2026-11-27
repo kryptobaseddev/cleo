@@ -124,7 +124,7 @@ const REMEDIES = [
   {
     code: 'E_SLUG_RESERVED',
     file: 'packages/cleo/src/dispatch/domains/docs.ts',
-    source: `cleo docs update ${slot("slug ?? '<slug>'")} --file <your-file>`,
+    source: `cleo docs update ${slot("slug ? shellQuote(slug) : '<slug>'")} --file <your-file>`,
     command: 'cleo docs update my-doc --file notes.md',
   },
   {
