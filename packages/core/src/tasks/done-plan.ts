@@ -48,6 +48,7 @@ import { TERMINAL_TASK_STATUSES } from '@cleocode/contracts/status-registry.js';
 import { type EngineResult, engineSuccess } from '../engine-result.js';
 import { CleoError } from '../errors.js';
 import { cleoErrorToEngineResult } from '../errors-to-engine.js';
+import { shellQuote } from '../lib/shell-quote.js';
 import { getProjectRoot } from '../paths.js';
 import { readProjectInfoAtDirectorySync, worktreeScope } from '../project-scope.js';
 import { isCiDocumentPath, readCiChecks, readCiSatisfies } from '../release/ci-evidence.js';
@@ -424,15 +425,7 @@ async function readinessBlockers(input: {
   ];
 }
 
-/**
- * POSIX single-quote a shell word (bare when it is already safe).
- *
- * @param word - Word to quote.
- * @returns A string the shell reads back as exactly `word`.
- */
-export function shellQuote(word: string): string {
-  return /^[A-Za-z0-9_./:@%+=,-]+$/.test(word) ? word : `'${word.replace(/'/g, `'\\''`)}'`;
-}
+export { shellQuote };
 
 function step(command: string, why: string): DoneNextStep {
   return { command, why };

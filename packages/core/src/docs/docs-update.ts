@@ -34,6 +34,7 @@ import type {
 import { blobAttachmentSchema } from '@cleocode/contracts/attachment-schema.js';
 import { DOCS_LIFECYCLE_STATUSES } from '@cleocode/contracts/operations/docs.js';
 import { and, eq } from 'drizzle-orm';
+import { shellQuote } from '../lib/shell-quote.js';
 import { pushWarning } from '../output.js';
 import { getCleoDirAbsolute, resolveCleoDir } from '../paths.js';
 import { fileBytesMatchSha256, readVerifiedBlobBytes } from '../store/blob-keep.js';
@@ -60,6 +61,9 @@ import {
 } from './supersede.js';
 import { validateDocBody } from './validate-body.js';
 import { getCanonicalCleoVersion } from './version-ssot.js';
+
+/** Shell quoting for `cleo docs update` fixes, shared with the dispatch handler (T14668). */
+export { shellQuote } from '../lib/shell-quote.js';
 
 /**
  * 5-minute squash window for audit-log entries. A second update for the
@@ -411,6 +415,38 @@ export function isLifecycleStatus(raw: unknown): raw is DocsLifecycleStatus {
 }
 
 /**
+ * The flags of a `cleo docs update` call, re-emitted for its refusal's fix
+ * (every value shell-quoted; `--strict` is appended by the caller). Inline
+ * `--content` becomes `--content -`: the corrected body is piped on stdin.
+ *
+ * @param params - The refused update's parameters.
+ * @returns The flags, each with a leading space; empty when none were given.
+ * @task T14668
+ */
+function strictRerunFlags(params: DocsUpdateParams): string {
+  const flags: string[] = [];
+  if (typeof params.file === 'string' && params.file.length > 0) {
+    flags.push('--file', shellQuote(params.file));
+  } else if (typeof params.content === 'string') {
+    flags.push('--content', '-');
+  }
+  if (params.allowExternal === true) flags.push('--allow-external');
+  if (params.baseVersionUid !== undefined) {
+    flags.push('--base-version-uid', shellQuote(params.baseVersionUid));
+  }
+  if (params.status !== undefined) flags.push('--status', shellQuote(String(params.status)));
+  if (params.supersededBy !== undefined) {
+    flags.push('--superseded-by', shellQuote(params.supersededBy));
+  }
+  if (typeof params.message === 'string') flags.push('--message', shellQuote(params.message));
+  if (typeof params.attachedBy === 'string') {
+    flags.push('--attached-by', shellQuote(params.attachedBy));
+  }
+  if (params.dryRun === true) flags.push('--dry-run');
+  return flags.map((f) => ` ${f}`).join('');
+}
+
+/**
  * Update the attachment identified by `slug` to carry new bytes.
  *
  * Flow:
@@ -464,7 +500,7 @@ export async function updateDocBySlug(
       error: {
         code: 'E_INVALID_INPUT',
         message: 'file and content are mutually exclusive',
-        fix: `cleo docs update ${requestedSlug} --file ./new.md`,
+        fix: `cleo docs update ${shellQuote(requestedSlug)} --file ./new.md`,
       },
     };
   }
@@ -478,8 +514,8 @@ export async function updateDocBySlug(
         // T14660: a bare --superseded-by is missing only its --status.
         fix:
           params.supersededBy !== undefined
-            ? `cleo docs update ${requestedSlug} --status superseded --superseded-by ${params.supersededBy}`
-            : `cleo docs update ${requestedSlug} --file ./new.md`,
+            ? `cleo docs update ${shellQuote(requestedSlug)} --status superseded --superseded-by ${shellQuote(params.supersededBy)}`
+            : `cleo docs update ${shellQuote(requestedSlug)} --file ./new.md`,
       },
     };
   }
@@ -501,7 +537,7 @@ export async function updateDocBySlug(
         error: {
           code: 'E_FILE_ERROR',
           message: `Cannot read file: ${params.file} (${cause instanceof Error ? cause.message : String(cause)})`,
-          fix: `cleo docs update ${requestedSlug} --file ./new.md`,
+          fix: `cleo docs update ${shellQuote(requestedSlug)} --file ./new.md`,
         },
       };
     }
@@ -519,7 +555,7 @@ export async function updateDocBySlug(
         // @sync-invariant none:input-shape a base cannot anchor a section merge of non-text bytes; refused before any write
         code: 'E_DOC_BASE_UNSUPPORTED',
         message: `--base-version-uid needs a UTF-8 text body; '${params.file}' is not text — omit the base to replace the bytes whole`,
-        fix: `cleo docs update ${requestedSlug} --file ${params.file}`,
+        fix: `cleo docs update ${shellQuote(requestedSlug)} --file ${shellQuote(params.file as string)}`,
       },
     };
   }
@@ -532,7 +568,7 @@ export async function updateDocBySlug(
       error: {
         code: 'E_INVALID_STATUS',
         message: `status must be one of: ${ALLOWED_STATUSES.join('|')} — got '${String(status)}'`,
-        fix: `cleo docs update ${requestedSlug} --status draft`,
+        fix: `cleo docs update ${shellQuote(requestedSlug)} --status draft`,
       },
     };
   }
@@ -545,8 +581,8 @@ export async function updateDocBySlug(
       error: {
         // @sync-invariant none:input-shape a successor without a lifecycle-only --status superseded is refused before any write
         code: 'E_INVALID_INPUT',
-        message: `--superseded-by needs --status superseded and no --file or --content — e.g. \`cleo docs update ${requestedSlug} --status superseded --superseded-by ${successorRef}\``,
-        fix: `cleo docs update ${requestedSlug} --status superseded --superseded-by ${successorRef}`,
+        message: `--superseded-by needs --status superseded and no --file or --content — e.g. \`cleo docs update ${shellQuote(requestedSlug)} --status superseded --superseded-by ${shellQuote(successorRef)}\``,
+        fix: `cleo docs update ${shellQuote(requestedSlug)} --status superseded --superseded-by ${shellQuote(successorRef)}`,
       },
     };
   }
@@ -570,7 +606,7 @@ export async function updateDocBySlug(
       error: {
         code: 'E_NOT_FOUND',
         message: `no attachment found with slug '${requestedSlug}' — the slug does not exist in the store and cannot be updated`,
-        fix: `cleo docs add OWNER_ID FILE --slug ${requestedSlug}`,
+        fix: `cleo docs add OWNER_ID FILE --slug ${shellQuote(requestedSlug)}`,
       },
     };
   }
@@ -609,7 +645,7 @@ export async function updateDocBySlug(
             (docUid === null
               ? '; the doc has no version history yet: run `cleo docs migrate` to record its current bytes as the head (T14329)'
               : ''),
-          fix: docUid === null ? 'cleo docs migrate' : `cleo docs fetch ${slug}`,
+          fix: docUid === null ? 'cleo docs migrate' : `cleo docs fetch ${shellQuote(slug)}`,
         },
       };
     }
@@ -624,7 +660,7 @@ export async function updateDocBySlug(
           message:
             `base version '${params.baseVersionUid}' bytes for slug '${slug}' cannot be read ` +
             '(no verified copy in the blob store or the legacy tree) — re-fetch the doc and retry',
-          fix: `cleo docs fetch ${slug}`,
+          fix: `cleo docs fetch ${shellQuote(slug)}`,
         },
       };
     }
@@ -641,8 +677,8 @@ export async function updateDocBySlug(
       ok: false,
       error: {
         code: 'E_INVALID_STATUS', // @sync-invariant docs.lifecycle.transitions
-        message: `doc '${slug}' is superseded${oldRow.supersededBy ? ` (by ${oldRow.supersededBy})` : ''}; a superseded doc cannot change its status or content — add the new content as a new doc and name it the successor with \`cleo docs update ${slug} --status superseded --superseded-by NEW_SLUG\``,
-        fix: `cleo docs update ${slug} --status superseded --superseded-by NEW_SLUG`,
+        message: `doc '${slug}' is superseded${oldRow.supersededBy ? ` (by ${oldRow.supersededBy})` : ''}; a superseded doc cannot change its status or content — add the new content as a new doc and name it the successor with \`cleo docs update ${shellQuote(slug)} --status superseded --superseded-by NEW_SLUG\``,
+        fix: `cleo docs update ${shellQuote(slug)} --status superseded --superseded-by NEW_SLUG`,
       },
     };
   }
@@ -658,7 +694,7 @@ export async function updateDocBySlug(
           // @sync-invariant none:input-shape an unknown successor slug is refused before any write
           code: 'E_NOT_FOUND',
           message: `successor '${successorRef}' does not match any doc — add it first (\`cleo docs add\`), then name it with --superseded-by`,
-          fix: `cleo docs add OWNER_ID FILE --slug ${successorRef}`,
+          fix: `cleo docs add OWNER_ID FILE --slug ${shellQuote(successorRef)}`,
         },
       };
     }
@@ -669,7 +705,7 @@ export async function updateDocBySlug(
           // @sync-invariant none:input-shape a doc cannot supersede itself; refused before any write
           code: 'E_INVALID_INPUT',
           message: `doc '${slug}' cannot be its own successor — name the doc that replaces it`,
-          fix: `cleo docs update ${slug} --status superseded --superseded-by NEW_SLUG`,
+          fix: `cleo docs update ${shellQuote(slug)} --status superseded --superseded-by NEW_SLUG`,
         },
       };
     }
@@ -789,9 +825,17 @@ export async function updateDocBySlug(
           ok: false,
           error: {
             code: 'E_DOC_SCHEMA_MISMATCH',
-            message: `body for kind '${oldRow.type}' is missing required section(s): ${missingList}`,
+            message:
+              `body for kind '${oldRow.type}' is missing required section(s): ${missingList} — ` +
+              `add a '## <name>' heading for each (${check.missing.map((m) => `## ${m}`).join(', ')}) ` +
+              (hasFile
+                ? 'to the file, then re-run the fix'
+                : 'to the body, then re-run the fix piping the corrected body on stdin') +
+              '. Dropping --strict would write the body as-is with a W_DOC_SCHEMA_MISMATCH warning.',
             details: { kind: oldRow.type, missing: check.missing, strict: true },
-            fix: `cleo docs fetch ${slug}`,
+            // T14668: the same --strict update with every original flag; it
+            // succeeds once the body carries the missing sections.
+            fix: `cleo docs update ${shellQuote(slug)}${strictRerunFlags(params)} --strict`,
           },
         };
       }
