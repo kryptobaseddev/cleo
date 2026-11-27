@@ -52,6 +52,7 @@
  * @task T12115
  */
 
+import type { Worker } from 'node:worker_threads';
 import type { ShutdownStepOutcome as StepOutcome } from '@cleocode/contracts/jobs';
 import { OperationExecutionError } from './store/background-ops.js';
 
@@ -277,9 +278,103 @@ export function armExitBackstop(code?: number, graceMs: number = EXIT_BACKSTOP_M
         `recurs on a fast command it is a resource leak; please report it with ` +
         `the command you ran.\n`,
     );
-    process.exit(resolved);
+    void exitProcess(resolved);
   }, graceMs);
 
   timer.unref();
   return timer;
+}
+
+/** How long {@link exitProcess} waits for tracked worker threads to stop, in ms. */
+export const WORKER_STOP_DEADLINE_MS = 2_000;
+
+/** Process-lifetime worker threads that `process.exit` would join (T14670). */
+const exitWorkers = new Set<Worker>();
+
+/**
+ * Track a process-lifetime worker thread so {@link exitProcess} stops it with a
+ * deadline before exiting (T14670).
+ *
+ * `process.exit` joins every live worker thread (`Worker::JoinThread`, a
+ * `pthread_join` with no timeout). A worker blocked in native code — a
+ * syscall, a SQLite or ONNX call — never reaches a JS interrupt, so the join
+ * never returns: the envelope is printed, and then the main thread sits in exit
+ * forever, reaping no children and running no signal listener. The worker
+ * leaves the set when it exits.
+ *
+ * @param worker - The worker to track.
+ * @example
+ * ```ts
+ * const worker = new Worker(workerPath);
+ * trackExitWorker(worker);
+ * ```
+ * @task T14670
+ */
+export function trackExitWorker(worker: Worker): void {
+  exitWorkers.add(worker);
+  worker.once('exit', () => exitWorkers.delete(worker));
+}
+
+/** Seams for {@link exitProcess}; production uses the process itself. */
+export interface ExitProcessDeps {
+  /** Ends the process with a code; `process.exit` by default. */
+  readonly exit?: (code: number) => void;
+  /** Ends the process when a worker cannot be stopped; SIGKILL to self by default. */
+  readonly kill?: () => void;
+  /** Writes the diagnostic; `process.stderr` by default. */
+  readonly write?: (text: string) => void;
+}
+
+/**
+ * Exit with `code` in bounded time, even when a worker thread is wedged (T14670).
+ *
+ * With no tracked worker alive this is `process.exit(code)`. Otherwise it
+ * first removes the process's SIGTERM/SIGINT/SIGHUP listeners, so the default
+ * action applies again and a signal ends the process even while it waits,
+ * then terminates the tracked workers within `deadlineMs`. A worker still
+ * running after that would hang `process.exit` in its join, so the process
+ * kills itself instead (SIGKILL: exit status 137, not `code`) after naming the
+ * cause on stderr. The envelope on stdout already carries the command's result.
+ *
+ * @param code - The command's exit code.
+ * @param deadlineMs - Upper bound on the worker stop.
+ * @param deps - Test seams.
+ * @returns Never, in production.
+ * @example
+ * ```ts
+ * cliError(message, code);
+ * await exitProcess(code);
+ * ```
+ * @task T14670
+ */
+export async function exitProcess(
+  code: number,
+  deadlineMs: number = WORKER_STOP_DEADLINE_MS,
+  deps: ExitProcessDeps = {},
+): Promise<never> {
+  const exit = deps.exit ?? ((c: number) => process.exit(c));
+  if (exitWorkers.size > 0) {
+    for (const signal of ['SIGTERM', 'SIGINT', 'SIGHUP'] as const) {
+      process.removeAllListeners(signal);
+    }
+    let timer: NodeJS.Timeout | undefined;
+    const deadline = new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, deadlineMs);
+    });
+    await Promise.race([
+      Promise.allSettled([...exitWorkers].map((worker) => worker.terminate())),
+      deadline,
+    ]);
+    clearTimeout(timer);
+    if (exitWorkers.size > 0) {
+      (deps.write ?? ((text: string) => process.stderr.write(text)))(
+        `cleo: ${exitWorkers.size} worker thread(s) did not stop within ${deadlineMs}ms ` +
+          `(blocked in native code); process.exit would wait on them forever, so the ` +
+          `process kills itself (status 137, not rc:${code}). The envelope above stands.\n`,
+      );
+      (deps.kill ?? (() => process.kill(process.pid, 'SIGKILL')))();
+    }
+  }
+  exit(code);
+  return undefined as never;
 }

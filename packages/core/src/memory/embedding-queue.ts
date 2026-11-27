@@ -21,6 +21,7 @@
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { trackExitWorker } from '../shutdown-deadline.js';
 
 /** Maximum items processed per worker message cycle. */
 const BATCH_SIZE = 10;
@@ -111,6 +112,7 @@ export class EmbeddingQueue {
     try {
       const { Worker } = await import('node:worker_threads');
       const worker = new Worker(workerPath);
+      trackExitWorker(worker);
 
       worker.on('message', (msg: { id: string; embedding?: number[]; error?: string }) => {
         const cb = this.callbacks.get(msg.id);

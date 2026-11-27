@@ -18,7 +18,9 @@
  *
  * @param code - Process exit code.
  * @param settle - Settles pending work; core `settleBeforeExit` by default.
- * @param exit - Ends the process; `process.exit` by default.
+ * @param exit - Ends the process; core `exitProcess` by default, which stops
+ *   tracked worker threads within a deadline so `process.exit` cannot hang
+ *   joining a wedged one (T14670).
  * @returns Never, when `exit` ends the process.
  *
  * @example
@@ -30,7 +32,7 @@
 export async function settleThenExit(
   code: number,
   settle: () => Promise<unknown> = settleWithCore,
-  exit: (code: number) => never = (c) => process.exit(c),
+  exit: (code: number) => never | Promise<never> = exitWithCore,
 ): Promise<never> {
   // Set first: if the loop drains while the settle is pending, Node exits on
   // its own with process.exitCode, and a failed command must never exit 0.
@@ -40,11 +42,21 @@ export async function settleThenExit(
   } catch {
     // Settling is best effort; the exit code stands.
   }
-  return exit(code);
+  return await exit(code);
 }
 
 /** Core's settle, loaded on demand from its leaf module (no barrel). */
 async function settleWithCore(): Promise<number> {
   const { settleBeforeExit } = await import('@cleocode/core/shutdown');
   return settleBeforeExit();
+}
+
+/** Core's bounded exit (T14670), loaded on demand from its leaf module. */
+async function exitWithCore(code: number): Promise<never> {
+  try {
+    const { exitProcess } = await import('@cleocode/core/shutdown-deadline');
+    return await exitProcess(code);
+  } catch {
+    return process.exit(code);
+  }
 }

@@ -64,6 +64,7 @@ import { fileURLToPath } from 'node:url';
 import type { ObserveBrainParams, ObserveBrainResult } from '@cleocode/contracts';
 import type { OperationExecutionContext } from '@cleocode/contracts/jobs';
 import { getLogger } from '../logger.js';
+import { trackExitWorker } from '../shutdown-deadline.js';
 import { resolveDualScopeDbPath } from '../store/dual-scope-db.js';
 import type { NewBrainDecisionRow, NewBrainLearningRow } from '../store/schema/memory-schema.js';
 import {
@@ -403,6 +404,7 @@ class BrainWriterManager {
     if (this.shuttingDown || isBrainWriterShuttingDown())
       throw new BrainWriterShutDownError('observe');
     const worker = new Worker(workerPath);
+    trackExitWorker(worker);
 
     worker.on('message', (msg: WriterResponseEnvelope | WriterDrainedMessage) => {
       if ('drained' in msg) return; // answered to drainAndTerminateWriter
@@ -746,18 +748,22 @@ function getManager(kind: BrainWriteOp['kind'] = 'observe'): BrainWriterManager 
     process.on('exit', () => {
       _manager?.shutdown().catch(() => undefined);
     });
-    const gracefulShutdown = (): void => {
-      const deadline = setTimeout(() => process.exit(0), 2_000);
+    // A listener replaces the signal's default action, so it must end the
+    // process itself: this one cleared its deadline and returned, and a
+    // SIGTERM after the flush was ignored (T14670). 128 + signal number.
+    const gracefulShutdown = (code: number): void => {
+      const deadline = setTimeout(() => process.exit(code), 2_000);
       deadline.unref();
       _manager
         ?.shutdown()
         .catch(() => undefined)
         .finally(() => {
           clearTimeout(deadline);
+          process.exit(code);
         });
     };
-    process.once('SIGTERM', gracefulShutdown);
-    process.once('SIGINT', gracefulShutdown);
+    process.once('SIGTERM', () => gracefulShutdown(143));
+    process.once('SIGINT', () => gracefulShutdown(130));
   }
   return _manager;
 }

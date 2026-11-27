@@ -30,7 +30,7 @@ import { getTelemetryDb } from './sqlite.js';
 // ---------------------------------------------------------------------------
 // Events are buffered in memory and flushed as a single batch:
 //   - When the buffer reaches TELEMETRY_BUFFER_MAX_EVENTS, OR
-//   - When the process exits (via beforeExit / SIGINT / SIGTERM handlers).
+//   - When the process exits (via beforeExit and the CLI's exit paths).
 //
 // This prevents N concurrent SQLite writers on every CLI invocation. Each
 // process owns exactly one buffer that drains once. Fire-and-forget: errors
@@ -98,12 +98,10 @@ function _ensureExitHandlers(): void {
   process.on('beforeExit', () => {
     void _flushTelemetryBuffer();
   });
-  // SIGINT / SIGTERM: synchronous-safe best-effort (do not await in handlers).
-  for (const signal of ['SIGINT', 'SIGTERM'] as const) {
-    process.on(signal, () => {
-      void _flushTelemetryBuffer();
-    });
-  }
+  // No SIGINT / SIGTERM listener (T14670): a listener replaces the default
+  // action, and this one only started a flush, so a command that recorded
+  // telemetry ignored SIGTERM. A signal loses the buffered rows; the CLI's
+  // error exit flushes them (`settleBeforeExit`), a drained loop through `beforeExit`.
 }
 
 // ---------------------------------------------------------------------------

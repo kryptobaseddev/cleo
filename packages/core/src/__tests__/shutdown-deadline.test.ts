@@ -7,8 +7,13 @@
  * close step was never reached).
  */
 
+import { spawn, spawnSync } from 'node:child_process';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { ShutdownStepOutcome } from '@cleocode/contracts/jobs';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   activeHandleSummary,
   armExitBackstop,
@@ -316,5 +321,108 @@ describe('shutdown diagnostics report assessed causes, not guessed deadlines', (
     ]);
     expect(text).toContain('cannot close\\nforged second line');
     expect(text.split('\n')).toHaveLength(3);
+  });
+});
+
+describe('exitProcess — a worker wedged in native code cannot hang the exit (T14670)', () => {
+  // A worker blocked in a synchronous child wait: native code, so terminate()
+  // cannot interrupt it, exactly like a wedged SQLite or ONNX call.
+  const WEDGE_MS = 6_000;
+  let tempDir = '';
+
+  afterAll(async () => {
+    if (tempDir) await rm(tempDir, { recursive: true, force: true });
+  });
+
+  /** Bundle a child that wedges a tracked worker, then runs `ending`. */
+  async function buildChild(name: string, ending: string): Promise<string> {
+    if (!tempDir) tempDir = await mkdtemp(join(tmpdir(), 'cleo-exit-wedge-'));
+    const here = dirname(fileURLToPath(import.meta.url));
+    const childScript = join(tempDir, `${name}.mjs`);
+    const { build } = await import('esbuild');
+    const wedge = `require('node:child_process').spawnSync(process.execPath, ['-e', 'setTimeout(() => {}, ${WEDGE_MS})']);`;
+    await build({
+      stdin: {
+        contents: [
+          "import { Worker } from 'node:worker_threads';",
+          "import { spawn } from 'node:child_process';",
+          `import { exitProcess, trackExitWorker } from ${JSON.stringify(resolve(here, '../shutdown-deadline.ts'))};`,
+          `const worker = new Worker(${JSON.stringify(wedge)}, { eval: true });`,
+          'trackExitWorker(worker);',
+          // Like telemetry's old listener: replaces SIGTERM's default action.
+          "process.on('SIGTERM', () => {});",
+          // Two short-lived children, as the hung verdict had.
+          'for (let i = 0; i < 2; i++) {',
+          "  spawn(process.execPath, ['-e', 'setTimeout(() => {}, 100)']).on('exit', () => process.stderr.write('reaped\\n'));",
+          '}',
+          "worker.once('online', () => setTimeout(() => {",
+          ending,
+          '}, 300));',
+        ].join('\n'),
+        resolveDir: here,
+        loader: 'ts',
+      },
+      bundle: true,
+      platform: 'node',
+      format: 'esm',
+      outfile: childScript,
+      logLevel: 'silent',
+    });
+    return childScript;
+  }
+
+  it('control: a bare process.exit waits on the wedged worker (the hang)', async () => {
+    const childScript = await buildChild('control', 'process.exit(0);');
+    const started = Date.now();
+    // SIGKILL: the child's SIGTERM listener would ignore a SIGTERM, which is
+    // half of the hang (it outlived its timeout by the full wedge when tried).
+    const child = spawnSync(process.execPath, [childScript], {
+      encoding: 'utf-8',
+      timeout: 2_500,
+      killSignal: 'SIGKILL',
+    });
+    // Still alive at the timeout: process.exit sits in Worker::JoinThread.
+    expect(child.signal).toBe('SIGKILL');
+    expect(Date.now() - started).toBeGreaterThanOrEqual(2_400);
+  }, 20_000);
+
+  it('exits within its deadline, after reaping its children, instead of hanging', async () => {
+    const childScript = await buildChild('fixed', 'void exitProcess(0, 1_000);');
+    const started = Date.now();
+    const child = spawnSync(process.execPath, [childScript], {
+      encoding: 'utf-8',
+      timeout: WEDGE_MS - 1_000,
+    });
+    const elapsed = Date.now() - started;
+    expect(child.signal, child.stderr).toBe('SIGKILL');
+    expect(elapsed).toBeLessThan(WEDGE_MS - 1_500);
+    expect(child.stderr).toContain('did not stop within 1000ms');
+    // Each child's exit event fired: libuv reaped it, so none was left defunct.
+    expect(child.stderr.match(/reaped/g)).toHaveLength(2);
+  }, 20_000);
+
+  it('honours SIGTERM while it waits, despite a SIGTERM listener', async () => {
+    const childScript = await buildChild('sigterm', 'void exitProcess(0, 30_000);');
+    const child = spawn(process.execPath, [childScript], { stdio: ['ignore', 'ignore', 'pipe'] });
+    let stderr = '';
+    child.stderr.on('data', (chunk: Buffer) => {
+      stderr += chunk.toString();
+      if (stderr.match(/reaped/g)?.length === 2) setTimeout(() => child.kill('SIGTERM'), 500);
+    });
+    const started = Date.now();
+    const signal = await new Promise<NodeJS.Signals | null>((done) =>
+      child.on('exit', (_code, sig) => done(sig)),
+    );
+    expect(signal).toBe('SIGTERM');
+    expect(Date.now() - started).toBeLessThan(WEDGE_MS - 1_000);
+  }, 20_000);
+
+  it('exits with the code at once when no tracked worker is alive', async () => {
+    const { exitProcess } = await import('../shutdown-deadline.js');
+    const exited: number[] = [];
+    const kill = vi.fn();
+    await exitProcess(5, 100, { exit: (code) => exited.push(code), kill });
+    expect(exited).toEqual([5]);
+    expect(kill).not.toHaveBeenCalled();
   });
 });
