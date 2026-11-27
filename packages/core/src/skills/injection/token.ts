@@ -223,16 +223,30 @@ export function validateAllTokens(values: TokenValues): {
 // ============================================================================
 
 /**
+ * Command tokens whose command requires a positional id: `cleo tree` refuses
+ * to run without its root task id (T14673).
+ */
+const ID_ARG_TOKENS: ReadonlySet<string> = new Set(['TASK_TREE_CMD']);
+
+/** An id after a command token: a `{{TOKEN}}`, a `<placeholder>` or a task id. */
+const FOLLOWING_ID = /^[ \t]+(?:\{\{\w+\}\}|<[\w-]+>|T\d+\b)/;
+
+/**
  * Inject token values into a template string.
  * Replaces all {{TOKEN_NAME}} patterns with corresponding values.
- * Unresolved tokens are left as-is (for debugging).
+ * Unresolved tokens are left as-is (for debugging), and so is an id-taking
+ * command token (`{{TASK_TREE_CMD}}`) with no id after it, so
+ * {@link hasUnresolvedTokens} reports it instead of a command the CLI refuses.
  * @task T4521
  */
 export function injectTokens(template: string, values: TokenValues): string {
   // Merge with defaults (explicit values override defaults)
   const merged = { ...CLEO_DEFAULTS, ...values };
 
-  return template.replace(/\{\{(\w+)\}\}/g, (match, token: string) => {
+  return template.replace(/\{\{(\w+)\}\}/g, (match, token: string, at: number) => {
+    if (ID_ARG_TOKENS.has(token) && !FOLLOWING_ID.test(template.slice(at + match.length))) {
+      return match;
+    }
     const value = merged[token];
     if (value !== undefined && value !== '') {
       return value;
