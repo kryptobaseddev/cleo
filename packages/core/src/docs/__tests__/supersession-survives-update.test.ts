@@ -27,7 +27,7 @@ import { yieldedDocSlug } from '../../store/row-identity.js';
 import { closeDb, getNativeDb } from '../../store/sqlite.js';
 import { buildDocProvenanceGraph } from '../build-provenance-graph.js';
 import { publishDocs } from '../docs-ops.js';
-import { updateDocBySlug } from '../docs-update.js';
+import { DOCS_VERSIONING_AUDIT_FILE, updateDocBySlug } from '../docs-update.js';
 import { readDocLineage } from '../lineage.js';
 import { listDocRefs, renameDocSlug } from '../slug-rename.js';
 import { supersedeDoc } from '../supersede.js';
@@ -104,6 +104,24 @@ describe('T14565 — supersession edges survive a successor update', () => {
     await expectEdge('old-guide', 'guide');
 
     await update('guide', '# Guide\n\nv3\n');
+    await expectEdge('old-guide', 'guide');
+  });
+
+  it('a lost versioning revision after a committed --superseded-by is a warning, not silent (T14664 AC1, AC3)', async () => {
+    await seed('old-guide', '# Old guide\n\nfirst\n');
+    await seed('guide', '# Guide\n\nv1\n');
+    // A directory where the versioning log belongs makes the append throw.
+    mkdirSync(join(projectRoot, DOCS_VERSIONING_AUDIT_FILE), { recursive: true });
+    drainWarnings();
+    const res = await updateDocBySlug(projectRoot, {
+      slug: 'old-guide',
+      status: 'superseded',
+      supersededBy: 'guide',
+    });
+    expect(res.ok, JSON.stringify(res)).toBe(true);
+    const codes = (drainWarnings() ?? []).map((w) => w.code);
+    expect(codes).toContain('W_DOC_VERSIONING_APPEND_FAILED');
+    // The link itself committed.
     await expectEdge('old-guide', 'guide');
   });
 

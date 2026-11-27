@@ -360,8 +360,8 @@ function readSquashCandidate(
 /**
  * Append a new audit line to the docs-versioning log (NO squash).
  *
- * Best-effort: write failures swallowed so audit drift never blocks an
- * otherwise-successful update.
+ * Best-effort: a write failure never blocks the committed update, but it
+ * is reported via {@link warnVersioningAppendFailed} (T14664).
  *
  * @internal
  */
@@ -369,17 +369,34 @@ function appendNewAuditLine(auditPath: string, entry: AuditLine): void {
   try {
     mkdirSync(join(auditPath, '..'), { recursive: true });
     appendFileSync(auditPath, `${JSON.stringify(entry)}\n`, { encoding: 'utf-8' });
-  } catch {
-    /* Audit drift is non-fatal. */
+  } catch (cause) {
+    warnVersioningAppendFailed(entry.slug, cause);
   }
+}
+
+/**
+ * Report a docs-versioning revision lost after its update committed: a
+ * `W_DOC_VERSIONING_APPEND_FAILED` warning on the envelope, never a silent
+ * drop (T14664).
+ *
+ * @internal
+ */
+function warnVersioningAppendFailed(slug: string, cause: unknown): void {
+  pushWarning({
+    // @sync-invariant none:local-only the warning reports a lost local audit line after the write committed; nothing is rejected
+    code: 'W_DOC_VERSIONING_APPEND_FAILED',
+    message:
+      `docs update for '${slug}' committed but its revision was not written to ${DOCS_VERSIONING_AUDIT_FILE}: ` +
+      (cause instanceof Error ? cause.message : String(cause)),
+  });
 }
 
 /**
  * Rewrite an audit line in place with a new revision appended. Reads the
  * full file, swaps line `index` for the updated JSON, and writes atomically.
  *
- * Best-effort: rewrite failures swallowed so audit drift never blocks an
- * otherwise-successful update.
+ * Best-effort: a rewrite failure never blocks the committed update, but it
+ * is reported via {@link warnVersioningAppendFailed} (T14664).
  *
  * @internal
  */
@@ -397,8 +414,8 @@ function rewriteAuditLine(auditPath: string, index: number, entry: AuditLine): v
     // Preserve the trailing newline if the original file had one.
     const out = lines.join('\n');
     writeFileSync(auditPath, out, { encoding: 'utf-8' });
-  } catch {
-    /* Audit drift is non-fatal. */
+  } catch (cause) {
+    warnVersioningAppendFailed(entry.slug, cause);
   }
 }
 

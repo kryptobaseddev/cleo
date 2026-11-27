@@ -2362,8 +2362,10 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
       try {
         writeAuditEntry(getProjectRoot(), {
           op: 'docs.supersede',
-          slug: result.newSlug,
-          attachmentId: result.newAttachmentId,
+          // T14664: filed under the superseded slug, as `docs update
+          // --superseded-by` files it (see WriteAuditEntryParams.slug).
+          slug: result.oldSlug,
+          attachmentId: result.oldAttachmentId,
           summary: `Superseded '${result.oldSlug}' → '${result.newSlug}'${result.reason ? ` (reason: ${result.reason})` : ''}`,
         });
       } catch {
