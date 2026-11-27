@@ -1,13 +1,15 @@
 #!/usr/bin/env node
 /**
- * Gate 42 — every refusal on the task close, cancel, verify, done, review and
- * docs-link paths carries a runnable fix (T14299).
+ * Gate 42 — every refusal on the task close, cancel, verify, done, review,
+ * docs-link and docs-update paths carries a runnable fix (T14299, T14663).
  *
  * A refusal is a `new CleoError(code, message, options)`, an
  * `engineError(code, message, options)` or a `lafsError(code, message, op,
- * fix)` inside one of {@link REFUSAL_PATHS}. It counts as fix-less unless an
- * options object literal names `fix` (or `lafsError` gets its fourth
- * argument). A fix that is a string or template literal, or a local `const`
+ * fix)` inside one of {@link REFUSAL_PATHS}; on an entry with `results: true`
+ * it is also a returned `{ ok: false, error: { code, message, fix } }` result
+ * literal. It counts as fix-less unless an options (or `error`) object literal
+ * names `fix` (or `lafsError` gets its fourth argument). A fix that is a
+ * string or template literal, a conditional between two, or a local `const`
  * initialised with one, must also run as written: every `cleo …` command in it resolves against the CLI command
  * manifest with declared flags, judged by gate 14's own registry and flag
  * checker (the same check `scripts/__tests__/runnable-remedies.test.mjs` runs
@@ -34,8 +36,10 @@ import {
 } from './lint-injection-commands.mjs';
 
 /**
- * The paths whose refusals must carry a fix: a file, and optionally the
- * functions (declarations, methods or object-property handlers) within it.
+ * The paths whose refusals must carry a fix: a file, optionally the
+ * functions (declarations, methods or object-property handlers) within it,
+ * and `results: true` when the file refuses through `{ ok: false, error }`
+ * result literals instead of thrown errors.
  */
 export const REFUSAL_PATHS = [
   { path: 'close', file: 'packages/core/src/tasks/complete.ts' },
@@ -71,6 +75,14 @@ export const REFUSAL_PATHS = [
     file: 'packages/cleo/src/dispatch/domains/docs.ts',
     functions: ['link-decision', 'unlink-decision', 'decisionLinkResponse'],
   },
+  // `cleo docs update`: the dispatch handler, and the core function whose
+  // `{ ok: false, error }` results it forwards with `error.fix` (T14663).
+  {
+    path: 'docs-update',
+    file: 'packages/cleo/src/dispatch/domains/docs.ts',
+    functions: ['update'],
+  },
+  { path: 'docs-update', file: 'packages/core/src/docs/docs-update.ts', results: true },
 ];
 
 /** Fix-less or unrunnable refusals allowed per file; may only fall (T14299). */
@@ -86,6 +98,7 @@ export const PINNED = {
   'packages/core/src/tasks/done-record.ts': 0,
   'packages/core/src/tasks/review-verdict.ts': 0,
   'packages/cleo/src/dispatch/domains/docs.ts': 0,
+  'packages/core/src/docs/docs-update.ts': 0,
 };
 
 /** The name a function-like node is known by, or null. */
@@ -125,6 +138,29 @@ function fixText(node) {
     return node.head.text + node.templateSpans.map((s) => `T1${s.literal.text}`).join('');
   }
   return null;
+}
+
+/** The literal texts a fix may take: both branches of a conditional, else its one text. */
+function fixTexts(node) {
+  if (ts.isParenthesizedExpression(node)) return fixTexts(node.expression);
+  if (ts.isConditionalExpression(node)) {
+    return [...fixTexts(node.whenTrue), ...fixTexts(node.whenFalse)];
+  }
+  return [fixText(node)];
+}
+
+/** The `error` object literal of an `{ ok: false, error: {…} }` result literal, or null. */
+function resultError(node) {
+  if (!ts.isObjectLiteralExpression(node)) return null;
+  let failed = false;
+  let error = null;
+  for (const prop of node.properties) {
+    if (!ts.isPropertyAssignment(prop)) continue;
+    const key = prop.name.getText();
+    if (key === 'ok' && prop.initializer.kind === ts.SyntaxKind.FalseKeyword) failed = true;
+    if (key === 'error' && ts.isObjectLiteralExpression(prop.initializer)) error = prop.initializer;
+  }
+  return failed ? error : null;
 }
 
 /** Every literal a `const` of each name is initialised with in a file. */
@@ -174,6 +210,9 @@ export function offendingRefusals(repoRoot, entry, check) {
         callee = text;
         args = [...node.arguments];
       }
+    } else if (entry.results === true && resultError(node) !== null) {
+      callee = '{ ok: false } result';
+      args = [resultError(node)];
     }
     if (callee !== null && (entry.functions === undefined || scoped)) {
       const line = sf.getLineAndCharacterOfPosition(node.getStart()).line + 1;
@@ -182,7 +221,7 @@ export function offendingRefusals(repoRoot, entry, check) {
       else {
         // A fix named by a local `const` is checked through its literal(s);
         // any other expression (a passed-through `error.fix`) is not literal.
-        const texts = ts.isIdentifier(fix) ? (consts.get(fix.text) ?? []) : [fixText(fix)];
+        const texts = ts.isIdentifier(fix) ? (consts.get(fix.text) ?? []) : fixTexts(fix);
         const bad = texts.flatMap((text) => (text === null ? [] : check(text)));
         if (bad.length > 0)
           out.push({ file: entry.file, line, reason: `fix does not run: ${bad.join('; ')}` });
@@ -195,13 +234,13 @@ export function offendingRefusals(repoRoot, entry, check) {
 }
 
 /**
- * Judge every refusal path against its pin.
+ * The fix checker gate 42 judges with: gate 14's command registry and flag
+ * checker over the CLI command manifest.
  *
  * @param repoRoot - Absolute repository root.
- * @param strict - Treat every pin as zero.
- * @returns The offending refusals and the per-file failures.
+ * @returns `check(text)`, the violations of one fix's commands.
  */
-export function judgeRefusalFixes(repoRoot, strict = false) {
+export function refusalChecker(repoRoot) {
   const registry = loadRegistry(
     new Set([
       'backup',
@@ -225,6 +264,18 @@ export function judgeRefusalFixes(repoRoot, strict = false) {
     ...findViolations(text, registry).map((v) => v.reason),
     ...findFlagViolations(text, checker).map((v) => v.reason),
   ];
+  return { check };
+}
+
+/**
+ * Judge every refusal path against its pin.
+ *
+ * @param repoRoot - Absolute repository root.
+ * @param strict - Treat every pin as zero.
+ * @returns The offending refusals and the per-file failures.
+ */
+export function judgeRefusalFixes(repoRoot, strict = false) {
+  const { check } = refusalChecker(repoRoot);
   const byFile = new Map();
   for (const entry of REFUSAL_PATHS) {
     byFile.set(entry.file, [

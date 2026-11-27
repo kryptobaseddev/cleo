@@ -443,7 +443,14 @@ export async function updateDocBySlug(
 ): Promise<UpdateDocBySlugResult> {
   const requestedSlug = params.slug;
   if (typeof requestedSlug !== 'string' || requestedSlug.length === 0) {
-    return { ok: false, error: { code: 'E_INVALID_INPUT', message: 'slug is required' } };
+    return {
+      ok: false,
+      error: {
+        code: 'E_INVALID_INPUT',
+        message: 'slug is required',
+        fix: 'cleo docs update SLUG --file ./new.md',
+      },
+    };
   }
 
   // At most one of file or content. With neither, `status` alone is a
@@ -454,7 +461,11 @@ export async function updateDocBySlug(
   if (hasFile && hasContent) {
     return {
       ok: false,
-      error: { code: 'E_INVALID_INPUT', message: 'file and content are mutually exclusive' },
+      error: {
+        code: 'E_INVALID_INPUT',
+        message: 'file and content are mutually exclusive',
+        fix: `cleo docs update ${requestedSlug} --file ./new.md`,
+      },
     };
   }
   const statusOnly = !hasFile && !hasContent;
@@ -465,11 +476,10 @@ export async function updateDocBySlug(
         code: 'E_INVALID_INPUT',
         message: 'Provide file or content, or status alone for a lifecycle-only change',
         // T14660: a bare --superseded-by is missing only its --status.
-        ...(params.supersededBy !== undefined
-          ? {
-              fix: `cleo docs update ${requestedSlug} --status superseded --superseded-by ${params.supersededBy}`,
-            }
-          : {}),
+        fix:
+          params.supersededBy !== undefined
+            ? `cleo docs update ${requestedSlug} --status superseded --superseded-by ${params.supersededBy}`
+            : `cleo docs update ${requestedSlug} --file ./new.md`,
       },
     };
   }
@@ -491,6 +501,7 @@ export async function updateDocBySlug(
         error: {
           code: 'E_FILE_ERROR',
           message: `Cannot read file: ${params.file} (${cause instanceof Error ? cause.message : String(cause)})`,
+          fix: `cleo docs update ${requestedSlug} --file ./new.md`,
         },
       };
     }
@@ -508,6 +519,7 @@ export async function updateDocBySlug(
         // @sync-invariant none:input-shape a base cannot anchor a section merge of non-text bytes; refused before any write
         code: 'E_DOC_BASE_UNSUPPORTED',
         message: `--base-version-uid needs a UTF-8 text body; '${params.file}' is not text — omit the base to replace the bytes whole`,
+        fix: `cleo docs update ${requestedSlug} --file ${params.file}`,
       },
     };
   }
@@ -520,6 +532,7 @@ export async function updateDocBySlug(
       error: {
         code: 'E_INVALID_STATUS',
         message: `status must be one of: ${ALLOWED_STATUSES.join('|')} — got '${String(status)}'`,
+        fix: `cleo docs update ${requestedSlug} --status draft`,
       },
     };
   }
@@ -557,6 +570,7 @@ export async function updateDocBySlug(
       error: {
         code: 'E_NOT_FOUND',
         message: `no attachment found with slug '${requestedSlug}' — the slug does not exist in the store and cannot be updated`,
+        fix: `cleo docs add OWNER_ID FILE --slug ${requestedSlug}`,
       },
     };
   }
@@ -595,6 +609,7 @@ export async function updateDocBySlug(
             (docUid === null
               ? '; the doc has no version history yet: run `cleo docs migrate` to record its current bytes as the head (T14329)'
               : ''),
+          fix: docUid === null ? 'cleo docs migrate' : `cleo docs fetch ${slug}`,
         },
       };
     }
@@ -609,6 +624,7 @@ export async function updateDocBySlug(
           message:
             `base version '${params.baseVersionUid}' bytes for slug '${slug}' cannot be read ` +
             '(no verified copy in the blob store or the legacy tree) — re-fetch the doc and retry',
+          fix: `cleo docs fetch ${slug}`,
         },
       };
     }
@@ -775,6 +791,7 @@ export async function updateDocBySlug(
             code: 'E_DOC_SCHEMA_MISMATCH',
             message: `body for kind '${oldRow.type}' is missing required section(s): ${missingList}`,
             details: { kind: oldRow.type, missing: check.missing, strict: true },
+            fix: `cleo docs fetch ${slug}`,
           },
         };
       }
@@ -924,6 +941,7 @@ export async function updateDocBySlug(
       error: {
         code: 'E_FILE_ERROR',
         message: `failed to write new blob for slug '${slug}': ${cause instanceof Error ? cause.message : String(cause)}`,
+        fix: 'cleo docs doctor',
       },
     };
   }
@@ -942,6 +960,7 @@ export async function updateDocBySlug(
         error: {
           code: 'E_FILE_ERROR',
           message: `blob was reported as written for slug '${slug}' but cannot be read back: ${cause instanceof Error ? cause.message : String(cause)}`,
+          fix: 'cleo docs doctor',
         },
       };
     }
@@ -952,6 +971,7 @@ export async function updateDocBySlug(
         error: {
           code: 'E_FILE_ERROR',
           message: `blob integrity check failed for slug '${slug}': expected sha256 ${newSha256.slice(0, 12)}... but read-back sha256 is ${writtenSha256.slice(0, 12)}... — storage is internally inconsistent`,
+          fix: 'cleo docs doctor',
         },
       };
     }
@@ -977,6 +997,7 @@ export async function updateDocBySlug(
             // @sync-invariant none:local-only a failed local blob-mirror write rolls the whole update back; no synced row was written
             code: 'E_FILE_ERROR',
             message: `failed to mirror new blob into the blob store for slug '${slug}': ${cause instanceof Error ? cause.message : String(cause)}`,
+            fix: 'cleo docs doctor',
           },
         };
       }
@@ -987,7 +1008,11 @@ export async function updateDocBySlug(
   if (!nativeDb) {
     return {
       ok: false,
-      error: { code: 'E_INVALID_INPUT', message: 'tasks database is not initialised' },
+      error: {
+        code: 'E_INVALID_INPUT',
+        message: 'tasks database is not initialised',
+        fix: 'cleo doctor',
+      },
     };
   }
 
