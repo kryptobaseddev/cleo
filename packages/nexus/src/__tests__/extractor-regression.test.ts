@@ -687,9 +687,12 @@ describe('METHOD_OVERRIDES edges regression (heritage-processor, T1846)', () => 
 //
 // The TypeScript fixture has:
 //   - BaseRepository implements Serializable (toJSON)
-//   - User implements Storable (save, delete, toJSON)
-// guaranteeing at least 1 method_implements edge on the fixture.
+//   - User implements Storable (save, delete; its toJSON belongs to no implemented interface)
+// so the fixture yields exactly METHOD_IMPLEMENTS_FLOOR (3) method_implements edges.
 // ---------------------------------------------------------------------------
+
+/** method_implements edges the TypeScript fixture yields, taken from a real run (T14669). */
+const METHOD_IMPLEMENTS_FLOOR = 3;
 
 describe('METHOD_IMPLEMENTS edges regression (heritage-processor, T1847)', () => {
   let tmpRepo: string;
@@ -705,7 +708,7 @@ describe('METHOD_IMPLEMENTS edges regression (heritage-processor, T1847)', () =>
     rmSync(tmpRepo, { recursive: true, force: true });
   });
 
-  it('emits at least 1 method_implements edge from TypeScript fixture', async () => {
+  it('emits METHOD_IMPLEMENTS_FLOOR method_implements edges from TypeScript fixture', async () => {
     const fixturePath = 'fixtures/typescript/sample.ts';
     const graph = createKnowledgeGraph();
     const resolutionCtx = createResolutionContext();
@@ -730,14 +733,14 @@ describe('METHOD_IMPLEMENTS edges regression (heritage-processor, T1847)', () =>
     assertFloor(
       'METHOD_IMPLEMENTS edge count (TypeScript fixture)',
       methodImplementsEdges.length,
-      1,
+      METHOD_IMPLEMENTS_FLOOR,
     );
 
-    // HeritageProcessingResult must also report a non-zero count
+    // HeritageProcessingResult must report the same count
     assertFloor(
       'methodImplementsCount in HeritageProcessingResult',
       result.methodImplementsCount,
-      1,
+      METHOD_IMPLEMENTS_FLOOR,
     );
   });
 
@@ -765,7 +768,7 @@ describe('METHOD_IMPLEMENTS edges regression (heritage-processor, T1847)', () =>
     assertFloor(
       'METHOD_IMPLEMENTS edge count (TypeScript fixture)',
       methodImplementsEdges.length,
-      1,
+      METHOD_IMPLEMENTS_FLOOR,
     );
 
     for (const edge of methodImplementsEdges) {
