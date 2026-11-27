@@ -72,6 +72,7 @@ import {
   DOCS_UPDATE_LIFECYCLE_STATUS_LIST,
   isLifecycleStatus,
   docsUpdateMimeFromPath as mimeFromPath,
+  shellQuote,
 } from '@cleocode/core/docs/docs-update';
 import { buildDocsFetchResult } from '@cleocode/core/docs/fetch-result';
 import { createAttachmentStoreDocsAccessor } from '@cleocode/core/docs/import/attachment-store-accessor';
@@ -2141,7 +2142,7 @@ const _docsTypedHandler = defineTypedHandler<DocsTypedOps>('docs', {
         'E_INVALID_INPUT',
         `status must be one of: ${DOCS_UPDATE_LIFECYCLE_STATUS_LIST} — got '${String(rawStatus)}'`,
         'update',
-        `cleo docs update ${rawSlug} --status draft`,
+        `cleo docs update ${shellQuote(rawSlug)} --status draft`,
       );
     }
 
