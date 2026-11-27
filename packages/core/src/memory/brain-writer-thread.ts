@@ -748,22 +748,13 @@ function getManager(kind: BrainWriteOp['kind'] = 'observe'): BrainWriterManager 
     process.on('exit', () => {
       _manager?.shutdown().catch(() => undefined);
     });
-    // A listener replaces the signal's default action, so it must end the
-    // process itself: this one cleared its deadline and returned, and a
-    // SIGTERM after the flush was ignored (T14670). 128 + signal number.
-    const gracefulShutdown = (code: number): void => {
-      const deadline = setTimeout(() => process.exit(code), 2_000);
-      deadline.unref();
-      _manager
-        ?.shutdown()
-        .catch(() => undefined)
-        .finally(() => {
-          clearTimeout(deadline);
-          process.exit(code);
-        });
-    };
-    process.once('SIGTERM', () => gracefulShutdown(143));
-    process.once('SIGINT', () => gracefulShutdown(130));
+    // No SIGTERM/SIGINT listener (T14670): a listener replaces the signal's
+    // default action, so a core module that installs one takes over
+    // process-wide signal handling from its host. It once cut the sentient
+    // daemon's own shutdown short, and in the CLI it ignored SIGTERM. The host
+    // owns its signals: the CLI keeps the default action and exits through
+    // `exitProcess`; the daemon's handler runs its shutdown, then calls it. A
+    // write that has not committed rolls back; an acknowledged one is on disk.
   }
   return _manager;
 }

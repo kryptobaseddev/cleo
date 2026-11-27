@@ -50,6 +50,7 @@
  */
 
 import { Worker } from 'node:worker_threads';
+import { trackExitWorker } from '../shutdown-deadline.js';
 import { type SkillWriteOrigin, withProvenance } from './skill-provenance.js';
 import { type BuildSkillReviewPromptArgs, buildSkillReviewPrompt } from './skill-review-prompt.js';
 
@@ -261,6 +262,7 @@ export function spawnReviewWorker(args: SpawnReviewWorkerArgs): Promise<SpawnRev
         stderr: true,
         ...(args.execArgv ? { execArgv: [...args.execArgv] } : {}),
       });
+      trackExitWorker(worker);
     } catch (err) {
       reject(err);
       return;

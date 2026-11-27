@@ -386,6 +386,17 @@ export type ShutdownStepReason =
   | 'drain-incomplete';
 
 /**
+ * `Symbol.for` key of the process-wide set of live worker threads that core
+ * `exitProcess` stops, within a deadline, before it exits (T14670).
+ *
+ * `process.exit` joins every live worker thread with no timeout, so a worker
+ * blocked in native code hangs the exit forever. Packages that cannot import
+ * core (nexus) add their workers to `globalThis[Symbol.for(key)]`, a
+ * `Set<Worker>`, and remove them on `exit`.
+ */
+export const EXIT_WORKER_REGISTRY_KEY = 'cleo.exitWorkers';
+
+/**
  * Compatible receipt for one deadline-bounded shutdown step.
  * @remarks The original fields remain required and keep their meanings. New
  * assessments populate status and any observed reason; legacy callers may omit

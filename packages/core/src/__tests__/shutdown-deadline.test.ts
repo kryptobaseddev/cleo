@@ -351,9 +351,13 @@ describe('exitProcess — a worker wedged in native code cannot hang the exit (T
           'trackExitWorker(worker);',
           // Like telemetry's old listener: replaces SIGTERM's default action.
           "process.on('SIGTERM', () => {});",
-          // Two short-lived children, as the hung verdict had.
+          // Two children, as the hung verdict had. Each lives 800 ms, so both
+          // are still running when the exit starts (~300 ms after `online`)
+          // and must be reaped while exitProcess waits on the worker.
+          'let alive = 0;',
           'for (let i = 0; i < 2; i++) {',
-          "  spawn(process.execPath, ['-e', 'setTimeout(() => {}, 100)']).on('exit', () => process.stderr.write('reaped\\n'));",
+          '  alive++;',
+          "  spawn(process.execPath, ['-e', 'setTimeout(() => {}, 800)']).on('exit', () => { alive--; process.stderr.write('reaped\\n'); });",
           '}',
           "worker.once('online', () => setTimeout(() => {",
           ending,
@@ -362,6 +366,8 @@ describe('exitProcess — a worker wedged in native code cannot hang the exit (T
         resolveDir: here,
         loader: 'ts',
       },
+      // Source, not dist: the child must run without a build.
+      alias: { '@cleocode/contracts/jobs': resolve(here, '../../../contracts/src/jobs.ts') },
       bundle: true,
       platform: 'node',
       format: 'esm',
@@ -386,20 +392,44 @@ describe('exitProcess — a worker wedged in native code cannot hang the exit (T
     expect(Date.now() - started).toBeGreaterThanOrEqual(2_400);
   }, 20_000);
 
-  it('exits within its deadline, after reaping its children, instead of hanging', async () => {
-    const childScript = await buildChild('fixed', 'void exitProcess(0, 1_000);');
-    const started = Date.now();
-    const child = spawnSync(process.execPath, [childScript], {
-      encoding: 'utf-8',
-      timeout: WEDGE_MS - 1_000,
-    });
-    const elapsed = Date.now() - started;
-    expect(child.signal, child.stderr).toBe('SIGKILL');
-    expect(elapsed).toBeLessThan(WEDGE_MS - 1_500);
-    expect(child.stderr).toContain('did not stop within 1000ms');
-    // Each child's exit event fired: libuv reaped it, so none was left defunct.
-    expect(child.stderr.match(/reaped/g)).toHaveLength(2);
-  }, 20_000);
+  it.skipIf(process.platform === 'win32')(
+    'reaps children still alive at exit start, leaves none defunct, and exits within its deadline',
+    async () => {
+      const childScript = await buildChild(
+        'fixed',
+        "process.stderr.write('exit-start alive=' + alive + '\\n'); void exitProcess(0, 2_000);",
+      );
+      const started = Date.now();
+      const child = spawn(process.execPath, [childScript], { stdio: ['ignore', 'ignore', 'pipe'] });
+      let stderr = '';
+      let defunct: string[] | null = null;
+      child.stderr.on('data', (chunk: Buffer) => {
+        stderr += chunk.toString();
+        if (defunct === null && stderr.match(/reaped/g)?.length === 2) {
+          // Both children exited while the process waits on its wedged worker:
+          // none of them may be left as a zombie (stat Z) under it.
+          const ps = spawnSync('ps', ['-axo', 'ppid=,stat='], { encoding: 'utf-8' });
+          defunct = ps.stdout
+            .split('\n')
+            .map((line) => line.trim().split(/\s+/))
+            .filter(([ppid, stat]) => ppid === String(child.pid) && stat?.startsWith('Z'))
+            .map((cols) => cols.join(' '));
+        }
+      });
+      const signal = await new Promise<NodeJS.Signals | null>((done) =>
+        child.on('exit', (_code, sig) => done(sig)),
+      );
+      const elapsed = Date.now() - started;
+      // Both children were still running when the exit began.
+      expect(stderr, stderr).toContain('exit-start alive=2');
+      expect(stderr.match(/reaped/g)).toHaveLength(2);
+      expect(defunct).toEqual([]);
+      expect(signal, stderr).toBe('SIGKILL');
+      expect(stderr).toContain('did not stop within 2000ms');
+      expect(elapsed).toBeLessThan(WEDGE_MS - 1_000);
+    },
+    20_000,
+  );
 
   it('honours SIGTERM while it waits, despite a SIGTERM listener', async () => {
     const childScript = await buildChild('sigterm', 'void exitProcess(0, 30_000);');

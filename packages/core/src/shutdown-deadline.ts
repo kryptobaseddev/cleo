@@ -53,7 +53,10 @@
  */
 
 import type { Worker } from 'node:worker_threads';
-import type { ShutdownStepOutcome as StepOutcome } from '@cleocode/contracts/jobs';
+import {
+  EXIT_WORKER_REGISTRY_KEY,
+  type ShutdownStepOutcome as StepOutcome,
+} from '@cleocode/contracts/jobs';
 import { OperationExecutionError } from './store/background-ops.js';
 
 /** Compatible historical type export; canonical shared declaration lives in jobs contracts. */
@@ -288,12 +291,22 @@ export function armExitBackstop(code?: number, graceMs: number = EXIT_BACKSTOP_M
 /** How long {@link exitProcess} waits for tracked worker threads to stop, in ms. */
 export const WORKER_STOP_DEADLINE_MS = 2_000;
 
-/** Process-lifetime worker threads that `process.exit` would join (T14670). */
-const exitWorkers = new Set<Worker>();
+/**
+ * Live worker threads that `process.exit` would join (T14670), shared on
+ * `globalThis` under {@link EXIT_WORKER_REGISTRY_KEY} so packages that cannot
+ * import core (nexus) register theirs in the same set.
+ */
+const exitWorkers: Set<Worker> = (() => {
+  const store = globalThis as typeof globalThis & { [key: symbol]: Set<Worker> | undefined };
+  const key = Symbol.for(EXIT_WORKER_REGISTRY_KEY);
+  const set = store[key] ?? new Set<Worker>();
+  store[key] = set;
+  return set;
+})();
 
 /**
- * Track a process-lifetime worker thread so {@link exitProcess} stops it with a
- * deadline before exiting (T14670).
+ * Track a worker thread so {@link exitProcess} stops it with a deadline before
+ * exiting (T14670).
  *
  * `process.exit` joins every live worker thread (`Worker::JoinThread`, a
  * `pthread_join` with no timeout). A worker blocked in native code — a

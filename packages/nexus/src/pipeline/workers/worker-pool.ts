@@ -34,6 +34,23 @@ import {
   PARSER_WORKER_HEAP_MAX_MB,
   PARSER_WORKER_HEAP_MIN_MB,
 } from '@cleocode/contracts/code-symbol.js';
+import { EXIT_WORKER_REGISTRY_KEY } from '@cleocode/contracts/jobs.js';
+
+/**
+ * Add a parser worker to the process-wide exit registry (T14670) so the CLI's
+ * `exitProcess` stops it within a deadline instead of `process.exit` joining
+ * a worker wedged in a native parse forever. Nexus cannot import core, so it
+ * shares the set through `globalThis`.
+ */
+function trackForExit(worker: Worker): Worker {
+  const store = globalThis as typeof globalThis & { [key: symbol]: Set<Worker> | undefined };
+  const key = Symbol.for(EXIT_WORKER_REGISTRY_KEY);
+  const set = store[key] ?? new Set<Worker>();
+  store[key] = set;
+  set.add(worker);
+  worker.once('exit', () => set.delete(worker));
+  return worker;
+}
 
 // ---------------------------------------------------------------------------
 // Public interface
@@ -315,13 +332,15 @@ export function createWorkerPool(
     }
     workers[index] = execution
       ? execution.spawn(workerPath, { ...limits, workerHeapMb })
-      : new Worker(workerUrl, {
-          resourceLimits: {
-            maxOldGenerationSizeMb: workerHeapMb,
-            maxYoungGenerationSizeMb: 16,
-            stackSizeMb: 4,
-          },
-        });
+      : trackForExit(
+          new Worker(workerUrl, {
+            resourceLimits: {
+              maxOldGenerationSizeMb: workerHeapMb,
+              maxYoungGenerationSizeMb: 16,
+              stackSizeMb: 4,
+            },
+          }),
+        );
   }
 
   /**
@@ -556,13 +575,15 @@ export function createWorkerPool(
         workers.push(
           execution
             ? execution.spawn(workerPath, { ...limits, workerHeapMb })
-            : new Worker(workerUrl, {
-                resourceLimits: {
-                  maxOldGenerationSizeMb: workerHeapMb,
-                  maxYoungGenerationSizeMb: 16,
-                  stackSizeMb: 4,
-                },
-              }),
+            : trackForExit(
+                new Worker(workerUrl, {
+                  resourceLimits: {
+                    maxOldGenerationSizeMb: workerHeapMb,
+                    maxYoungGenerationSizeMb: 16,
+                    stackSizeMb: 4,
+                  },
+                }),
+              ),
         );
       }
     } catch (error) {

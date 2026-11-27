@@ -64,6 +64,7 @@ import type { WorktreeInfo, WorktreeStatusCategory } from '@cleocode/contracts';
 import type { WorktreeLockRecord } from '@cleocode/contracts/operations/worktree.js';
 import { computeProjectHash, getCleoHome, getCleoWorktreesRoot } from '@cleocode/paths';
 import { gitDefaultBranchRefs } from '../git/work-tree.js';
+import { trackExitWorker } from '../shutdown-deadline.js';
 import { acquireHeartbeatLock, claimAtMostEvery } from '../tasks/merge-close.js';
 import { appendWorktreeAuditEntry, resolveWorktreeAuditActor } from '../worktree/audit.js';
 
@@ -943,6 +944,7 @@ export async function prunePlanBounded(
       markerDelayMs,
     },
   });
+  trackExitWorker(worker);
   // Resolution contract: the plan resolves on `message`; a deadline
   // termination resolves only on `exit` — which fires after `terminate()`
   // completes — so the census never releases its lock while the worker's

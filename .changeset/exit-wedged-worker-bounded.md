@@ -13,12 +13,20 @@ A thread blocked there runs no libuv loop, so finished children are never
 reaped and JS signal listeners never run. The listeners still replace each
 signal's default action, so SIGTERM did nothing.
 
-- The CLI's error exit (`settleThenExit`) and the teardown backstop now exit
-  through core `exitProcess`. With a tracked worker alive it restores the
-  default SIGTERM/SIGINT/SIGHUP action, terminates the BRAIN writer and
-  embedding workers within 2 s, and kills itself (status 137) if one is still
-  running, instead of joining it forever.
-- Telemetry no longer installs SIGINT/SIGTERM listeners. They only started a
-  flush, so a command that recorded telemetry ignored SIGTERM.
-- The BRAIN writer's signal handler now exits (143/130) after its flush.
-  Before, it cleared its own deadline and returned.
+- The CLI's error exit (`settleThenExit`), the teardown backstop and the
+  sentient daemon's shutdown now exit through core `exitProcess`. With a
+  tracked worker alive, it restores the default SIGTERM/SIGINT/SIGHUP action,
+  terminates the tracked workers within 2 s, and kills itself (status 137) if
+  one is still running, instead of joining it forever.
+- Every worker thread is tracked: the BRAIN writer, the embedding queue, the
+  census prune worker, the background skill-review worker and the nexus parser
+  pool. Nexus registers its workers through a `globalThis` set keyed by
+  `EXIT_WORKER_REGISTRY_KEY` in contracts.
+- Core installs no SIGTERM/SIGINT listener. Telemetry's listener only started
+  a flush, so a command that recorded telemetry ignored SIGTERM. The BRAIN
+  writer's and the embedding queue's listeners exited any host that loaded
+  them, cutting short the daemon's own shutdown (the Studio stop and the lock
+  release). The host now owns its signals.
+- Post-build Checks runs `scripts/smoke-review-verdict-exit.mjs`. It runs the
+  built `cleo review verdict` in a sandbox store with a stub `gh`, and fails
+  if the process does not exit in bounded time or leaves a defunct child.
