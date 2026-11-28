@@ -316,6 +316,9 @@ const pruneCommand = defineCommand({
  *
  * Tears down the XDG worktree for `task/<taskId>`, writes an audit-log entry,
  * and removes the entry from the sentinel index at `.cleo/worktrees.json`.
+ * `--path <p>` names a registered linked worktree by its exact path instead,
+ * for a checkout no task id names, such as a detached HEAD (T14627). Both
+ * routes dispose through the one disposal engine.
  *
  * Designed for use by the worktree-cleanup GitHub Actions workflow (T9805 AC1):
  *   cleo worktree destroy T9805 --reason pr-merged --json
@@ -327,9 +330,11 @@ const pruneCommand = defineCommand({
  * cleo worktree destroy T9805
  * cleo worktree destroy T9805 --reason pr-merged --json
  * cleo worktree destroy T9805 --force
+ * cleo worktree destroy --path ~/.local/share/cleo/worktrees/<hash>/review-hotfix-2
  * ```
  *
  * @task T9805
+ * @task T14627
  */
 const destroyCommand = defineCommand({
   meta: {
@@ -340,8 +345,13 @@ const destroyCommand = defineCommand({
   args: {
     taskId: {
       type: 'positional',
-      description: 'The task ID whose worktree to destroy (e.g. T9805).',
-      required: true,
+      description: 'The task ID whose worktree to destroy (e.g. T9805). Omit it with --path.',
+      required: false,
+    },
+    path: {
+      type: 'string',
+      description:
+        'Exact path of a registered linked worktree to destroy instead of a task id (T14627).',
     },
     force: {
       type: 'boolean',
@@ -361,8 +371,9 @@ const destroyCommand = defineCommand({
   },
   async run({ args }) {
     const rawTaskId = typeof args['taskId'] === 'string' ? args['taskId'] : '';
-    if (rawTaskId.length === 0) {
-      cliError('Missing required positional: <taskId>.', 2);
+    const rawPath = typeof args['path'] === 'string' ? args['path'] : '';
+    if ((rawTaskId.length === 0) === (rawPath.length === 0)) {
+      cliError('Name exactly one worktree: a <taskId> or --path <worktree-path>.', 2);
       process.exit(2);
       return;
     }
@@ -375,7 +386,7 @@ const destroyCommand = defineCommand({
       'worktree',
       'destroy',
       {
-        taskId: rawTaskId,
+        ...(rawTaskId.length > 0 ? { taskId: rawTaskId } : { worktreePath: rawPath }),
         force: args['force'] === true,
         deleteBranch: args['keep-branch'] !== true,
         reason,

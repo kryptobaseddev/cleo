@@ -4200,12 +4200,12 @@ export const mutateWorktreeAdopt = <ThrowOnError extends boolean = false>(option
 /**
  * worktree.destroy (mutate) — explicitly destroy the XDG worktree for a task, remove its sentinel index entry, and append an audit-log row to .cleo/audit/worktree-lifecycle.jsonl (T9805 AC1).
  */
-export const mutateWorktreeDestroy = <ThrowOnError extends boolean = false>(options: Options<MutateWorktreeDestroyData, ThrowOnError>): RequestResult<MutateWorktreeDestroyResponses, unknown, ThrowOnError> => (options.client ?? client).post<MutateWorktreeDestroyResponses, unknown, ThrowOnError>({
+export const mutateWorktreeDestroy = <ThrowOnError extends boolean = false>(options?: Options<MutateWorktreeDestroyData, ThrowOnError>): RequestResult<MutateWorktreeDestroyResponses, unknown, ThrowOnError> => (options?.client ?? client).post<MutateWorktreeDestroyResponses, unknown, ThrowOnError>({
     url: '/v1/worktree/destroy',
     ...options,
     headers: {
         'Content-Type': 'application/json',
-        ...options.headers
+        ...options?.headers
     }
 });
 

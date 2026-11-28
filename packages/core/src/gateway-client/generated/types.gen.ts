@@ -16018,11 +16018,15 @@ export type MutateWorktreeAdoptResponses = {
 export type MutateWorktreeAdoptResponse = MutateWorktreeAdoptResponses[keyof MutateWorktreeAdoptResponses];
 
 export type MutateWorktreeDestroyData = {
-    body: {
+    body?: {
         /**
-         * Task ID whose XDG worktree should be destroyed (e.g. T9805).
+         * Task ID whose XDG worktree should be destroyed (e.g. T9805). Give it or worktreePath, not both.
          */
-        taskId: string;
+        taskId?: string;
+        /**
+         * Exact path of a registered linked worktree to destroy, for one no task id names such as a detached HEAD (T14627). CLI: --path.
+         */
+        worktreePath?: string;
         /**
          * Force removal even when the worktree has uncommitted changes. Default: false.
          */

@@ -19,7 +19,15 @@
   },
   "build": {
     "command": "pnpm run build",
-    "outputDir": "dist"
+    "outputDir": "dist",
+    "outputPaths": [
+      "packages/cant/napi",
+      "packages/*/extensions/**/*.js",
+      "packages/*/extensions/**/*.js.map",
+      "packages/*/extensions/**/*.d.ts",
+      "packages/*/extensions/**/*.d.ts.map",
+      "packages/**/__pycache__"
+    ]
   },
   "directories": {
     "source": "src",

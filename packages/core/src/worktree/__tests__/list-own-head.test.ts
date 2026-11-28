@@ -10,7 +10,8 @@
  * @task T14236
  */
 
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
+import { once } from 'node:events';
 import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -31,8 +32,9 @@ vi.mock('../../store/sqlite.js', async (importOriginal) => ({
   ),
 }));
 
-import { computeProjectHash } from '@cleocode/paths';
-import { acquireWorktreeTaskLock } from '@cleocode/worktree';
+import { computeProjectHash, resolveWorktreeRootForHash } from '@cleocode/paths';
+import { acquireWorktreeTaskLock, destroyWorktree } from '@cleocode/worktree';
+import { worktreeProcessUse } from '../in-use-probe.js';
 import { listWorktrees } from '../list.js';
 import { pruneOrphanedWorktreesByStatus } from '../prune.js';
 import { taskIdFromWorktreeDir } from '../sentinel-index.js';
@@ -121,6 +123,108 @@ describe('worktree classification uses each worktree own HEAD (T14236)', () => {
     expect(pruned.success, JSON.stringify(pruned)).toBe(true);
     for (const p of [detached, fresh, fix]) expect(existsSync(p)).toBe(true);
     expect(existsSync(done)).toBe(false);
+  });
+
+  it('T14627: a taskless detached checkout of main with only build output is redundant and pruned', async () => {
+    writeFileSync(join(repo, '.gitignore'), 'dist/\nlocal/\n');
+    git(repo, ['add', '.gitignore']);
+    git(repo, ['-c', 'user.name=T', '-c', 'user.email=t@e.x', 'commit', '-q', '-m', 'ignore']);
+    // The canonical root: a taskless worktree is a candidate only there.
+    const wts = resolveWorktreeRootForHash(computeProjectHash(repo));
+    const add = (name: string, dir = wts) => {
+      const p = join(dir, name);
+      git(repo, ['worktree', 'add', '-q', '--detach', p, 'main']);
+      mkdirSync(join(p, 'dist'));
+      writeFileSync(join(p, 'dist', 'index.js'), 'built\n');
+      return realpathSync(p);
+    };
+    const buildOnly = add('release-23');
+    const withLocal = add('review-hotfix-2');
+    const outside = add('p0caps-main', join(base, 'elsewhere'));
+    mkdirSync(join(withLocal, 'local'));
+    writeFileSync(join(withLocal, 'local', 'notes.md'), 'only here\n');
+
+    const listed = await listWorktrees({ projectRoot: repo, staleDays: 0 });
+    if (!listed.success) throw new Error(JSON.stringify(listed.error));
+    const at = (p: string) => listed.data.worktrees.find((w) => realpathSync(w.path) === p);
+    expect(at(buildOnly)).toMatchObject({
+      taskId: null,
+      isMerged: false,
+      statusCategory: 'redundant',
+    });
+    expect(at(withLocal)).toMatchObject({ taskId: null, statusCategory: 'keep' });
+    expect(at(withLocal)?.keepReason).toContain('ignored content not in the main checkout: local');
+    // Outside the canonical root a taskless worktree is never a candidate.
+    expect(at(outside)).toMatchObject({ taskId: null, statusCategory: 'active' });
+
+    const pruned = await pruneOrphanedWorktreesByStatus({
+      projectRoot: repo,
+      staleDays: 0,
+      auditLogPath: join(base, 'audit.jsonl'),
+    });
+    if (!pruned.success) throw new Error(JSON.stringify(pruned.error));
+    expect(pruned.data.outcomes).toMatchObject([
+      { taskId: null, pruned: true, branchDeleted: false },
+    ]);
+    expect(existsSync(buildOnly)).toBe(false);
+    expect(existsSync(withLocal)).toBe(true);
+    expect(existsSync(outside)).toBe(true);
+  });
+
+  it('T14627: a live process with its cwd in a taskless worktree keeps it from prune and destroy --path', async () => {
+    const wts = resolveWorktreeRootForHash(computeProjectHash(repo));
+    const p = join(wts, 'release-26');
+    git(repo, ['worktree', 'add', '-q', '--detach', p, 'main']);
+    const child = spawn(
+      process.execPath,
+      ['-e', "process.send('ready'); setInterval(() => {}, 1000)"],
+      {
+        cwd: p,
+        stdio: ['ignore', 'ignore', 'ignore', 'ipc'],
+      },
+    );
+    const exited = once(child, 'exit');
+    try {
+      await Promise.race([
+        once(child, 'message'),
+        exited.then(() => {
+          throw new Error('usage fixture exited before ready');
+        }),
+      ]);
+      const listed = await listWorktrees({ projectRoot: repo, staleDays: 0 });
+      if (!listed.success) throw new Error(JSON.stringify(listed.error));
+      const row = listed.data.worktrees.find((w) => realpathSync(w.path) === realpathSync(p));
+      expect(row?.statusCategory).toBe('keep');
+      expect(row?.keepReason).toContain('in use: a process has its cwd or an open file');
+
+      const pruned = await pruneOrphanedWorktreesByStatus({
+        projectRoot: repo,
+        staleDays: 0,
+        auditLogPath: join(base, 'audit.jsonl'),
+      });
+      if (!pruned.success) throw new Error(JSON.stringify(pruned.error));
+      expect(pruned.data.prunedCount).toBe(0);
+
+      const destroyed = await destroyWorktree(repo, {
+        worktreePath: p,
+        reason: 'test',
+        inUse: worktreeProcessUse,
+      });
+      expect(destroyed.worktreeRemoved).toBe(false);
+      expect(destroyed.error).toContain('in use: a process has its cwd or an open file');
+      expect(existsSync(p)).toBe(true);
+    } finally {
+      child.kill('SIGTERM');
+      await exited;
+    }
+    // Once the process is gone the same worktree is disposed by path.
+    const after = await destroyWorktree(repo, {
+      worktreePath: p,
+      reason: 'test',
+      inUse: worktreeProcessUse,
+    });
+    expect(after).toMatchObject({ taskId: null, worktreeRemoved: true });
+    expect(existsSync(p)).toBe(false);
   });
 
   it('T14274: each category from real git; keep names its clause; prune acts only on redundant', async () => {

@@ -10209,14 +10209,23 @@ export const OPERATIONS: OperationDef[] = [
     tier: 1,
     idempotent: true,
     sessionRequired: false,
-    requiredParams: ['taskId'],
+    requiredParams: [],
     params: [
       {
         name: 'taskId',
         type: 'string',
-        required: true,
-        description: 'Task ID whose XDG worktree should be destroyed (e.g. T9805).',
+        required: false,
+        description:
+          'Task ID whose XDG worktree should be destroyed (e.g. T9805). Give it or worktreePath, not both.',
         cli: { positional: true },
+      },
+      {
+        name: 'worktreePath',
+        type: 'string',
+        required: false,
+        description:
+          'Exact path of a registered linked worktree to destroy, for one no task id names such as a detached HEAD (T14627). CLI: --path.',
+        cli: { flag: 'path' },
       },
       {
         name: 'force',

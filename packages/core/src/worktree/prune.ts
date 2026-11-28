@@ -196,8 +196,9 @@ export async function pruneOrphanedWorktreesByStatus(
       taskId: wt.taskId,
       reason,
       evidence: await loadTaskEvidence(opts.projectRoot, wt.taskId),
-      exemptRegenerable: wt.isMerged,
-      inUse: worktreeInUseProbe(readWorktreeTaskLock, opts.projectRoot, wt.taskId),
+      // T14627: as the listing proved it; the commit proof still holds.
+      exemptRegenerable: true,
+      inUse: worktreeInUseProbe(readWorktreeTaskLock, opts.projectRoot, wt.taskId, wt.path),
       dryRun,
     });
     if (dryRun && disposal.keptReason === undefined) {
