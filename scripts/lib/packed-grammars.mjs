@@ -151,3 +151,37 @@ export function containerCommand(image, command, args, { cwd, env, mount }) {
     ...args,
   ];
 }
+
+/**
+ * Grammar packages with no linux-arm64 prebuild, so a toolchain-free arm64
+ * install must drop at least one of them (T14637, T14665).
+ */
+export const SOURCE_BUILT_GRAMMARS = Object.freeze([
+  'tree-sitter-cpp',
+  'tree-sitter-java',
+  'tree-sitter-ruby',
+  'tree-sitter-typescript',
+]);
+
+/**
+ * Prove the toolchain-free run tested something: at least one source-built
+ * grammar was dropped, and every dropped grammar was reported missing (T14665).
+ * @param {Record<string, boolean>} optionalNative - Whether the install kept each optional native package.
+ * @param {Record<string, string>} grammars - {@link judgeGrammarOutline} outcome per language.
+ * @returns {string[]} The dropped grammar packages.
+ */
+export function assertDroppedGrammarsReported(optionalNative, grammars) {
+  const dropped = [...new Set(GRAMMAR_SAMPLES.map(([, , pkg]) => pkg))].filter(
+    (pkg) => optionalNative[pkg] === false,
+  );
+  if (!dropped.some((pkg) => SOURCE_BUILT_GRAMMARS.includes(pkg)))
+    throw new Error(
+      `The toolchain-free install kept every source-built grammar (${SOURCE_BUILT_GRAMMARS.join(', ')}), ` +
+        'so it could not show a missing grammar being reported',
+    );
+  for (const [language, , pkg] of GRAMMAR_SAMPLES) {
+    if (dropped.includes(pkg) && grammars[language] !== 'reported-missing')
+      throw new Error(`${pkg} was dropped but cleo code outline (${language}) did not report it`);
+  }
+  return dropped;
+}

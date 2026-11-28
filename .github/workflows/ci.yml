@@ -2605,12 +2605,16 @@ jobs:
       # T14665: cpp, java, ruby and typescript ship no linux-arm64 prebuild, so an
       # install with no C++ toolchain (slim Docker images, minimal Pi installs)
       # drops them. The same packed CLI installs in a toolchain-free image (the
-      # smoke fails if g++, make or python3 is on its PATH): tree-sitter must load
-      # and each grammar must parse or be named by `cleo code` with its fix.
+      # smoke fails if g++, make or python3 is on its PATH): tree-sitter must load,
+      # each grammar must parse or be named by `cleo code` with its fix, and at least
+      # one of those four must have been dropped and reported. It then reinstalls in
+      # the full node image, which has the toolchain, and every dropped grammar must
+      # come back and parse: the fix the message gives.
       - name: Install the packed CLI with no compiler toolchain and check every grammar
         run: |
           docker pull node:24.16.0-trixie-slim
-          node scripts/packed-install-smoke.mjs --toolchain-free-image=node:24.16.0-trixie-slim
+          docker pull node:24.16.0-trixie
+          node scripts/packed-install-smoke.mjs --toolchain-free-image=node:24.16.0-trixie-slim --toolchain-image=node:24.16.0-trixie
       - name: Retain manifest and diagnostics
         if: failure()
         uses: actions/upload-artifact@v4

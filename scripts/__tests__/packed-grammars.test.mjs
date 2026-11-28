@@ -3,7 +3,12 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { containerCommand, GRAMMAR_SAMPLES, judgeGrammarOutline } from '../lib/packed-grammars.mjs';
+import {
+  assertDroppedGrammarsReported,
+  containerCommand,
+  GRAMMAR_SAMPLES,
+  judgeGrammarOutline,
+} from '../lib/packed-grammars.mjs';
 
 let root;
 beforeEach(() => {
@@ -68,5 +73,19 @@ describe('grammar outcomes without a toolchain (T14665)', () => {
     expect(argv).toContain('HOME=/evidence/home');
     expect(argv.some((arg) => arg.startsWith('PATH='))).toBe(false);
     expect(argv.slice(argv.indexOf('node:24-slim'))).toEqual(['node:24-slim', 'node', '-e', '1']);
+  });
+
+  it('fails a toolchain-free run that dropped no source-built grammar or left one unreported', () => {
+    const packages = [...new Set(GRAMMAR_SAMPLES.map(([, , pkg]) => pkg))];
+    const kept = Object.fromEntries(packages.map((pkg) => [pkg, true]));
+    const parsed = Object.fromEntries(GRAMMAR_SAMPLES.map(([language]) => [language, 'parsed']));
+    expect(() => assertDroppedGrammarsReported(kept, parsed)).toThrow('kept every source-built');
+
+    const dropped = { ...kept, 'tree-sitter-typescript': false };
+    expect(() => assertDroppedGrammarsReported(dropped, parsed)).toThrow(
+      'tree-sitter-typescript was dropped but cleo code outline (typescript) did not report it',
+    );
+    const reported = { ...parsed, typescript: 'reported-missing', tsx: 'reported-missing' };
+    expect(assertDroppedGrammarsReported(dropped, reported)).toEqual(['tree-sitter-typescript']);
   });
 });

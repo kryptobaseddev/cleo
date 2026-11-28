@@ -7,7 +7,10 @@
  * since T14637, a `cleo code outline` tree-sitter parse of every grammar.
  * `--toolchain-free-image=<image>` (T14665, implies `--install-only`) runs the npm
  * install and the installed CLI inside that container image, which must have no
- * C++ toolchain; each grammar must then parse or be reported missing with its fix.
+ * C++ toolchain; each grammar must then parse or be reported missing with its fix,
+ * and at least one source-built grammar must have been dropped and reported.
+ * `--toolchain-image=<image>` then reinstalls in that image, which has the
+ * toolchain, and requires every dropped grammar to come back and parse.
  */
 import { execFileSync } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
@@ -28,6 +31,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parse as parseYaml } from 'yaml';
 import { captureWrapped } from '../packages/core/dist/resources/spawn-wrapper.js';
 import {
+  assertDroppedGrammarsReported,
   containerCommand,
   GRAMMAR_SAMPLES,
   judgeGrammarOutline,
@@ -1526,7 +1530,11 @@ async function verifyPackedRuntimeInScope(app, root, env, deadlineAt) {
  *   the Linux x64 runtime stages (Studio, embedding, git shim) are not the subject.
  * @returns {Promise<void>} Resolves once every selected stage passed.
  */
-async function main({ installOnly = false, toolchainFreeImage = null } = {}) {
+async function main({
+  installOnly = false,
+  toolchainFreeImage = null,
+  toolchainImage = null,
+} = {}) {
   const evidenceParent = resolve(
     process.env.CLEO_PACKED_EVIDENCE_DIR ?? (process.platform === 'win32' ? tmpdir() : '/tmp'),
   );
@@ -1544,18 +1552,17 @@ async function main({ installOnly = false, toolchainFreeImage = null } = {}) {
     : undefined;
   // T14665: the install and the installed CLI run in a toolchain-free image when
   // one is given; packing and the byte checks stay on the host.
-  const runInstalled = (command, args, options) =>
-    toolchainFreeImage
-      ? runPackedCommand(
-          'docker',
-          containerCommand(toolchainFreeImage, command, args, {
-            cwd: resolve(options.cwd ?? REPO_ROOT),
-            env: options.env ?? env,
-            mount: root,
-          }),
-          { ...options, env: { PATH: process.env.PATH, HOME: env.HOME } },
-        )
-      : runPackedCommand(command, args, options);
+  const runInImage = (image) => (command, args, options) =>
+    runPackedCommand(
+      'docker',
+      containerCommand(image, command, args, {
+        cwd: resolve(options.cwd ?? REPO_ROOT),
+        env: options.env ?? env,
+        mount: root,
+      }),
+      { ...options, env: { PATH: process.env.PATH, HOME: env.HOME } },
+    );
+  const runInstalled = toolchainFreeImage ? runInImage(toolchainFreeImage) : runPackedCommand;
   const tarballs = join(root, 'tarballs');
   const app = join(root, 'app');
   mkdirSync(tarballs);
@@ -1788,36 +1795,71 @@ syncBuiltinESMExports();
           throw new Error('tree-sitter was skipped although it ships a prebuild for this platform');
       } else if (skipped.length)
         throw new Error(`Optional native dependencies skipped: ${skipped.join(', ')}`);
-      manifest.grammars = {};
-      for (const sample of GRAMMAR_SAMPLES) {
-        const [language, name, pkg, source] = sample;
-        const file = join(root, 'code-parse', name);
+      const outline = (run, sample) => {
+        const file = join(root, 'code-parse', sample[1]);
         mkdirSync(dirname(file), { recursive: true });
-        writeFileSync(file, source);
-        const run = await runInstalled(
-          process.execPath,
-          [binary, '--human', 'code', 'outline', file],
-          {
-            cwd: root,
-            env,
-            timeout: 60_000,
-            systemdControl,
-          },
-        ).then(
+        writeFileSync(file, sample[3]);
+        return run(process.execPath, [binary, '--human', 'code', 'outline', file], {
+          cwd: root,
+          env,
+          timeout: 60_000,
+          systemdControl,
+        }).then(
           (output) => ({ ok: true, output }),
           (error) => ({ ok: false, output: `${error.stdout ?? ''}\n${error.stderr ?? ''}` }),
         );
-        manifest.grammars[language] = judgeGrammarOutline(sample, run, {
-          installed: manifest.optionalNative[pkg] === true,
-          toolchainFree: Boolean(toolchainFreeImage),
-        });
+      };
+      manifest.grammars = {};
+      for (const sample of GRAMMAR_SAMPLES) {
+        const [language, , pkg] = sample;
+        manifest.grammars[language] = judgeGrammarOutline(
+          sample,
+          await outline(runInstalled, sample),
+          {
+            installed: manifest.optionalNative[pkg] === true,
+            toolchainFree: Boolean(toolchainFreeImage),
+          },
+        );
         save();
+      }
+      if (toolchainFreeImage) {
+        // T14665: an image that can build every grammar would pass vacuously.
+        manifest.droppedGrammars = assertDroppedGrammarsReported(
+          manifest.optionalNative,
+          manifest.grammars,
+        );
+        save();
+        if (toolchainImage) {
+          // The fix the message names: reinstall with a toolchain present.
+          const withToolchain = runInImage(toolchainImage);
+          await withToolchain('npm', ['install', '--no-audit', '--no-fund', '--loglevel=warn'], {
+            cwd: app,
+            env,
+            systemdControl,
+            timeout: 600_000,
+          });
+          const restored = {};
+          for (const sample of GRAMMAR_SAMPLES) {
+            const [language, , pkg] = sample;
+            if (!manifest.droppedGrammars.includes(pkg)) continue;
+            if (
+              ![core, app].some((dir) => existsSync(join(dir, 'node_modules', pkg, 'package.json')))
+            )
+              throw new Error(`Reinstalling in ${toolchainImage} did not restore ${pkg}`);
+            restored[language] = judgeGrammarOutline(sample, await outline(withToolchain, sample), {
+              installed: true,
+              toolchainFree: false,
+            });
+          }
+          manifest.reinstall = { image: toolchainImage, grammars: restored };
+          save();
+        }
       }
       manifest.coverage.codeParse = 'verified-tree-sitter-outline';
       manifest.status = 'verified-packed-install';
       save();
       console.log(
-        `[packed-smoke] Installed CLI version verified on ${process.platform}/${process.arch}${toolchainFreeImage ? ` in toolchain-free ${toolchainFreeImage}` : ''} (${version}); optional native: ${JSON.stringify(manifest.optionalNative)}; grammars: ${JSON.stringify(manifest.grammars)}. Evidence: ${root}`,
+        `[packed-smoke] Installed CLI version verified on ${process.platform}/${process.arch}${toolchainFreeImage ? ` in toolchain-free ${toolchainFreeImage}` : ''} (${version}); optional native: ${JSON.stringify(manifest.optionalNative)}; grammars: ${JSON.stringify(manifest.grammars)}; dropped: ${JSON.stringify(manifest.droppedGrammars ?? [])}; reinstall: ${JSON.stringify(manifest.reinstall ?? null)}. Evidence: ${root}`,
       );
       return;
     }
@@ -1862,12 +1904,17 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
           );
         })()
       : (() => {
-          const image = process.argv
-            .find((arg) => arg.startsWith('--toolchain-free-image='))
-            ?.slice('--toolchain-free-image='.length);
+          const flag = (name) =>
+            process.argv.find((arg) => arg.startsWith(`--${name}=`))?.slice(name.length + 3) ||
+            null;
+          const image = flag('toolchain-free-image');
+          const toolchainImage = flag('toolchain-image');
+          if (toolchainImage && !image)
+            return Promise.reject(new Error('--toolchain-image needs --toolchain-free-image'));
           return main({
             installOnly: Boolean(image) || process.argv.includes('--install-only'),
-            toolchainFreeImage: image || null,
+            toolchainFreeImage: image,
+            toolchainImage,
           });
         })();
   operation.catch((error) => {

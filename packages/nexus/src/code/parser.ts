@@ -409,7 +409,46 @@ export function missingGrammarMessage(language: TreeSitterLanguage): string {
  * ```
  */
 export function missingGrammars(): TreeSitterLanguage[] {
-  return SUPPORTED_LANGUAGES.filter((language) => loadGrammar(language) === null);
+  return reportMissingGrammars(SUPPORTED_LANGUAGES).map((report) => report.language);
+}
+
+/** One grammar that did not load, as every surface reports it (T14665). */
+export interface MissingGrammarReport {
+  /** Language whose grammar did not load. */
+  language: TreeSitterLanguage;
+  /** npm package that provides the grammar. */
+  package: string;
+  /** What restores it: {@link TREE_SITTER_GRAMMAR_FIX}. */
+  fix: string;
+  /** {@link missingGrammarMessage} for the language. */
+  message: string;
+}
+
+/**
+ * Report which of the given languages have a grammar that does not load.
+ *
+ * The one check behind doctor, `cleo code search` and `nexus analyze`, so each
+ * names a missing grammar, its package and its fix once, whatever the file count.
+ *
+ * @param languages - Languages the caller needs; duplicates are ignored
+ * @returns One report per missing grammar, in {@link SUPPORTED_LANGUAGES} order
+ * @example
+ * ```ts
+ * for (const gap of reportMissingGrammars(['typescript', 'tsx'])) console.error(gap.message);
+ * ```
+ */
+export function reportMissingGrammars(
+  languages: Iterable<TreeSitterLanguage>,
+): MissingGrammarReport[] {
+  const wanted = new Set(languages);
+  return SUPPORTED_LANGUAGES.filter(
+    (language) => wanted.has(language) && loadGrammar(language) === null,
+  ).map((language) => ({
+    language,
+    package: grammarPackage(language),
+    fix: TREE_SITTER_GRAMMAR_FIX,
+    message: missingGrammarMessage(language),
+  }));
 }
 
 // ---------------------------------------------------------------------------

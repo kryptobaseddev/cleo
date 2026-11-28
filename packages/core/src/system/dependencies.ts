@@ -545,8 +545,12 @@ export async function checkAllDependencies(): Promise<DependencyReport> {
   const allRequiredMet = requiredResults.every((r) => r.healthy);
 
   const warnings: string[] = [];
+  // A missing dependency, and an installed optional one that still reports a
+  // gap (tree-sitter grammars that did not load, T14665). A required dependency
+  // that is installed but unhealthy (node or git below its floor) is a failure,
+  // which the caller reports from `results`, so it is not repeated here.
   for (const result of results) {
-    if (result.error) {
+    if (result.error && (!result.installed || result.category !== 'required')) {
       warnings.push(result.error);
     }
   }

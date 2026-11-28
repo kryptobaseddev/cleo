@@ -946,6 +946,7 @@ export async function runPipeline(
     reusedFileCount,
     reusedPaths,
     reuseDecodeMs,
+    missingGrammars,
   } = parsed;
   if (mode === 'incremental') {
     process.stderr.write(
@@ -1079,21 +1080,28 @@ export async function runPipeline(
     const failed = [...reports.values()].filter((report) => report.status === 'failed');
     if (failed.length > 0) {
       const ratio = failed.length / Math.max(1, reports.size);
+      // T14665: a missing grammar is named once with its package and fix, not
+      // once per file; the other failures are still listed per file.
+      const grammarPaths = new Set(missingGrammars.flatMap((gap) => gap.paths));
+      const causes = [
+        ...missingGrammars.map((gap) => `${gap.paths.length} file(s) not parsed. ${gap.message}`),
+        ...failed
+          .filter((report) => !grammarPaths.has(report.path))
+          .map((report) => `${report.path}: ${report.reason}`),
+      ];
       // A systemic failure differs in kind from a few awkward files: if most of
       // the repository will not parse, the generation would misrepresent it.
       if (ratio > UNPARSED_FILE_REFUSAL_RATIO) {
         throw new Error(
           `Index generation failed for ${failed.length} of ${reports.size} file(s) — more than ` +
             `${Math.round(UNPARSED_FILE_REFUSAL_RATIO * 100)}% of the repository, so the ` +
-            `generation would misrepresent it and the previous graph is retained: ${failed
-              .map((report) => `${report.path}: ${report.reason}`)
-              .join('; ')}`,
+            `generation would misrepresent it and the previous graph is retained: ${causes.join('; ')}`,
         );
       }
       process.stderr.write(
         `[nexus] ${failed.length} of ${reports.size} file(s) could not be parsed and are ABSENT ` +
           `from this index; every other file was indexed. Symbols defined in them will not be ` +
-          `found:\n${failed.map((report) => `  ${report.path}: ${report.reason}`).join('\n')}\n`,
+          `found:\n${causes.map((cause) => `  ${cause}`).join('\n')}\n`,
       );
     }
     // Refuse a generation built from files edited, removed, or renamed while

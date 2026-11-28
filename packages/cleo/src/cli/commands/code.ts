@@ -9,7 +9,8 @@
  */
 
 import { defineCommand } from 'citty';
-import { cliError, humanLine } from '../renderers/index.js';
+import { isJsonFormat } from '../format-context.js';
+import { cliError, cliOutput, humanLine, humanWarn } from '../renderers/index.js';
 
 /** Check tree-sitter availability before running code analysis. Exits with clear message if missing. */
 async function requireTreeSitter(): Promise<void> {
@@ -110,7 +111,7 @@ export const codeCommand = defineCommand({
       async run({ args }) {
         await requireTreeSitter();
         type SmartSearchOptions = import('@cleocode/core/internal').SmartSearchOptions;
-        const { smartSearch } = await import('@cleocode/core/internal');
+        const { smartSearchReport } = await import('@cleocode/core/internal');
         const root = process.cwd();
         const opts: SmartSearchOptions = {
           rootDir: root,
@@ -120,7 +121,26 @@ export const codeCommand = defineCommand({
         if (args.lang) {
           opts.language = args.lang as SmartSearchOptions['language'];
         }
-        const results = smartSearch(args.query, opts);
+        const { results, missingGrammars } = smartSearchReport(args.query, opts);
+
+        // A file whose grammar did not load yields no symbols; say so rather
+        // than let the gap read as "no match" (T14665).
+        if (isJsonFormat()) {
+          const { pushWarning } = await import('@cleocode/core/output');
+          for (const gap of missingGrammars) {
+            pushWarning({
+              code: 'W_GRAMMAR_MISSING',
+              message: `${gap.language} files were not searched. ${gap.message}`,
+              severity: 'warn',
+              context: { language: gap.language, package: gap.package, fix: gap.fix },
+            });
+          }
+          cliOutput({ query: args.query, results }, { command: 'code', operation: 'code.search' });
+          return;
+        }
+        for (const gap of missingGrammars) {
+          humanWarn(`warning: ${gap.language} files were not searched. ${gap.message}`);
+        }
 
         if (results.length === 0) {
           humanLine(`No symbols found matching "${args.query}"`);

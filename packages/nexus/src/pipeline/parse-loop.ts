@@ -56,7 +56,13 @@ import type {
 import { confidenceLabelFromNumeric } from '@cleocode/contracts/graph.js';
 import { type ParseError, parseTree, printParseErrorCode } from 'jsonc-parser';
 import type Parser from 'tree-sitter';
-import { parseOriginalSourceWithRecovery } from '../code/parser.js';
+import {
+  type MissingGrammarReport,
+  missingGrammarMessage,
+  parseOriginalSourceWithRecovery,
+  reportMissingGrammars,
+} from '../code/parser.js';
+import type { TreeSitterLanguage } from '../code/tree-sitter-languages.js';
 import { extractGo } from './extractors/go-extractor.js';
 import { extractPython } from './extractors/python-extractor.js';
 import { extractRust } from './extractors/rust-extractor.js';
@@ -207,8 +213,8 @@ function loadGrammar(langKey: string): unknown | null {
  * Map a canonical language name to the grammar key used in GRAMMAR_SPECS.
  * Returns null for unsupported languages.
  */
-function grammarKeyForLanguage(language: string): string | null {
-  const SUPPORTED: Record<string, string> = {
+function grammarKeyForLanguage(language: string): TreeSitterLanguage | null {
+  const SUPPORTED: Record<string, TreeSitterLanguage> = {
     typescript: 'typescript',
     javascript: 'javascript',
     python: 'python',
@@ -332,15 +338,12 @@ export function extractOriginalSource(
   publicationGeneration?: string,
 ): CommonExtractionResult {
   const language = detectLanguageFromPath(filePath);
-  const grammarKey = language
-    ? filePath.endsWith('.tsx')
-      ? 'tsx'
-      : grammarKeyForLanguage(language)
-    : null;
+  const grammarKey = pipelineGrammarFor(filePath);
   const parser = getParser();
   const grammar = grammarKey ? loadGrammar(grammarKey) : null;
   if (!language || !grammarKey) throw new Error('Unsupported source language');
-  if (!parser || !grammar) throw new Error(`Parser or grammar unavailable: ${grammarKey}`);
+  if (!parser) throw new Error('tree-sitter native module unavailable');
+  if (!grammar) throw new Error(missingGrammarMessage(grammarKey));
   parser.setLanguage(grammar);
   const { tree, limitations } = parseOriginalSourceWithRecovery(parser, source, limits);
   return {
@@ -529,10 +532,60 @@ export interface ParseLoopResult {
   /** Paths of those files. */
   reusedPaths: Set<string>;
   /**
+   * Grammars that did not load, each once with the files it kept out of the
+   * index (T14665). Those files are reported failed and never handed to a parser.
+   */
+  missingGrammars: MissingGrammarGap[];
+  /**
    * Milliseconds spent decoding reused extractions (T14014), so a cost
    * estimate's per-file parse rate counts parsing only.
    */
   reuseDecodeMs: number;
+}
+
+/** A grammar that did not load and the files that needed it (T14665). */
+export interface MissingGrammarGap extends MissingGrammarReport {
+  /** Repository-relative paths of the files that needed the grammar. */
+  paths: string[];
+}
+
+/** Grammar the pipeline parses a file with, or null when it parses none. */
+function pipelineGrammarFor(path: string): TreeSitterLanguage | null {
+  const language = detectLanguageFromPath(path);
+  if (!language) return null;
+  return path.endsWith('.tsx') ? 'tsx' : grammarKeyForLanguage(language);
+}
+
+/**
+ * Split off the files whose grammar does not load, so a missing grammar is
+ * reported once with its package and fix instead of failing every file (T14665).
+ *
+ * @param files - Files about to be parsed
+ * @returns Files to parse and one gap per missing grammar
+ */
+function withoutMissingGrammars(files: ScannedFile[]): {
+  runnable: ScannedFile[];
+  gaps: MissingGrammarGap[];
+} {
+  // Without tree-sitter itself every file fails one way; extraction reports that.
+  if (files.length === 0 || !getParser()) return { runnable: files, gaps: [] };
+  const needed = new Set<TreeSitterLanguage>();
+  for (const file of files) {
+    const grammar = pipelineGrammarFor(file.path);
+    if (grammar) needed.add(grammar);
+  }
+  const gaps = new Map<TreeSitterLanguage, MissingGrammarGap>(
+    reportMissingGrammars(needed).map((report) => [report.language, { ...report, paths: [] }]),
+  );
+  if (gaps.size === 0) return { runnable: files, gaps: [] };
+  const runnable: ScannedFile[] = [];
+  for (const file of files) {
+    const grammar = pipelineGrammarFor(file.path);
+    const gap = grammar ? gaps.get(grammar) : undefined;
+    if (gap) gap.paths.push(file.path);
+    else runnable.push(file);
+  }
+  return { runnable, gaps: [...gaps.values()] };
 }
 
 const EXECUTABLE_CAPABILITIES: GraphAnalysisCapability[] = [
@@ -1431,7 +1484,14 @@ export async function runParseLoop(
     else emitReport(report);
   }
 
-  const toParse = parseableFiles.filter((file) => !reused.has(file.path));
+  const { runnable: toParse, gaps: missingGrammars } = withoutMissingGrammars(
+    parseableFiles.filter((file) => !reused.has(file.path)),
+  );
+  for (const gap of missingGrammars) {
+    process.stderr.write(
+      `[nexus] WARNING: ${gap.paths.length} file(s) not parsed. ${gap.message}\n`,
+    );
+  }
   let pass: ExtractionPass = { extracted: new Map(), failures: new Map() };
   if (toParse.length > 0) {
     const totalBytes = toParse.reduce((acc, f) => acc + f.size, 0);
@@ -1458,6 +1518,16 @@ export async function runParseLoop(
       }
     }
     pass = parallel ?? (await extractSequentially(toParse, repoPath, options));
+  }
+  // Not cacheable: reinstalling with a toolchain restores the grammar.
+  for (const gap of missingGrammars) {
+    for (const path of gap.paths) {
+      pass.failures.set(path, {
+        path,
+        status: 'failed',
+        reason: `grammar ${gap.package} (${gap.language}) did not load`,
+      });
+    }
   }
 
   // Merge in scan order — identical whether an extraction was fresh or reused.
@@ -1579,5 +1649,6 @@ export async function runParseLoop(
     reusedFileCount: reusedPaths.size,
     reuseDecodeMs: Math.round(reuseDecodeMs),
     reusedPaths,
+    missingGrammars,
   };
 }
