@@ -948,6 +948,21 @@ export class TypedRevalidationError extends Error {
  * `node_modules` is linked, as before. The install writes only
  * untracked paths, so the checkout stays clean and equal to the merge tree.
  *
+ * After the gate run, pass or fail, the checkout is removed with
+ * `git worktree remove` WITHOUT `--force` (T14628): git refuses when the
+ * checkout holds a tracked change or a non-ignored untracked file, and then
+ * the checkout is kept and its path printed to stderr. Untracked install
+ * artefacts the command made are deleted first, since a project need not
+ * ignore them: the `.pnpm-store` the install writes, its `node_modules`
+ * directories, and the root `node_modules` link (a `node_modules/` ignore
+ * rule misses a symlink). Only untracked, non-ignored paths named
+ * `node_modules` or `.pnpm-store` are deleted, never tracked content. An
+ * INT or TERM during the run removes the checkout the same way and exits 130
+ * or 143; otherwise the command exits with the gate run's own status (75
+ * stays 75). Everything runs in a subshell, so the caller's shell keeps its
+ * directory and traps. A recorded pass stays valid after removal: it binds
+ * to the merge's tree hash and tree-relative inputs, never to the path.
+ *
  * @param taskId - Task whose gate must run.
  * @param root - Existing repository from which to create the checkout.
  * @param mergeSha - Immutable merge commit to verify.
@@ -961,14 +976,25 @@ export function mergedGateVerifyCommand(
   req?: string,
 ): string {
   const nodeModules = join(root, 'node_modules');
+  const checkout = '"$cleo_gate_checkout"';
   return (
-    `cleo_gate_checkout=$(mktemp -d) && git -C ${shellArg(root)} worktree add --detach "$cleo_gate_checkout" ${shellArg(mergeSha)} && ` +
-    `cd "$cleo_gate_checkout" && ` +
+    `( cleo_gate_checkout=$(mktemp -d) && git -C ${shellArg(root)} worktree add --detach ${checkout} ${shellArg(mergeSha)} || exit; ` +
+    `cleo_gate_cleanup() { ` +
+    // Untracked, non-ignored install artefacts only; a quoted (unusual) path matches no pattern and is kept.
+    `git -C ${checkout} ls-files --others --exclude-standard --directory | while IFS= read -r p; do ` +
+    `case "$p" in node_modules|node_modules/|*/node_modules|*/node_modules/|.pnpm-store|.pnpm-store/) ` +
+    // No trailing slash: rm -rf on "link/" could follow the root node_modules link.
+    `rm -rf "$cleo_gate_checkout/\${p%/}";; esac; done; ` +
+    `git -C ${shellArg(root)} worktree remove ${checkout} || ` +
+    `echo "cleo: kept the gate checkout $cleo_gate_checkout (git worktree remove refused)" >&2; }; ` +
+    `trap 'cleo_gate_cleanup; exit 130' INT; trap 'cleo_gate_cleanup; exit 143' TERM; ` +
+    `( cd ${checkout} && ` +
     // The store path is relative: the shell, not this string, knows the checkout.
     `if [ -f pnpm-lock.yaml ]; then ${workerInstallCommand('.')}; ` +
     // Other managers (npm, Yarn, Bun) keep one root node_modules: link the source checkout's.
     `elif [ -d ${shellArg(nodeModules)} ] && [ ! -e node_modules ]; then ln -s ${shellArg(nodeModules)} node_modules; fi && ` +
-    `cleo verify ${taskId} --run${req ? ` --req ${shellArg(req)}` : ''}`
+    `cleo verify ${taskId} --run${req ? ` --req ${shellArg(req)}` : ''} ); ` +
+    `cleo_gate_status=$?; trap - INT TERM; cleo_gate_cleanup; exit "$cleo_gate_status" )`
   );
 }
 
