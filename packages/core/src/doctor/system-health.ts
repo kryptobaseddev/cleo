@@ -27,6 +27,7 @@ import { existsSync, readFileSync, readlinkSync, statSync } from 'node:fs';
 import { cpus, loadavg, totalmem } from 'node:os';
 import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
+import { shellQuoteAlways } from '../lib/shell-quote.js';
 import { readLedger } from '../resources/admission-ledger.js';
 import type { ResourceSample } from '../resources/backend.js';
 import { auditMemoryGuard, type MemoryGuardAudit } from '../resources/memory-guard.js';
@@ -464,11 +465,6 @@ export function launchedPackage(words: readonly string[]): string | null | undef
   }
   if (pkg === undefined) return null;
   return pkg.replace(/(.)@[^/]*$/, '$1').replace(/==.*$/, '');
-}
-
-/** Single-quote `value` for a POSIX shell. */
-function shellQuote(value: string): string {
-  return `'${value.replaceAll("'", "'\\''")}'`;
 }
 
 /** Long-lived tool servers `looksHeavy` would otherwise count (`biome lsp-proxy`, `esbuild --service`). */
@@ -977,7 +973,7 @@ function indexingFindings(
       evidence: { path: nodeModules },
       impactBytes: null,
       remedy: {
-        command: `tmutil addexclusion ${shellQuote(nodeModules)}`,
+        command: `tmutil addexclusion ${shellQuoteAlways(nodeModules)}`,
         description:
           'A sticky exclusion on the directory; it is reinstallable, so nothing of value is lost. ' +
           'It changes the owner’s backup settings, so ask first.',

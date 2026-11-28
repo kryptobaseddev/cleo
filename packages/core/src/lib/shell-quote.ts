@@ -1,10 +1,12 @@
 /**
- * POSIX shell quoting for printed remedies (a refusal's `fix`, a next step).
+ * POSIX shell quoting for printed remedies (a refusal's `fix`, a next step):
+ * {@link shellQuote} leaves a safe word bare, {@link shellQuoteAlways} always quotes.
  *
  * Dependency-free; safe to import from any layer. Import it from this module:
  * the `lib/index.ts` barrel does not re-export it.
  *
  * @task T14668
+ * @task T14672
  */
 
 /**
@@ -22,5 +24,21 @@
  * ```
  */
 export function shellQuote(word: string): string {
-  return /^[A-Za-z0-9_./:@%+=,-]+$/.test(word) ? word : `'${word.replace(/'/g, `'\\''`)}'`;
+  return /^[A-Za-z0-9_./:@%+=,-]+$/.test(word) ? word : shellQuoteAlways(word);
+}
+
+/**
+ * POSIX single-quote a shell word, always: wrap it in `'...'` and rewrite each
+ * embedded `'` as `'\''`. One literal word for any input, even a safe one.
+ *
+ * @param word - Word to quote.
+ * @returns The single-quoted shell word.
+ * @example
+ * ```ts
+ * shellQuoteAlways('my-slug'); // 'my-slug'
+ * shellQuoteAlways("o'brien"); // 'o'\''brien'
+ * ```
+ */
+export function shellQuoteAlways(word: string): string {
+  return `'${word.replace(/'/g, `'\\''`)}'`;
 }
