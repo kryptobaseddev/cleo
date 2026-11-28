@@ -17,8 +17,8 @@
  * @task T14670
  */
 
-import { spawn, spawnSync } from 'node:child_process';
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
+import { chmodSync, existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -170,5 +170,104 @@ describe.skipIf(process.platform === 'win32')('boundedExecOptions (T14670)', () 
     });
     expect(own).toMatchObject({ encoding: 'utf-8', timeout: 5, killSignal: 'SIGINT' });
     expect(own.env).toEqual({ ONLY: '1', ...NON_INTERACTIVE_EXEC_ENV });
+  });
+});
+
+/**
+ * T14676 AC1 — a timed-out git write must not leave `.git/index.lock`.
+ *
+ * `git commit -- <path>` holds `index.lock` while its pre-commit hook runs; a hook that
+ * sleeps makes the write outlive a 1 s timeout. SIGKILL (the control, plain
+ * `boundedExecOptions`) skips git's lock cleanup and the next git write fails;
+ * `gracefulKillExec` sends SIGTERM first, git removes its lock, and the next
+ * write succeeds. Make the supervisor send SIGKILL first and the fixed run
+ * leaves the lock exactly like the control.
+ */
+describe.skipIf(process.platform === 'win32')('gracefulKillExec (T14676)', () => {
+  /** A repo with one staged change and a pre-commit hook that sleeps 20 s. */
+  function slowCommitRepo(name: string): { cwd: string; env: NodeJS.ProcessEnv } {
+    const cwd = join(sandbox, name);
+    const env = { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' };
+    const git = (...args: string[]): void => {
+      execFileSync('git', args, { cwd, env, stdio: 'ignore' });
+    };
+    spawnSync('mkdir', ['-p', cwd]);
+    git('init', '-q');
+    git('config', 'user.email', 'test@example.invalid');
+    git('config', 'user.name', 'test');
+    git('config', 'core.hooksPath', '.git/hooks');
+    writeFileSync(join(cwd, 'a.txt'), 'a\n');
+    git('add', 'a.txt');
+    const hook = join(cwd, '.git', 'hooks', 'pre-commit');
+    writeFileSync(hook, '#!/bin/sh\nexec sleep 20 </dev/null >/dev/null 2>&1\n');
+    chmodSync(hook, 0o755);
+    return { cwd, env };
+  }
+
+  /** Whether a follow-up git write in `cwd` succeeds (it fails on a stale index.lock). */
+  function nextWriteSucceeds(cwd: string, env: NodeJS.ProcessEnv): boolean {
+    return spawnSync('git', ['add', 'a.txt'], { cwd, env, stdio: 'ignore' }).status === 0;
+  }
+
+  it('control: a SIGKILLed git write leaves index.lock and the next write fails', async () => {
+    const { boundedExecOptions } = await import('../exec-path.js');
+    const { cwd, env } = slowCommitRepo('control-repo');
+    expect(() =>
+      execFileSync(
+        'git',
+        ['commit', '-q', '-m', 'x', '--', 'a.txt'],
+        boundedExecOptions({ cwd, env, stdio: 'ignore', timeout: TIMEOUT_MS }),
+      ),
+    ).toThrow(expect.objectContaining({ code: 'ETIMEDOUT' }));
+    expect(existsSync(join(cwd, '.git', 'index.lock'))).toBe(true);
+    expect(nextWriteSucceeds(cwd, env)).toBe(false);
+  }, 20_000);
+
+  it('SIGTERMs a timed-out git write so git removes its lock, within timeout + grace', async () => {
+    const { GRACEFUL_KILL_TIMEOUT_STATUS, gracefulKillExec } = await import('../exec-path.js');
+    const { cwd, env } = slowCommitRepo('graceful-repo');
+    const started = Date.now();
+    expect(() =>
+      execFileSync(
+        ...gracefulKillExec(
+          'git',
+          ['commit', '-q', '-m', 'x', '--', 'a.txt'],
+          { cwd, env, stdio: 'ignore', timeout: TIMEOUT_MS },
+          2_000,
+        ),
+      ),
+    ).toThrow(expect.objectContaining({ status: GRACEFUL_KILL_TIMEOUT_STATUS }));
+    expect(Date.now() - started).toBeLessThan(TIMEOUT_MS + 2_000 + 2_000);
+    expect(existsSync(join(cwd, '.git', 'index.lock'))).toBe(false);
+    expect(nextWriteSucceeds(cwd, env)).toBe(true);
+  }, 20_000);
+
+  it('SIGKILLs a command that ignores SIGTERM after the grace period', async () => {
+    const { GRACEFUL_KILL_TIMEOUT_STATUS, gracefulKillExec } = await import('../exec-path.js');
+    const started = Date.now();
+    const result = spawnSync(
+      ...gracefulKillExec(
+        'sh',
+        ['-c', "trap '' TERM; sleep 20"],
+        { stdio: 'ignore', timeout: 500 },
+        500,
+      ),
+    );
+    expect(result.status).toBe(GRACEFUL_KILL_TIMEOUT_STATUS);
+    expect(Date.now() - started).toBeLessThan(5_000);
+  }, 20_000);
+
+  it('passes stdin, stdout and a non-zero exit through, and runs directly with no timeout', async () => {
+    const { gracefulKillExec } = await import('../exec-path.js');
+    expect(
+      execFileSync(
+        ...gracefulKillExec('cat', [], { input: 'piped', encoding: 'utf-8', timeout: 5_000 }),
+      ),
+    ).toBe('piped');
+    expect(spawnSync(...gracefulKillExec('sh', ['-c', 'exit 3'], { timeout: 5_000 })).status).toBe(
+      3,
+    );
+    const [file, args] = gracefulKillExec('git', ['--version'], { timeout: 0 });
+    expect([file, args]).toEqual(['git', ['--version']]);
   });
 });
