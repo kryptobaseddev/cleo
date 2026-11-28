@@ -679,3 +679,15 @@ export function isRecoverableCode(code: ExitCode): boolean {
 export function getExitCodeName(code: ExitCode): string {
   return ExitCode[code] ?? 'UNKNOWN';
 }
+
+/**
+ * `Symbol.for` key of the process-wide set of live worker threads that core
+ * `exitProcess` stops, within a deadline, before it exits (T14670).
+ *
+ * `process.exit` joins every live worker thread with no timeout, so a worker
+ * blocked in native code hangs the exit forever. Packages that cannot import
+ * core (nexus) add their workers to `globalThis[Symbol.for(key)]`, a
+ * `Set<Worker>`, and remove them on `exit`. It lives here, not in `jobs`,
+ * because every CLI path already loads this module (gate 39 module budgets).
+ */
+export const EXIT_WORKER_REGISTRY_KEY = 'cleo.exitWorkers';

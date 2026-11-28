@@ -53,10 +53,8 @@
  */
 
 import type { Worker } from 'node:worker_threads';
-import {
-  EXIT_WORKER_REGISTRY_KEY,
-  type ShutdownStepOutcome as StepOutcome,
-} from '@cleocode/contracts/jobs';
+import { EXIT_WORKER_REGISTRY_KEY } from '@cleocode/contracts/exit-codes.js';
+import type { ShutdownStepOutcome as StepOutcome } from '@cleocode/contracts/jobs';
 import { OperationExecutionError } from './store/background-ops.js';
 
 /** Compatible historical type export; canonical shared declaration lives in jobs contracts. */

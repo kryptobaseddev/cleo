@@ -21,7 +21,7 @@ signal's default action, so SIGTERM did nothing.
 - Every worker thread is tracked: the BRAIN writer, the embedding queue, the
   census prune worker, the background skill-review worker and the nexus parser
   pool. Nexus registers its workers through a `globalThis` set keyed by
-  `EXIT_WORKER_REGISTRY_KEY` in contracts.
+  `EXIT_WORKER_REGISTRY_KEY` in contracts `exit-codes`.
 - Core installs no SIGTERM/SIGINT listener. Telemetry's listener only started
   a flush, so a command that recorded telemetry ignored SIGTERM. The BRAIN
   writer's and the embedding queue's listeners exited any host that loaded

@@ -34,7 +34,7 @@ import {
   PARSER_WORKER_HEAP_MAX_MB,
   PARSER_WORKER_HEAP_MIN_MB,
 } from '@cleocode/contracts/code-symbol.js';
-import { EXIT_WORKER_REGISTRY_KEY } from '@cleocode/contracts/jobs.js';
+import { EXIT_WORKER_REGISTRY_KEY } from '@cleocode/contracts/exit-codes.js';
 
 /**
  * Add a parser worker to the process-wide exit registry (T14670) so the CLI's

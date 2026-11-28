@@ -367,7 +367,9 @@ describe('exitProcess — a worker wedged in native code cannot hang the exit (T
         loader: 'ts',
       },
       // Source, not dist: the child must run without a build.
-      alias: { '@cleocode/contracts/jobs': resolve(here, '../../../contracts/src/jobs.ts') },
+      alias: {
+        '@cleocode/contracts/exit-codes.js': resolve(here, '../../../contracts/src/exit-codes.ts'),
+      },
       bundle: true,
       platform: 'node',
       format: 'esm',
