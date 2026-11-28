@@ -38,7 +38,8 @@ export const ATOMIC_SCOPE_RULE =
   'by name stem in the directory it tests does not count: a sibling (`src/foo.test.ts`), a ' +
   '`__tests__/` tree (`src/__tests__/sub/foo.test.ts` with `src/sub/foo.ts`), or a `tests/` or ' +
   '`test/` tree mirroring `src/` (`pkg/tests/sub/foo.test.ts` with `pkg/src/sub/foo.ts` or ' +
-  '`pkg/sub/foo.ts`). The source must be a code file, so a test never pairs with `foo.json`. ' +
+  '`pkg/sub/foo.ts`; a `unit/` or `integration/` layer directory under it is skipped, so ' +
+  '`pkg/tests/unit/sub/foo.test.ts` pairs the same way). The source must be a code file, so a test never pairs with `foo.json`. ' +
   'Every source file and every unpaired test file counts.';
 
 /**
@@ -113,7 +114,10 @@ function sourcePairKey(path: string): string | null {
  * directory it can test. Those are its own directory; for a `__tests__/`
  * segment, the parent joined with the path below it
  * (`src/__tests__/sub/foo.test.ts` → `src/sub/`); and for a `tests/` or `test/`
- * segment, `<root>/src/<rel>/` and `<root>/<rel>/`.
+ * segment, `<root>/src/<rel>/` and `<root>/<rel>/`, where a leading `unit/` or
+ * `integration/` layer directory of `<rel>` is also skipped
+ * (`pkg/tests/unit/sub/foo.test.ts` → `pkg/src/sub/` and `pkg/sub/` too).
+ * @task T14662
  */
 function testPairKeys(path: string): string[] {
   const { dir, base } = splitScopePath(normalizeScopePath(path));
@@ -134,6 +138,12 @@ function testPairKeys(path: string): string[] {
     if (segment === 'tests' || segment === 'test') {
       dirs.add(`${root}src/${rel}`);
       dirs.add(root + rel);
+      const layer = segments[i + 1];
+      if (layer === 'unit' || layer === 'integration') {
+        const below = rel.slice(layer.length + 1);
+        dirs.add(`${root}src/${below}`);
+        dirs.add(root + below);
+      }
     }
   });
   return [...dirs].map((d) => `${d}|${stem}`);
@@ -153,6 +163,7 @@ function testPairKeys(path: string): string[] {
  * @task T14633
  * @task T14636
  * @task T14661
+ * @task T14662
  */
 export function countScopedFiles(files: readonly string[]): number {
   const sources = files.filter((file) => !isAtomicScopeTestFile(file));
