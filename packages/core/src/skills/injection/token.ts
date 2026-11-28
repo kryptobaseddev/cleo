@@ -11,7 +11,9 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { subjectSlug } from '../../docs/doc-name-rule.js';
+import { CleoError } from '../../errors.js';
 import { getProjectRoot } from '../../paths.js';
 
 // ============================================================================
@@ -223,16 +225,46 @@ export function validateAllTokens(values: TokenValues): {
 // ============================================================================
 
 /**
+ * Command tokens whose command requires a positional id: `cleo tree` refuses
+ * to run without its root task id (T14673).
+ */
+const ID_ARG_TOKENS: ReadonlySet<string> = new Set(['TASK_TREE_CMD']);
+
+/** An id after a command token: a `{{TOKEN}}`, a `<placeholder>` or a task id. */
+const FOLLOWING_ID = /^[ \t]+(?:\{\{(\w+)\}\}|<[\w-]+>|T\d+\b)/;
+
+/**
  * Inject token values into a template string.
  * Replaces all {{TOKEN_NAME}} patterns with corresponding values.
  * Unresolved tokens are left as-is (for debugging).
+ *
+ * An id-taking command token (`{{TASK_TREE_CMD}}`) must be followed by an id
+ * — a `{{TOKEN}}` that resolves to a value, a `<placeholder>` or a task id —
+ * because the command it renders refuses to run without one (T14673).
+ *
+ * @throws {CleoError} `VALIDATION_ERROR` when an id-taking command token has
+ *   no id after it; every caller (skill dispatch, subagent injection) fails
+ *   instead of handing an agent a command the CLI refuses.
  * @task T4521
  */
 export function injectTokens(template: string, values: TokenValues): string {
   // Merge with defaults (explicit values override defaults)
   const merged = { ...CLEO_DEFAULTS, ...values };
 
-  return template.replace(/\{\{(\w+)\}\}/g, (match, token: string) => {
+  return template.replace(/\{\{(\w+)\}\}/g, (match, token: string, at: number) => {
+    if (ID_ARG_TOKENS.has(token)) {
+      const next = FOLLOWING_ID.exec(template.slice(at + match.length));
+      if (!next || (next[1] !== undefined && !merged[next[1]])) {
+        throw new CleoError(
+          ExitCode.VALIDATION_ERROR,
+          `{{${token}}} renders a command that needs a root id, and none follows it` +
+            (next?.[1] ? ` ({{${next[1]}}} has no value)` : ''),
+          {
+            fix: `Write the id after the token in the template, e.g. {{${token}}} {{EPIC_ID}}, and pass a value for that token`,
+          },
+        );
+      }
+    }
     const value = merged[token];
     if (value !== undefined && value !== '') {
       return value;

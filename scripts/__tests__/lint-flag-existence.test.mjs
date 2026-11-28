@@ -163,6 +163,26 @@ describe('args the checker could not read before T14667', () => {
   });
 });
 
+describe('commands resolve by their path, not the first meta.name match (T14673)', () => {
+  // deps.ts defines `cleo deps tree` (depsTreeCommand) BEFORE the top-level
+  // `cleo tree` (treeCommand); both carry `meta.name: 'tree'`.
+  const bad = (text) => checker().check(extractInvocationsWithFlags(text)[0]);
+
+  it('`cleo tree` reads treeCommand', () => {
+    expect(bad('cleo tree T1 --with-deps --blockers')).toBeNull();
+    // `--withDeps` is kept as an alias of `with-deps`.
+    expect(bad('cleo tree T1 --withDeps --blockers')).toBeNull();
+    const v = bad('cleo tree T1 --mermaid');
+    expect(v?.label).toBe('tree');
+    expect(v?.bad).toEqual(['--mermaid']);
+  });
+
+  it('`cleo deps tree` reads depsTreeCommand', () => {
+    expect(bad('cleo deps tree --epic T1 --mermaid')).toBeNull();
+    expect(bad('cleo deps tree --epic T1 --blockers')?.bad).toEqual(['--blockers']);
+  });
+});
+
 describe('extractInvocationsWithFlags', () => {
   it('stops the tail at a backtick so two code spans are two invocations', () => {
     const invs = extractInvocationsWithFlags(

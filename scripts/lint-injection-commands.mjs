@@ -586,15 +586,23 @@ export function loadGlobalFlags(source) {
  * @param name   - the command's `meta.name` (root verb or sub-verb).
  * @param registrySource - `operations-registry.ts` source, to resolve
  *   registry-spread args; omitted, those args stay unknown.
+ * @param ident - the identifier the command is bound to (`treeCommand`); the
+ *   search starts at its `defineCommand(`. Omitted or not found, the first
+ *   command named `name` in the module is used.
  * @returns accepted flag tokens with leading dashes; EMPTY when the `args`
  *   block could not be located, which callers must treat as "unknown", never
  *   as "accepts nothing".
  * @task T12191
  */
-export function extractAcceptedFlags(source, name, registrySource) {
+export function extractAcceptedFlags(source, name, registrySource, ident) {
+  // T14673: a module can define two commands with the same `meta.name`
+  // (`deps.ts` holds both `cleo deps tree` and the top-level `cleo tree`), so
+  // a caller that knows the command's binding resolves it from there.
+  const from = ident ? commandDefinitionAt(source, ident) : 0;
   const metaRe = new RegExp(`meta:\\s*\\{[^}]*name:\\s*'${name}'`);
-  const metaAt = source.search(metaRe);
-  if (metaAt === -1) return new Set();
+  const found = source.slice(from).search(metaRe);
+  if (found === -1) return new Set();
+  const metaAt = from + found;
 
   const argsMatch = /\bargs:\s*(\{|[A-Za-z_$][\w$]*)/g;
   argsMatch.lastIndex = metaAt;
@@ -636,6 +644,20 @@ function balancedBody(source, start) {
     else if (source[i] === '}') depth--;
   }
   return source.slice(start, i - 1);
+}
+
+/**
+ * Index of `const <ident> = defineCommand(` (exported or not, optionally
+ * type-annotated) in a command module.
+ *
+ * @param source - the command module source.
+ * @param ident - the command's binding name.
+ * @returns the index, or 0 when the module has no such definition.
+ * @task T14673
+ */
+function commandDefinitionAt(source, ident) {
+  const at = source.search(new RegExp(`\\bconst ${ident}(?:\\s*:[^=]+)?\\s*=\\s*defineCommand\\(`));
+  return at === -1 ? 0 : at;
 }
 
 /**
@@ -914,6 +936,34 @@ export function spreadCommandArgFlags(source, repoRoot) {
 }
 
 /**
+ * The expression a group's root `subCommands` block binds a sub-verb to:
+ * `depsTreeCommand` for `tree: depsTreeCommand`, or a lazy `async () => …`.
+ *
+ * @param source - the group's module source.
+ * @param verb - the group's root verb.
+ * @param sub - the sub-command key.
+ * @returns the bound expression text, or null when the entry is absent.
+ * @task T14673
+ */
+export function subCommandBinding(source, verb, sub) {
+  const exportAt = source.search(new RegExp(`export const ${verb}Command\\s*[:=]`));
+  if (exportAt === -1) return null;
+  const blockAt = source.indexOf('subCommands: {', exportAt);
+  if (blockAt === -1) return null;
+  const block = balancedBody(source, blockAt + 'subCommands: {'.length);
+  const key = sub.replace(/[-]/g, '\\-');
+  return block.match(new RegExp(`(?:^|[,{\\s])'?${key}'?\\s*:\\s*([^,\\n]+)`))?.[1] ?? null;
+}
+
+/**
+ * @param binding - a {@link subCommandBinding} result.
+ * @returns the identifier it starts with, or undefined for a lazy import.
+ */
+function bindingIdent(binding) {
+  return binding.match(/^([A-Za-z_$][\w$]*)/)?.[1];
+}
+
+/**
  * Source of the module that defines a group's sub-command when the group's
  * own module only references it (T14667): `migrate: migrateCommand` resolves
  * through `import { migrateCommand } from './docs/migrate.js'`, and
@@ -930,18 +980,13 @@ export function spreadCommandArgFlags(source, repoRoot) {
  * @task T14667
  */
 export function subCommandModuleSource(source, modulePath, verb, sub, repoRoot) {
-  const exportAt = source.search(new RegExp(`export const ${verb}Command\\s*[:=]`));
-  if (exportAt === -1 || !modulePath) return null;
-  const blockAt = source.indexOf('subCommands: {', exportAt);
-  if (blockAt === -1) return null;
-  const block = balancedBody(source, blockAt + 'subCommands: {'.length);
-  const key = sub.replace(/[-]/g, '\\-');
-  const entry = block.match(new RegExp(`(?:^|[,{\\s])'?${key}'?\\s*:\\s*([^,\\n]+)`));
-  if (!entry) return null;
+  if (!modulePath) return null;
+  const binding = subCommandBinding(source, verb, sub);
+  if (!binding) return null;
 
-  let rel = entry[1].match(/import\('(\.{1,2}\/[\w./-]+)\.js'\)/)?.[1];
+  let rel = binding.match(/import\('(\.{1,2}\/[\w./-]+)\.js'\)/)?.[1];
   if (!rel) {
-    const ident = entry[1].match(/^([A-Za-z_$][\w$]*)/)?.[1];
+    const ident = bindingIdent(binding);
     if (!ident) return null;
     rel = source.match(
       new RegExp(`import\\s*\\{[^}]*\\b${ident}\\b[^}]*\\}\\s*from\\s*'(\\.{1,2}/[\\w./-]+)\\.js'`),
@@ -978,10 +1023,13 @@ export function makeFlagChecker(repoRoot) {
     'utf-8',
   );
   const moduleByVerb = new Map();
+  // T14673: the export a verb loads (`cleo tree` → `treeCommand` in deps.ts).
+  const exportByVerb = new Map();
   for (const e of manifestSource.matchAll(
-    /name:\s*'([^']+)',[\s\S]{0,400}?import\('\.\.\/commands\/([^']+)\.js'\)/g,
+    /(?:exportName:\s*'([^']+)',\s*)?name:\s*'([^']+)',[\s\S]{0,400}?import\('\.\.\/commands\/([^']+)\.js'\)/g,
   )) {
-    moduleByVerb.set(e[1], e[2]);
+    moduleByVerb.set(e[2], e[3]);
+    if (e[1]) exportByVerb.set(e[2], e[1]);
   }
 
   const strictArgs = readFileSync(
@@ -1048,11 +1096,16 @@ export function makeFlagChecker(repoRoot) {
 
     // T14667: a sub-command defined in another module (`migrate: migrateCommand`
     // imported from './docs/migrate.js') declares its args there.
+    // T14673: resolve the command by its path — the manifest export for a root
+    // verb, the group's `subCommands` binding for a sub-verb — never by the
+    // first `meta.name` match in the module.
+    const binding = isSub ? subCommandBinding(source, inv.verb, target) : null;
+    const ident = isSub ? binding && bindingIdent(binding) : exportByVerb.get(inv.verb);
     let argsSource = source;
-    let accepted = extractAcceptedFlags(source, target, registrySource);
+    let accepted = extractAcceptedFlags(source, target, registrySource, ident);
     if (accepted.size === 0 && isSub) {
       argsSource = subCommandModuleSource(source, mod(inv.verb), inv.verb, target, repoRoot);
-      if (argsSource) accepted = extractAcceptedFlags(argsSource, target, registrySource);
+      if (argsSource) accepted = extractAcceptedFlags(argsSource, target, registrySource, ident);
     }
     if (accepted.size === 0) return null;
     // T14299: `cleo done` spreads `...completeCommandArgs` from complete.ts;
