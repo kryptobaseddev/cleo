@@ -54,8 +54,11 @@ const PROJECT_HASH = 'test1234hash5678';
 // We use a module-level variable that the factory captures by reference.
 let _fakeXdgWorktreesRoot = '/tmp/placeholder';
 
-vi.mock('@cleocode/paths', async () => {
+vi.mock('@cleocode/paths', async (importOriginal) => {
+  // The real `boundedExecOptions` wraps the module's git exec options (T14670).
+  const { boundedExecOptions } = await importOriginal<typeof import('@cleocode/paths')>();
   return {
+    boundedExecOptions,
     computeProjectHash: (_projectRoot: string) => PROJECT_HASH,
     getCleoWorktreesRoot: () => _fakeXdgWorktreesRoot,
     resolveTaskWorktreePath: (hash: string, taskId: string) =>
