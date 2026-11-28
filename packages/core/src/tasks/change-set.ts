@@ -40,6 +40,7 @@ import type {
   TaskChangeSet,
 } from '@cleocode/contracts';
 import { PROFILE_GATE_EVIDENCE } from '@cleocode/contracts/evidence-atom-schema.js';
+import { boundedExecOptions } from '@cleocode/paths';
 import { resolveOriginDefault } from '../git/base-ref.js';
 import { ghQueryTimeoutMs } from '../release/github-pr.js';
 import type { PrAtomResolution } from '../release/pr-evidence.js';
@@ -182,12 +183,16 @@ export interface DeriveChangeSetInput {
 /** Run git read-only in `cwd`; `null` on any failure. */
 function git(cwd: string, args: readonly string[]): string | null {
   try {
-    return execFileSync('git', args, {
-      cwd,
-      encoding: 'utf-8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-      maxBuffer: 64 * 1024 * 1024,
-    }).trimEnd();
+    return execFileSync(
+      'git',
+      args,
+      boundedExecOptions({
+        cwd,
+        encoding: 'utf-8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+        maxBuffer: 64 * 1024 * 1024,
+      }),
+    ).trimEnd();
   } catch {
     return null;
   }
@@ -489,19 +494,23 @@ export function hasPatchEquivalent(
     const patches = execFileSync(
       'git',
       ['log', '--no-walk=unsorted', '-p', '--format=commit %H', own, ...others],
-      {
+      boundedExecOptions({
         cwd: root,
         encoding: 'utf-8',
         stdio: ['ignore', 'pipe', 'ignore'],
         maxBuffer: 64 * 1024 * 1024,
-      },
+      }),
     );
-    ids = execFileSync('git', ['patch-id', '--stable'], {
-      cwd: root,
-      input: patches,
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'ignore'],
-    });
+    ids = execFileSync(
+      'git',
+      ['patch-id', '--stable'],
+      boundedExecOptions({
+        cwd: root,
+        input: patches,
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'ignore'],
+      }),
+    );
   } catch {
     return null;
   }
@@ -550,12 +559,12 @@ export async function defaultListMergedPrs(
       const out = execFileSync(
         'gh',
         ['pr', 'list', '--state', 'merged', ...query, '--json', fields, '--limit', '30'],
-        {
+        boundedExecOptions({
           cwd: executionRoot,
           encoding: 'utf-8',
           stdio: ['ignore', 'pipe', 'pipe'],
           timeout: opts.timeoutMs ?? ghQueryTimeoutMs(),
-        },
+        }),
       );
       const parsed: unknown = JSON.parse(out);
       if (!Array.isArray(parsed)) continue;
@@ -604,12 +613,16 @@ function toPrDetails(row: unknown): PrDetails | null {
 function ghJson(args: readonly string[], cwd: string): unknown {
   try {
     return JSON.parse(
-      execFileSync('gh', args, {
-        cwd,
-        encoding: 'utf-8',
-        stdio: ['ignore', 'pipe', 'pipe'],
-        timeout: ghQueryTimeoutMs(),
-      }),
+      execFileSync(
+        'gh',
+        args,
+        boundedExecOptions({
+          cwd,
+          encoding: 'utf-8',
+          stdio: ['ignore', 'pipe', 'pipe'],
+          timeout: ghQueryTimeoutMs(),
+        }),
+      ),
     );
   } catch {
     return null;
@@ -704,12 +717,12 @@ export async function defaultListPrsForCommit(
         '--jq',
         '[.[] | {number, mergedAt: .merged_at, baseRefName: .base.ref, mergeCommitSha: .merge_commit_sha}]',
       ],
-      {
+      boundedExecOptions({
         cwd: executionRoot,
         encoding: 'utf-8',
         stdio: ['ignore', 'pipe', 'pipe'],
         timeout: ghQueryTimeoutMs(),
-      },
+      }),
     );
   } catch (err) {
     const stderr = String((err as { stderr?: unknown }).stderr ?? '');

@@ -15,6 +15,7 @@
 import { execFileSync } from 'node:child_process';
 import { appendFileSync, mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
+import { boundedExecOptions } from '@cleocode/paths';
 import { addTransientWorktree, removeTransientWorktree } from '@cleocode/worktree';
 import { resolveAgentWorktreeRoot } from '../spawn/branch-lock.js';
 
@@ -50,11 +51,15 @@ export type DependencyIntegration =
     };
 
 function git(cwd: string, args: readonly string[]): string {
-  return execFileSync('git', args, {
-    cwd,
-    encoding: 'utf-8',
-    stdio: ['ignore', 'pipe', 'pipe'],
-  }).trim();
+  return execFileSync(
+    'git',
+    args,
+    boundedExecOptions({
+      cwd,
+      encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    }),
+  ).trim();
 }
 
 function tryGit(cwd: string, args: readonly string[]): string | null {

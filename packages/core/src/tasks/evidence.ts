@@ -47,7 +47,7 @@ import {
   validateEvidenceForGate,
 } from '@cleocode/contracts/evidence-atom-schema.js';
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
-
+import { boundedExecOptions } from '@cleocode/paths';
 import { CleoError } from '../errors.js';
 import {
   brokenWorkTreeReason,
@@ -1910,13 +1910,17 @@ export function resolveEvidenceExecutionRoot(
   let toplevel: string | null = null;
   try {
     toplevel =
-      execFileSync('git', ['rev-parse', '--show-toplevel'], {
-        cwd,
-        encoding: 'utf-8',
-        // T13697: the cwd's own checkout, never an inherited GIT_DIR/GIT_WORK_TREE.
-        env: discoveryEnv(),
-        stdio: ['ignore', 'pipe', 'ignore'],
-      }).trim() || null;
+      execFileSync(
+        'git',
+        ['rev-parse', '--show-toplevel'],
+        boundedExecOptions({
+          cwd,
+          encoding: 'utf-8',
+          // T13697: the cwd's own checkout, never an inherited GIT_DIR/GIT_WORK_TREE.
+          env: discoveryEnv(),
+          stdio: ['ignore', 'pipe', 'ignore'],
+        }),
+      ).trim() || null;
   } catch {
     toplevel = null; // not a git checkout — try the store root and its children
   }
@@ -2393,11 +2397,15 @@ async function typedGateInputs(
 /** Run git in `cwd`, returning trimmed stdout, or null on failure. */
 function gitOutput(cwd: string, args: readonly string[]): string | null {
   try {
-    return execFileSync('git', args, {
-      cwd,
-      encoding: 'utf-8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-    }).trim();
+    return execFileSync(
+      'git',
+      args,
+      boundedExecOptions({
+        cwd,
+        encoding: 'utf-8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+      }),
+    ).trim();
   } catch {
     return null;
   }
@@ -4446,12 +4454,16 @@ export async function boundHeadGapReason(
   const root = resolveChangeSetRoot(projectRoot, task.id).root;
   const gitOut = (args: string[]): string | null => {
     try {
-      return execFileSync('git', args, {
-        cwd: root,
-        encoding: 'utf-8',
-        env: discoveryEnv(),
-        stdio: ['ignore', 'pipe', 'ignore'],
-      }).trim();
+      return execFileSync(
+        'git',
+        args,
+        boundedExecOptions({
+          cwd: root,
+          encoding: 'utf-8',
+          env: discoveryEnv(),
+          stdio: ['ignore', 'pipe', 'ignore'],
+        }),
+      ).trim();
     } catch {
       return null;
     }
@@ -4460,11 +4472,15 @@ export async function boundHeadGapReason(
   let missing: string | null = null;
   const contains = (descendant: string, ancestor: string): boolean => {
     try {
-      execFileSync('git', ['merge-base', '--is-ancestor', ancestor, descendant], {
-        cwd: root,
-        env: discoveryEnv(),
-        stdio: 'ignore',
-      });
+      execFileSync(
+        'git',
+        ['merge-base', '--is-ancestor', ancestor, descendant],
+        boundedExecOptions({
+          cwd: root,
+          env: discoveryEnv(),
+          stdio: 'ignore',
+        }),
+      );
       return true;
     } catch (err) {
       const status = err instanceof Error && 'status' in err ? err.status : undefined;

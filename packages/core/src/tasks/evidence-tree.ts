@@ -12,6 +12,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { isAbsolute, join, resolve as resolvePath } from 'node:path';
 import type { ChangeSetRootSource, EvidenceRepositoryDeclaration } from '@cleocode/contracts';
+import { boundedExecOptions } from '@cleocode/paths';
 import { discoveryEnv, gitToplevel, resolveDeclaredEvidenceGitRoot } from '../git/work-tree.js';
 import { enumerateWorktrees } from '../worktree/list.js';
 import { resolveCanonicalProjectRoot, resolveEvidenceExecutionRoot } from './evidence.js';
@@ -39,12 +40,16 @@ function canonical(path: string): string {
 function commonDirOf(dir: string): string | null {
   try {
     const args = ['rev-parse', '--path-format=absolute', '--git-common-dir'];
-    const common = execFileSync('git', args, {
-      cwd: dir,
-      encoding: 'utf-8',
-      env: discoveryEnv(),
-      stdio: ['ignore', 'pipe', 'ignore'],
-    }).trim();
+    const common = execFileSync(
+      'git',
+      args,
+      boundedExecOptions({
+        cwd: dir,
+        encoding: 'utf-8',
+        env: discoveryEnv(),
+        stdio: ['ignore', 'pipe', 'ignore'],
+      }),
+    ).trim();
     return common === '' ? null : canonical(common);
   } catch {
     return null;

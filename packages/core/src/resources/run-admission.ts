@@ -66,6 +66,8 @@ export {
   resolveRunClass,
 } from './run-class.js';
 
+import { boundedExecOptions } from '@cleocode/paths';
+
 // ---------------------------------------------------------------------------
 // Redaction
 // ---------------------------------------------------------------------------
@@ -152,12 +154,16 @@ export function isSignalablePid(pid: unknown): pid is number {
 export const processStart: ProcessStartFn = (pid) => {
   if (!isSignalablePid(pid)) return null;
   try {
-    const out = execFileSync('/bin/ps', ['-o', 'lstart=', '-p', String(pid)], {
-      encoding: 'utf-8',
-      timeout: 2000,
-      stdio: ['ignore', 'pipe', 'ignore'],
-      env: PS_ENV,
-    }).trim();
+    const out = execFileSync(
+      '/bin/ps',
+      ['-o', 'lstart=', '-p', String(pid)],
+      boundedExecOptions({
+        encoding: 'utf-8',
+        timeout: 2000,
+        stdio: ['ignore', 'pipe', 'ignore'],
+        env: PS_ENV,
+      }),
+    ).trim();
     return out.length > 0 ? out : null;
   } catch {
     return null;
@@ -530,12 +536,16 @@ export function reapOrphans(
 /** The process group a pid belongs to, from one `ps` exec; null when unknown. */
 export function processGroupOf(pid: number): number | null {
   try {
-    const out = execFileSync('/bin/ps', ['-o', 'pgid=', '-p', String(pid)], {
-      encoding: 'utf-8',
-      timeout: 2000,
-      stdio: ['ignore', 'pipe', 'ignore'],
-      env: PS_ENV,
-    }).trim();
+    const out = execFileSync(
+      '/bin/ps',
+      ['-o', 'pgid=', '-p', String(pid)],
+      boundedExecOptions({
+        encoding: 'utf-8',
+        timeout: 2000,
+        stdio: ['ignore', 'pipe', 'ignore'],
+        env: PS_ENV,
+      }),
+    ).trim();
     const n = Number.parseInt(out, 10);
     return Number.isInteger(n) && n > 0 ? n : null;
   } catch {
@@ -560,12 +570,16 @@ export function processGroupsOf(pids: readonly number[]): Map<number, number> {
   if (pids.length === 0) return groups;
   let out = '';
   try {
-    out = execFileSync('/bin/ps', ['-o', 'pid=,pgid=', '-p', pids.join(',')], {
-      encoding: 'utf-8',
-      timeout: 2000,
-      stdio: ['ignore', 'pipe', 'ignore'],
-      env: PS_ENV,
-    });
+    out = execFileSync(
+      '/bin/ps',
+      ['-o', 'pid=,pgid=', '-p', pids.join(',')],
+      boundedExecOptions({
+        encoding: 'utf-8',
+        timeout: 2000,
+        stdio: ['ignore', 'pipe', 'ignore'],
+        env: PS_ENV,
+      }),
+    );
   } catch (err) {
     // Linux ps exits non-zero when any pid is gone, but still prints the others.
     const stdout = err instanceof Error && 'stdout' in err ? err.stdout : undefined;
@@ -678,13 +692,17 @@ export function treeUsageFromTable(table: string, rootPid: number): ProcessTreeU
 export function processTreeUsage(rootPid: number, withCommands = false): ProcessTreeUsage | null {
   try {
     const columns = withCommands ? 'pid=,ppid=,time=,rss=,command=' : 'pid=,ppid=,time=,rss=';
-    const out = execFileSync('/bin/ps', ['-A', '-o', columns], {
-      encoding: 'utf-8',
-      timeout: 2000,
-      stdio: ['ignore', 'pipe', 'ignore'],
-      env: PS_ENV,
-      maxBuffer: 32 * 1024 * 1024,
-    });
+    const out = execFileSync(
+      '/bin/ps',
+      ['-A', '-o', columns],
+      boundedExecOptions({
+        encoding: 'utf-8',
+        timeout: 2000,
+        stdio: ['ignore', 'pipe', 'ignore'],
+        env: PS_ENV,
+        maxBuffer: 32 * 1024 * 1024,
+      }),
+    );
     return treeUsageFromTable(out, rootPid);
   } catch {
     return null;
@@ -817,12 +835,16 @@ const MAX_ANCESTRY = 64;
 export function processAncestors(pid: number): number[] | null {
   let out: string;
   try {
-    out = execFileSync('/bin/ps', ['-A', '-o', 'pid=,ppid='], {
-      encoding: 'utf-8',
-      timeout: 2000,
-      stdio: ['ignore', 'pipe', 'ignore'],
-      env: PS_ENV,
-    });
+    out = execFileSync(
+      '/bin/ps',
+      ['-A', '-o', 'pid=,ppid='],
+      boundedExecOptions({
+        encoding: 'utf-8',
+        timeout: 2000,
+        stdio: ['ignore', 'pipe', 'ignore'],
+        env: PS_ENV,
+      }),
+    );
   } catch {
     return null;
   }

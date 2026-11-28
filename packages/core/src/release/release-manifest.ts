@@ -35,6 +35,7 @@ import { execFileSync } from 'node:child_process';
 import { appendFileSync, existsSync, mkdirSync, renameSync, writeFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
+import { boundedExecOptions } from '@cleocode/paths';
 import { and, count, desc, eq, sql } from 'drizzle-orm';
 import { createPage } from '../pagination.js';
 import { getProjectRoot, resolveCleoDir } from '../paths.js';
@@ -837,11 +838,15 @@ export async function runReleaseGates(
     let workingTreeClean = true;
     let dirtyFiles: string[] = [];
     try {
-      const porcelain = execFileSync('git', ['status', '--porcelain'], {
-        cwd: projectRoot,
-        encoding: 'utf-8',
-        stdio: 'pipe',
-      });
+      const porcelain = execFileSync(
+        'git',
+        ['status', '--porcelain'],
+        boundedExecOptions({
+          cwd: projectRoot,
+          encoding: 'utf-8',
+          stdio: 'pipe',
+        }),
+      );
       dirtyFiles = porcelain
         .split('\n')
         .filter((l) => l.trim())
@@ -867,11 +872,15 @@ export async function runReleaseGates(
   const isPreRelease = normalizedVersion.includes('-');
   let currentBranch = '';
   try {
-    currentBranch = execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
-      cwd: projectRoot,
-      encoding: 'utf-8',
-      stdio: 'pipe',
-    }).trim();
+    currentBranch = execFileSync(
+      'git',
+      ['rev-parse', '--abbrev-ref', 'HEAD'],
+      boundedExecOptions({
+        cwd: projectRoot,
+        encoding: 'utf-8',
+        stdio: 'pipe',
+      }),
+    ).trim();
   } catch {
     /* git not available — skip */
   }
@@ -1193,12 +1202,16 @@ export async function pushRelease(
   // Check requireCleanTree
   // Untracked files (?? lines) are excluded — they do not affect push operations.
   if (pushPolicy?.requireCleanTree) {
-    const statusOutput = execFileSync('git', ['status', '--porcelain'], {
-      cwd: projectRoot,
-      timeout: 10000,
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
+    const statusOutput = execFileSync(
+      'git',
+      ['status', '--porcelain'],
+      boundedExecOptions({
+        cwd: projectRoot,
+        timeout: 10000,
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+      }),
+    );
     const trackedDirty = statusOutput
       .split('\n')
       .filter((l) => l.trim() && !l.startsWith('?? '))
@@ -1212,12 +1225,16 @@ export async function pushRelease(
 
   // Check allowedBranches
   if (pushPolicy?.allowedBranches && pushPolicy.allowedBranches.length > 0) {
-    const currentBranch = execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
-      cwd: projectRoot,
-      timeout: 10000,
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-    }).trim();
+    const currentBranch = execFileSync(
+      'git',
+      ['rev-parse', '--abbrev-ref', 'HEAD'],
+      boundedExecOptions({
+        cwd: projectRoot,
+        timeout: 10000,
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+      }),
+    ).trim();
     if (!pushPolicy.allowedBranches.includes(currentBranch)) {
       throw new Error(
         `Current branch '${currentBranch}' is not in allowed branches: ${pushPolicy.allowedBranches.join(', ')} (config: release.push.allowedBranches).`,
@@ -1225,12 +1242,16 @@ export async function pushRelease(
     }
   }
 
-  execFileSync('git', ['push', targetRemote, '--follow-tags'], {
-    cwd: projectRoot,
-    timeout: 60000,
-    encoding: 'utf-8',
-    stdio: ['pipe', 'pipe', 'pipe'],
-  });
+  execFileSync(
+    'git',
+    ['push', targetRemote, '--follow-tags'],
+    boundedExecOptions({
+      cwd: projectRoot,
+      timeout: 60000,
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    }),
+  );
 
   return {
     version: normalizedVersion,

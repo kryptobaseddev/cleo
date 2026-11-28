@@ -20,7 +20,7 @@ import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { basename, delimiter, join } from 'node:path';
 import type { Provider } from '@cleocode/caamp';
-import { findOnPath } from '@cleocode/paths';
+import { boundedExecOptions, findOnPath } from '@cleocode/paths';
 import { getAgentsHome, getCleoHome } from './paths.js';
 import type { UpgradeFileJournal } from './scaffold/upgrade-file-journal.js';
 import { getPackageRoot, stripCLEOBlocks } from './scaffold.js';
@@ -485,10 +485,14 @@ function readDeliveryOptIn(projectRoot: string): 'embedded' | 'reference' | null
  */
 function isInsideGitWorkTree(projectRoot: string): boolean {
   try {
-    execFileSync('git', ['rev-parse', '--is-inside-work-tree'], {
-      cwd: projectRoot,
-      stdio: 'ignore',
-    });
+    execFileSync(
+      'git',
+      ['rev-parse', '--is-inside-work-tree'],
+      boundedExecOptions({
+        cwd: projectRoot,
+        stdio: 'ignore',
+      }),
+    );
     return true;
   } catch {
     return false;
@@ -504,10 +508,14 @@ function isGitTracked(projectRoot: string, path: string): boolean {
   if (!isInsideGitWorkTree(projectRoot)) return false;
   if (!existsSync(path)) return true;
   try {
-    execFileSync('git', ['ls-files', '--error-unmatch', '--', path], {
-      cwd: projectRoot,
-      stdio: 'ignore',
-    });
+    execFileSync(
+      'git',
+      ['ls-files', '--error-unmatch', '--', path],
+      boundedExecOptions({
+        cwd: projectRoot,
+        stdio: 'ignore',
+      }),
+    );
     return true;
   } catch {
     return false;

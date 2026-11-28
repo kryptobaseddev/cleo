@@ -46,6 +46,7 @@ import type {
   DocsRotOrphan,
   DocsRotResult,
 } from '@cleocode/contracts/operations/docs.js';
+import { boundedExecOptions } from '@cleocode/paths';
 import { parse as parseYaml } from 'yaml';
 import { updateTask } from '../tasks/update.js';
 import { similarityScore } from './similarity-check.js';
@@ -73,7 +74,11 @@ interface ScannedDoc {
 }
 
 function git(root: string, args: string[]): string {
-  const r = spawnSync('git', args, { cwd: root, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
+  const r = spawnSync(
+    'git',
+    args,
+    boundedExecOptions({ cwd: root, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 }),
+  );
   if (r.status !== 0) {
     // @sync-invariant none:local-only a failed read of this checkout's git history stops the scan before any task is flagged
     throw new Error(`git ${args[0]} failed in ${root}: ${r.stderr.trim()}`);
@@ -212,11 +217,15 @@ function findOrphans(
   // One `git grep` for every `*.md` name in the repo; a doc naming only itself
   // is no reference. PCRE is ~7x faster here; git built without it gets -E.
   const grep = (mode: string, re: string) =>
-    spawnSync('git', ['grep', '-I', '-o', mode, re], {
-      cwd: root,
-      encoding: 'utf8',
-      maxBuffer: 256 * 1024 * 1024,
-    });
+    spawnSync(
+      'git',
+      ['grep', '-I', '-o', mode, re],
+      boundedExecOptions({
+        cwd: root,
+        encoding: 'utf8',
+        maxBuffer: 256 * 1024 * 1024,
+      }),
+    );
   let r = grep('-P', String.raw`[\w.-]+\.md`);
   if (r.status !== 0 && r.status !== 1) r = grep('-E', '[A-Za-z0-9._-]+[.]md');
   const referenced = new Set<string>();

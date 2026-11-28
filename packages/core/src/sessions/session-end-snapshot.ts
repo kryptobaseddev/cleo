@@ -56,6 +56,7 @@ import {
 } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
+import { boundedExecOptions } from '@cleocode/paths';
 import { getLogger } from '../logger.js';
 import { resolveStoreCleoDir } from '../paths.js';
 import {
@@ -217,12 +218,16 @@ function isPidAlive(pid: number): boolean {
  */
 function processStart(pid: number): string | null {
   try {
-    const out = execFileSync('ps', ['-o', 'lstart=', '-p', String(pid)], {
-      encoding: 'utf-8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-      timeout: 2_000,
-      env: { ...process.env, LC_ALL: 'C' },
-    }).trim();
+    const out = execFileSync(
+      'ps',
+      ['-o', 'lstart=', '-p', String(pid)],
+      boundedExecOptions({
+        encoding: 'utf-8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+        timeout: 2_000,
+        env: { ...process.env, LC_ALL: 'C' },
+      }),
+    ).trim();
     return out === '' ? null : out;
   } catch {
     return null;

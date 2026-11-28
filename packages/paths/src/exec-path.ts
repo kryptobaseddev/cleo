@@ -16,6 +16,7 @@
  * @task T12605
  */
 
+import type { StdioOptions } from 'node:child_process';
 import { accessSync, constants, statSync } from 'node:fs';
 import { posix, win32 } from 'node:path';
 
@@ -317,4 +318,87 @@ function defaultIsExecutable(candidate: string, platform: NodeJS.Platform): bool
   } catch {
     return false;
   }
+}
+
+/**
+ * Upper bound on a synchronous child that names no timeout of its own, in ms
+ * (T14670). Long enough for a slow `git fetch`; finite, so no child can hold
+ * the main thread forever.
+ */
+export const BOUNDED_EXEC_DEFAULT_TIMEOUT_MS = 600_000;
+
+/**
+ * Environment that keeps `gh` and `git` non-interactive (T14670): no pager
+ * (a pager is a grandchild that holds stdout open), no colour, no prompt.
+ */
+export const NON_INTERACTIVE_EXEC_ENV: Readonly<Record<string, string>> = {
+  GH_PAGER: 'cat',
+  GIT_PAGER: 'cat',
+  PAGER: 'cat',
+  NO_COLOR: '1',
+  GH_PROMPT_DISABLED: '1',
+  GIT_TERMINAL_PROMPT: '0',
+};
+
+/** The option fields {@link boundedExecOptions} sets; both sync exec option types have them. */
+interface BoundableExecOptions {
+  timeout?: number;
+  killSignal?: NodeJS.Signals | number;
+  env?: NodeJS.ProcessEnv;
+  /** Named so a literal `encoding` keeps its type (the `execFileSync` overloads key on it). */
+  encoding?: BufferEncoding | 'buffer' | null;
+  /** Named so a literal `stdio` tuple is typed as stdio, not `string[]`. */
+  stdio?: StdioOptions;
+}
+
+/** What {@link boundedExecOptions} returns with no options: no `encoding`, so a Buffer result stays typed as one. */
+export interface BoundedExecDefaults {
+  /** {@link BOUNDED_EXEC_DEFAULT_TIMEOUT_MS}. */
+  timeout: number;
+  /** SIGKILL. */
+  killSignal: NodeJS.Signals | number;
+  /** `process.env` plus {@link NON_INTERACTIVE_EXEC_ENV}. */
+  env: NodeJS.ProcessEnv;
+}
+
+/**
+ * Options for a synchronous `execFileSync`/`spawnSync` of `gh`, `git` or `ps`
+ * that cannot block the main thread past its timeout (T14670).
+ *
+ * A sync exec's timeout sends `killSignal` (default SIGTERM) to the direct
+ * child only, then waits for that child to exit. A child that ignores or
+ * outlives SIGTERM (a `gh` or `git` stuck behind a credential helper, a shim
+ * that traps the signal) keeps the main thread blocked for as long as it
+ * lives: no libuv loop runs, so finished async children stay defunct and no
+ * JS signal listener runs. SIGKILL cannot be ignored, and once the child is
+ * gone the sync runner closes its pipe ends and returns, even when a
+ * grandchild still holds stdout open. A sync exec cannot kill a process group
+ * (`spawnSync` has no group option), so such a grandchild is orphaned, not
+ * waited on.
+ *
+ * Sets `killSignal: 'SIGKILL'` and a {@link BOUNDED_EXEC_DEFAULT_TIMEOUT_MS}
+ * timeout unless the caller names its own, and adds
+ * {@link NON_INTERACTIVE_EXEC_ENV} over the caller's environment (or
+ * `process.env`).
+ *
+ * @param options - The caller's options (unchanged otherwise).
+ * @returns The bounded options, the same type the caller passed.
+ * @example
+ * ```ts
+ * execFileSync('gh', ['pr', 'view', '1'], boundedExecOptions({ encoding: 'utf-8', timeout: 60_000 }));
+ * ```
+ * @task T14670
+ */
+export function boundedExecOptions(): BoundedExecDefaults;
+export function boundedExecOptions<T extends BoundableExecOptions>(options: T): T;
+export function boundedExecOptions<T extends BoundableExecOptions>(
+  options?: T,
+): T | BoundedExecDefaults {
+  const bounded: BoundedExecDefaults = {
+    ...options,
+    timeout: options?.timeout ?? BOUNDED_EXEC_DEFAULT_TIMEOUT_MS,
+    killSignal: options?.killSignal ?? 'SIGKILL',
+    env: { ...(options?.env ?? process.env), ...NON_INTERACTIVE_EXEC_ENV },
+  };
+  return options === undefined ? bounded : ({ ...options, ...bounded } as T);
 }

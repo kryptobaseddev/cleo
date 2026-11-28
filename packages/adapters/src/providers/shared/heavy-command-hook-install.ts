@@ -44,6 +44,7 @@ import { homedir, tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { updateJsonConfigFile } from '@cleocode/caamp';
 import type { HeavyCommandHookMode } from '@cleocode/contracts';
+import { boundedExecOptions } from '@cleocode/paths';
 import { appendHookEntry, CLEO_HOOK_MARKER, hookMap, isPlainObject } from './hook-config.js';
 
 /** Identifies the heavy-command hook among CLEO's hook commands. */
@@ -735,12 +736,16 @@ function gitOutput(
   env: NodeJS.ProcessEnv = process.env,
 ): string | null {
   try {
-    return execFileSync('git', ['-C', projectDir, ...args], {
-      encoding: 'utf-8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-      timeout: 5000,
-      env,
-    }).trim();
+    return execFileSync(
+      'git',
+      ['-C', projectDir, ...args],
+      boundedExecOptions({
+        encoding: 'utf-8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+        timeout: 5000,
+        env,
+      }),
+    ).trim();
   } catch {
     return null;
   }
@@ -998,11 +1003,15 @@ export function restoreCommittedCodexHooks(projectDir: string): boolean {
   let committed: string;
   let working: unknown;
   try {
-    committed = execFileSync('git', ['-C', projectDir, 'show', `HEAD:./${CODEX_HOOKS_FILE}`], {
-      encoding: 'utf-8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-      timeout: 5000,
-    });
+    committed = execFileSync(
+      'git',
+      ['-C', projectDir, 'show', `HEAD:./${CODEX_HOOKS_FILE}`],
+      boundedExecOptions({
+        encoding: 'utf-8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+        timeout: 5000,
+      }),
+    );
     working = JSON.parse(readFileSync(file, 'utf-8'));
   } catch {
     return false;

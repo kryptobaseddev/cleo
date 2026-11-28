@@ -49,7 +49,8 @@ describe('getEffectiveHead', () => {
     expect(mockExecFileSync).toHaveBeenCalledWith(
       'git',
       ['rev-parse', '--verify', 'refs/heads/task/T123'],
-      { cwd: PROJECT_ROOT, stdio: 'ignore' },
+      // T14670: the probe is bounded (SIGKILL on timeout, non-interactive env).
+      expect.objectContaining({ cwd: PROJECT_ROOT, stdio: 'ignore', killSignal: 'SIGKILL' }),
     );
   });
 

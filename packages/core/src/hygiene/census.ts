@@ -62,7 +62,12 @@ import { fileURLToPath } from 'node:url';
 import { Worker } from 'node:worker_threads';
 import type { WorktreeInfo, WorktreeStatusCategory } from '@cleocode/contracts';
 import type { WorktreeLockRecord } from '@cleocode/contracts/operations/worktree.js';
-import { computeProjectHash, getCleoHome, getCleoWorktreesRoot } from '@cleocode/paths';
+import {
+  boundedExecOptions,
+  computeProjectHash,
+  getCleoHome,
+  getCleoWorktreesRoot,
+} from '@cleocode/paths';
 import { gitDefaultBranchRefs } from '../git/work-tree.js';
 import { trackExitWorker } from '../shutdown-deadline.js';
 import { acquireHeartbeatLock, claimAtMostEvery } from '../tasks/merge-close.js';
@@ -1035,7 +1040,12 @@ export async function mergedBranchCounts(
         '--format=%(refname:short)',
         'refs/remotes',
       ],
-      { cwd: projectRoot, timeout: 10_000, stdio: ['pipe', 'pipe', 'pipe'], encoding: 'utf-8' },
+      boundedExecOptions({
+        cwd: projectRoot,
+        timeout: 10_000,
+        stdio: ['pipe', 'pipe', 'pipe'],
+        encoding: 'utf-8',
+      }),
     );
     mergedRemote = out
       .split('\n')
@@ -1082,12 +1092,16 @@ function classifyNodeModules(worktreePath: string): 'absent' | 'symlink' | 'real
 function dirtyFileCount(worktreePath: string, deadline: number): number | null {
   if (Date.now() > deadline) return null;
   try {
-    const out = execFileSync('git', ['--no-optional-locks', 'status', '--porcelain'], {
-      cwd: worktreePath,
-      timeout: 10_000,
-      stdio: ['pipe', 'pipe', 'pipe'],
-      encoding: 'utf-8',
-    });
+    const out = execFileSync(
+      'git',
+      ['--no-optional-locks', 'status', '--porcelain'],
+      boundedExecOptions({
+        cwd: worktreePath,
+        timeout: 10_000,
+        stdio: ['pipe', 'pipe', 'pipe'],
+        encoding: 'utf-8',
+      }),
+    );
     return out.split('\n').filter((line) => line.trim() !== '').length;
   } catch {
     return null;

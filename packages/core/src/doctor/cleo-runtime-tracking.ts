@@ -18,7 +18,11 @@
 
 import { execFileSync } from 'node:child_process';
 import type { CheckResult } from '@cleocode/contracts/scaffold-diagnostics';
-import { PORTABLE_PROJECT_ID_FILE, PROJECT_MANIFEST_FILE } from '@cleocode/paths';
+import {
+  boundedExecOptions,
+  PORTABLE_PROJECT_ID_FILE,
+  PROJECT_MANIFEST_FILE,
+} from '@cleocode/paths';
 import { discoveryEnv } from '../git/work-tree.js';
 import { ensureGitignore, getGitignoreContent } from '../scaffold/ensure-config.js';
 
@@ -122,13 +126,17 @@ type GitRun = { ok: true; out: string } | { ok: false; error: string };
 /** Run git in `cwd` with no ambient repo variables. Never throws. */
 function runGit(cwd: string, args: readonly string[]): GitRun {
   try {
-    const out = execFileSync('git', ['-c', 'core.quotePath=false', ...args], {
-      cwd,
-      encoding: 'utf-8',
-      env: discoveryEnv(),
-      stdio: ['ignore', 'pipe', 'pipe'],
-      maxBuffer: 64 * 1024 * 1024,
-    });
+    const out = execFileSync(
+      'git',
+      ['-c', 'core.quotePath=false', ...args],
+      boundedExecOptions({
+        cwd,
+        encoding: 'utf-8',
+        env: discoveryEnv(),
+        stdio: ['ignore', 'pipe', 'pipe'],
+        maxBuffer: 64 * 1024 * 1024,
+      }),
+    );
     return { ok: true, out };
   } catch (err) {
     const stderr =

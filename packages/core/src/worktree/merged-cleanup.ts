@@ -34,7 +34,11 @@ import type {
   MergedCleanupOpts,
   MergedCleanupResult,
 } from '@cleocode/contracts';
-import { computeProjectHash, resolveWorktreeRootForHash } from '@cleocode/paths';
+import {
+  boundedExecOptions,
+  computeProjectHash,
+  resolveWorktreeRootForHash,
+} from '@cleocode/paths';
 import {
   disposeWorktree,
   napiRemoveDir,
@@ -61,14 +65,18 @@ const REMOTE_DELETE_BATCH = 50;
 /** Run git in `cwd`; stdout trimmed, or `null` on any failure. */
 function git(cwd: string, args: string[]): string | null {
   try {
-    return execFileSync('git', ['-C', cwd, ...args], {
-      // T14189: `-C` does not override an inherited GIT_DIR / GIT_INDEX_FILE.
-      env: discoveryEnv(),
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'pipe'],
-      timeout: 120_000,
-      maxBuffer: 64 * 1024 * 1024,
-    }).trim();
+    return execFileSync(
+      'git',
+      ['-C', cwd, ...args],
+      boundedExecOptions({
+        // T14189: `-C` does not override an inherited GIT_DIR / GIT_INDEX_FILE.
+        env: discoveryEnv(),
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+        timeout: 120_000,
+        maxBuffer: 64 * 1024 * 1024,
+      }),
+    ).trim();
   } catch {
     return null;
   }
@@ -592,8 +600,11 @@ function leasedRemoteDelete(root: string, items: readonly MergedCleanupItem[]): 
   for (const it of items) args.push(`:refs/heads/${it.target}`);
   // A rejected ref fails the push; its porcelain report is still on stdout.
   const out =
-    spawnSync('git', args, { encoding: 'utf8', timeout: 120_000, env: discoveryEnv() }).stdout ??
-    '';
+    spawnSync(
+      'git',
+      args,
+      boundedExecOptions({ encoding: 'utf8', timeout: 120_000, env: discoveryEnv() }),
+    ).stdout ?? '';
   const deleted = new Set<string>();
   for (const line of lines(out)) {
     const [flag, refs] = line.split('\t');
@@ -620,7 +631,12 @@ function openPrHeads(root: string): Set<string> | null {
         '--jq',
         '.[].headRefName',
       ],
-      { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 60_000 },
+      boundedExecOptions({
+        cwd: root,
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+        timeout: 60_000,
+      }),
     );
     return new Set(lines(out));
   } catch {

@@ -29,6 +29,7 @@ import {
   GitHookLegacyHashesSchema,
   NEXUS_GIT_HOOK_NAMES,
 } from '@cleocode/contracts/git-hooks.js';
+import { boundedExecOptions } from '@cleocode/paths';
 import { atomicWrite } from '../store/atomic.js';
 import { withFileLock } from '../store/file-utils.js';
 import { canonicalizePath } from '../tools/fs.js';
@@ -75,10 +76,10 @@ export function isNexusAutoReindexEnabled(projectRoot: string): boolean {
       execFileSync(
         'git',
         ['-C', projectRoot, 'config', '--bool', '--get', NEXUS_AUTO_REINDEX_GIT_KEY],
-        {
+        boundedExecOptions({
           encoding: 'utf8',
           stdio: ['ignore', 'pipe', 'ignore'],
-        },
+        }),
       ).trim() !== 'false'
     );
   } catch {
@@ -137,21 +138,29 @@ export async function installCleoHooks(
     execFileSync(
       'git',
       ['-C', absRoot, 'rev-parse', '--path-format=absolute', '--git-common-dir'],
-      {
+      boundedExecOptions({
         encoding: 'utf8',
-      },
+      }),
     ).trim(),
   );
   const bare =
-    execFileSync('git', ['-C', absRoot, 'rev-parse', '--is-bare-repository'], {
-      encoding: 'utf8',
-    }).trim() === 'true';
+    execFileSync(
+      'git',
+      ['-C', absRoot, 'rev-parse', '--is-bare-repository'],
+      boundedExecOptions({
+        encoding: 'utf8',
+      }),
+    ).trim() === 'true';
   const checkoutRoot = bare
     ? commonDir
     : fs.realpathSync(
-        execFileSync('git', ['-C', absRoot, 'rev-parse', '--show-toplevel'], {
-          encoding: 'utf8',
-        }).trim(),
+        execFileSync(
+          'git',
+          ['-C', absRoot, 'rev-parse', '--show-toplevel'],
+          boundedExecOptions({
+            encoding: 'utf8',
+          }),
+        ).trim(),
       );
   const effective = await canonicalizePath(hooksDir);
   const inside = (parent: string, child: string): boolean => {
@@ -432,10 +441,14 @@ export function isDetachedCleoHook(
  */
 export function resolveGitDir(projectRoot: string): string | null {
   try {
-    return execFileSync('git', ['-C', projectRoot, 'rev-parse', '--absolute-git-dir'], {
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-    }).trim();
+    return execFileSync(
+      'git',
+      ['-C', projectRoot, 'rev-parse', '--absolute-git-dir'],
+      boundedExecOptions({
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+      }),
+    ).trim();
   } catch {
     return null;
   }
@@ -452,10 +465,10 @@ export function resolveHooksDir(projectRoot: string, gitDir: string): string {
   const resolved = execFileSync(
     'git',
     ['-C', projectRoot, 'rev-parse', '--path-format=absolute', '--git-path', 'hooks'],
-    {
+    boundedExecOptions({
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'ignore'],
-    },
+    }),
   ).trim();
   void gitDir; // Retained for source compatibility with existing consumers.
   return resolved;

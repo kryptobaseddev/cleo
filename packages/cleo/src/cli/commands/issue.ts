@@ -22,6 +22,7 @@ import {
   ISSUE_AREAS,
   ISSUE_SEVERITIES,
 } from '@cleocode/core/internal';
+import { boundedExecOptions } from '@cleocode/paths';
 import { defineCommand, showUsage } from 'citty';
 import { dispatchFromCli } from '../../dispatch/adapters/cli.js';
 import { cliError, cliOutput } from '../renderers/index.js';
@@ -56,9 +57,13 @@ async function handleIssueType(issueType: string, opts: Record<string, unknown>)
   if (opts['open'] && typeof result.url === 'string' && result.url.startsWith('https://')) {
     const issueNumber = result.url.match(/(\d+)$/)?.[1] ?? 'unknown';
     try {
-      execFileSync('gh', ['issue', 'view', issueNumber, '--repo', CLEO_REPO, '--web'], {
-        stdio: ['pipe', 'pipe', 'pipe'],
-      });
+      execFileSync(
+        'gh',
+        ['issue', 'view', issueNumber, '--repo', CLEO_REPO, '--web'],
+        boundedExecOptions({
+          stdio: ['pipe', 'pipe', 'pipe'],
+        }),
+      );
     } catch {
       // Browser open is non-fatal
     }

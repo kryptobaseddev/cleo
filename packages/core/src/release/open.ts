@@ -44,8 +44,8 @@ import {
   ExitCode,
 } from '@cleocode/contracts/exit-codes.js';
 import { safeParseReleasePlan } from '@cleocode/contracts/release/plan.js';
+import { boundedExecOptions } from '@cleocode/paths';
 import { and, eq, notInArray } from 'drizzle-orm';
-
 import { getLogger } from '../logger.js';
 import { getProjectRoot } from '../paths.js';
 import { RELEASE_STATUSES } from '../store/schema/provenance/releases.js';
@@ -234,21 +234,29 @@ export interface ReleaseOpenRunner {
 function makeDefaultRunner(): ReleaseOpenRunner {
   return {
     runGh: (args, cwd, timeoutMs) =>
-      execFileSync('gh', [...args], {
-        cwd,
-        encoding: 'utf-8',
-        stdio: ['ignore', 'pipe', 'pipe'],
-        timeout: timeoutMs ?? SUBPROCESS_TIMEOUT_MS,
-        maxBuffer: 16 * 1024 * 1024,
-      }).trim(),
-    checkGhAuth: (cwd) => {
-      try {
-        execFileSync('gh', ['auth', 'status'], {
+      execFileSync(
+        'gh',
+        [...args],
+        boundedExecOptions({
           cwd,
           encoding: 'utf-8',
           stdio: ['ignore', 'pipe', 'pipe'],
-          timeout: SUBPROCESS_TIMEOUT_MS,
-        });
+          timeout: timeoutMs ?? SUBPROCESS_TIMEOUT_MS,
+          maxBuffer: 16 * 1024 * 1024,
+        }),
+      ).trim(),
+    checkGhAuth: (cwd) => {
+      try {
+        execFileSync(
+          'gh',
+          ['auth', 'status'],
+          boundedExecOptions({
+            cwd,
+            encoding: 'utf-8',
+            stdio: ['ignore', 'pipe', 'pipe'],
+            timeout: SUBPROCESS_TIMEOUT_MS,
+          }),
+        );
         return true;
       } catch {
         return false;
@@ -598,12 +606,16 @@ function readPlanBlobOnRemote(relPath: string, projectRoot: string, branch: stri
   }
   try {
     // No `encoding`, so this is the raw blob: the workflow hashes bytes.
-    return execFileSync('git', ['cat-file', 'blob', `origin/${branch}:${relPath}`], {
-      cwd: projectRoot,
-      stdio: ['ignore', 'pipe', 'ignore'],
-      timeout: SUBPROCESS_TIMEOUT_MS,
-      maxBuffer: 64 * 1024 * 1024,
-    });
+    return execFileSync(
+      'git',
+      ['cat-file', 'blob', `origin/${branch}:${relPath}`],
+      boundedExecOptions({
+        cwd: projectRoot,
+        stdio: ['ignore', 'pipe', 'ignore'],
+        timeout: SUBPROCESS_TIMEOUT_MS,
+        maxBuffer: 64 * 1024 * 1024,
+      }),
+    );
   } catch {
     return null;
   }

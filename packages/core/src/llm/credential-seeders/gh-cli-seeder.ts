@@ -45,6 +45,7 @@
  */
 
 import { execFileSync } from 'node:child_process';
+import { boundedExecOptions } from '@cleocode/paths';
 import type { CredentialSeeder, SeederResult } from './index.js';
 
 /**
@@ -70,13 +71,17 @@ const GH_AUTH_TOKEN_TIMEOUT_MS = 2_000;
  */
 export function readGhAuthToken(): { token: string | null; warning?: string } {
   try {
-    const stdout = execFileSync('gh', ['auth', 'token'], {
-      encoding: 'utf-8',
-      timeout: GH_AUTH_TOKEN_TIMEOUT_MS,
-      // Suppress gh's stderr ("not logged in") chatter — we treat any
-      // failure as silent skip. Stdin closed so gh can't prompt.
-      stdio: ['ignore', 'pipe', 'ignore'],
-    });
+    const stdout = execFileSync(
+      'gh',
+      ['auth', 'token'],
+      boundedExecOptions({
+        encoding: 'utf-8',
+        timeout: GH_AUTH_TOKEN_TIMEOUT_MS,
+        // Suppress gh's stderr ("not logged in") chatter — we treat any
+        // failure as silent skip. Stdin closed so gh can't prompt.
+        stdio: ['ignore', 'pipe', 'ignore'],
+      }),
+    );
     const token = stdout.trim();
     return { token: token || null };
   } catch (err) {

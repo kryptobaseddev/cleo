@@ -23,6 +23,7 @@ import {
   type ProjectHookDeliveryServices,
   type ProjectHookEntryInspection,
 } from '@cleocode/contracts/project-hook-delivery.js';
+import { boundedExecOptions } from '@cleocode/paths';
 import { excludeHookFileFromGit } from './providers/shared/heavy-command-hook-install.js';
 
 const MARKER = '# cleo-project-hook:v1';
@@ -378,7 +379,7 @@ async function deliverProvider(
   const tracking = spawnSync(
     'git',
     ['-C', options.projectRoot, 'ls-files', '--error-unmatch', '--', capability.configPath],
-    { timeout: 2000, stdio: 'ignore', env: options.services.gitEnvironment },
+    boundedExecOptions({ timeout: 2000, stdio: 'ignore', env: options.services.gitEnvironment }),
   );
   if (tracking.status === 0) {
     result.state = 'conflict';
@@ -558,13 +559,13 @@ async function validateStateDirectory(options: ProjectHookDeliveryOptions): Prom
         '--git-path',
         'cleo-project-hooks',
       ],
-      {
+      boundedExecOptions({
         encoding: 'utf8',
         timeout: 2000,
         maxBuffer: 16384,
         stdio: ['ignore', 'pipe', 'ignore'],
         env: options.services.gitEnvironment,
-      },
+      }),
     ).trim(),
   );
   const parent = await realpath(dirname(gitState));
@@ -593,13 +594,17 @@ async function rootCheckoutOptions(
 ): Promise<ProjectHookDeliveryOptions | undefined> {
   const git = (cwd: string, ...args: string[]): string | undefined => {
     try {
-      return execFileSync('git', ['-C', cwd, 'rev-parse', ...args], {
-        encoding: 'utf8',
-        timeout: 2000,
-        maxBuffer: 16384,
-        stdio: ['ignore', 'pipe', 'ignore'],
-        env: options.services.gitEnvironment,
-      }).trim();
+      return execFileSync(
+        'git',
+        ['-C', cwd, 'rev-parse', ...args],
+        boundedExecOptions({
+          encoding: 'utf8',
+          timeout: 2000,
+          maxBuffer: 16384,
+          stdio: ['ignore', 'pipe', 'ignore'],
+          env: options.services.gitEnvironment,
+        }),
+      ).trim();
     } catch {
       return undefined;
     }

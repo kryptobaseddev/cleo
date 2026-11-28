@@ -39,6 +39,7 @@ import type {
   TaskAuditLogRow,
 } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
+import { boundedExecOptions } from '@cleocode/paths';
 import { CleoError } from '../errors.js';
 
 /** The audit action a verdict is recorded under. */
@@ -178,13 +179,17 @@ export interface ReviewDeps {
 export type GhRunner = (args: string[], cwd: string) => string;
 
 const runGh: GhRunner = (args, cwd) =>
-  execFileSync('gh', args, {
-    cwd,
-    encoding: 'utf-8',
-    stdio: ['ignore', 'pipe', 'pipe'],
-    maxBuffer: 64 * 1024 * 1024,
-    timeout: 60_000,
-  });
+  execFileSync(
+    'gh',
+    args,
+    boundedExecOptions({
+      cwd,
+      encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+      maxBuffer: 64 * 1024 * 1024,
+      timeout: 60_000,
+    }),
+  );
 
 /**
  * One `gh` call; a failure throws gh's own stderr (T14328), never a bare

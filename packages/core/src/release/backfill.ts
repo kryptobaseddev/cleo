@@ -44,6 +44,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { boundedExecOptions } from '@cleocode/paths';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { getLogger } from '../logger.js';
 import { getProjectRoot } from '../paths.js';
@@ -150,13 +151,17 @@ interface CheckpointState {
  * their own try/catch when they expect failure.
  */
 function runGit(args: readonly string[], cwd: string): string {
-  return execFileSync('git', [...args], {
-    cwd,
-    encoding: 'utf-8',
-    stdio: ['ignore', 'pipe', 'pipe'],
-    timeout: SUBPROCESS_TIMEOUT_MS,
-    maxBuffer: 64 * 1024 * 1024,
-  }).trim();
+  return execFileSync(
+    'git',
+    [...args],
+    boundedExecOptions({
+      cwd,
+      encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+      timeout: SUBPROCESS_TIMEOUT_MS,
+      maxBuffer: 64 * 1024 * 1024,
+    }),
+  ).trim();
 }
 
 // ─── Internal — tag enumeration ──────────────────────────────────────────────

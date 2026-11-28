@@ -28,6 +28,7 @@ import { execFileSync } from 'node:child_process';
 import type { Session, Task } from '@cleocode/contracts';
 import { reconstructLineage } from '@cleocode/core/audit/reconstruct';
 import { getTaskAccessor } from '@cleocode/core/store/data-accessor';
+import { boundedExecOptions } from '@cleocode/paths';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -101,13 +102,17 @@ function runGit(cwd: string, args: readonly string[], deadlineAt: number): strin
   const remainingMs = deadlineAt - Date.now();
   if (remainingMs <= 0)
     throw new Error('E_OPERATION_DEADLINE: lineage deadline elapsed before trailer read');
-  const output = execFileSync('git', [...args], {
-    cwd,
-    encoding: 'utf-8',
-    stdio: ['pipe', 'pipe', 'pipe'],
-    timeout: remainingMs,
-    maxBuffer: 4 * 1024 * 1024,
-  });
+  const output = execFileSync(
+    'git',
+    [...args],
+    boundedExecOptions({
+      cwd,
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+      timeout: remainingMs,
+      maxBuffer: 4 * 1024 * 1024,
+    }),
+  );
   if (!output.trim()) throw new Error('E_GIT_READ_FAILED: commit body is unavailable');
   return output.trim();
 }

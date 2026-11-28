@@ -56,6 +56,7 @@ import {
 import { tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import type { PreparedGitPushHook } from '@cleocode/contracts/resource-governor.js';
+import { boundedExecOptions } from '@cleocode/paths';
 import lockfile from 'proper-lockfile';
 import { getCleoHome } from '../paths.js';
 import { gitHookFor, parseGitInvocation, runFootprint } from './run-class.js';
@@ -183,12 +184,16 @@ function git(
   args: readonly string[],
   timeout = 5_000,
 ): string {
-  return execFileSync('git', [...globals, ...args], {
-    cwd,
-    encoding: 'utf8',
-    stdio: ['ignore', 'pipe', 'ignore'],
-    timeout,
-  }).trim();
+  return execFileSync(
+    'git',
+    [...globals, ...args],
+    boundedExecOptions({
+      cwd,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+      timeout,
+    }),
+  ).trim();
 }
 
 /** How long the alias probe may take before it fails heavy (T14405). */

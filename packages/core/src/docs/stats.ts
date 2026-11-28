@@ -38,6 +38,7 @@ import type {
   DocsStatsResult,
   LooseMarkdownMetrics,
 } from '@cleocode/contracts/operations/docs.js';
+import { boundedExecOptions } from '@cleocode/paths';
 import { count } from 'drizzle-orm';
 import { countLinkedDecisionAdrs } from '../store/decision-adr-links.js';
 import { docsWikilinks } from '../store/schema/attachments.js';
@@ -65,10 +66,14 @@ const EXCLUDED_DIR_NAMES = ['node_modules', '.git', '.cleo'] as const;
  */
 export function countLooseMarkdown(projectRoot: string): LooseMarkdownMetrics {
   const excludedDirs = [...EXCLUDED_DIR_NAMES];
-  const result = spawnSync('git', ['ls-files', '--', '*.md'], {
-    cwd: projectRoot,
-    encoding: 'utf8',
-  });
+  const result = spawnSync(
+    'git',
+    ['ls-files', '--', '*.md'],
+    boundedExecOptions({
+      cwd: projectRoot,
+      encoding: 'utf8',
+    }),
+  );
   if (result.status !== 0) {
     // Not a git work tree (or git unavailable): the metric counts tracked
     // loose markdown only, so there is nothing to measure.

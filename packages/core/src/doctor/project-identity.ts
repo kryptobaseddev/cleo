@@ -46,6 +46,7 @@ import { randomUUID } from 'node:crypto';
 import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
+  boundedExecOptions,
   canonicalizePath,
   getCleoHome,
   isValidPortableProjectId,
@@ -254,7 +255,11 @@ function gitFileState(
   const rel = `.cleo/${file}`;
   const run = (args: string[]): boolean => {
     try {
-      execFileSync('git', args, { cwd: projectRoot, stdio: 'pipe', timeout: GIT_PROBE_TIMEOUT_MS });
+      execFileSync(
+        'git',
+        args,
+        boundedExecOptions({ cwd: projectRoot, stdio: 'pipe', timeout: GIT_PROBE_TIMEOUT_MS }),
+      );
       return true;
     } catch {
       return false;
@@ -457,11 +462,15 @@ function writeJsonAtomic(path: string, data: Record<string, unknown>): void {
 /** Whether git tracks `.cleo/<file>`, so rewriting it dirties the work tree. */
 function isGitTracked(projectRoot: string, file: string): boolean {
   try {
-    execFileSync('git', ['ls-files', '--error-unmatch', `.cleo/${file}`], {
-      cwd: projectRoot,
-      stdio: 'pipe',
-      timeout: GIT_PROBE_TIMEOUT_MS,
-    });
+    execFileSync(
+      'git',
+      ['ls-files', '--error-unmatch', `.cleo/${file}`],
+      boundedExecOptions({
+        cwd: projectRoot,
+        stdio: 'pipe',
+        timeout: GIT_PROBE_TIMEOUT_MS,
+      }),
+    );
     return true;
   } catch {
     return false;
@@ -608,12 +617,16 @@ function allowManifestInGitignore(
   const rel = `.cleo/${PROJECT_MANIFEST_FILE}`;
   let source: string;
   try {
-    source = execFileSync('git', ['check-ignore', '-v', '--no-index', rel], {
-      cwd: projectRoot,
-      stdio: ['ignore', 'pipe', 'ignore'],
-      timeout: GIT_PROBE_TIMEOUT_MS,
-      encoding: 'utf-8',
-    });
+    source = execFileSync(
+      'git',
+      ['check-ignore', '-v', '--no-index', rel],
+      boundedExecOptions({
+        cwd: projectRoot,
+        stdio: ['ignore', 'pipe', 'ignore'],
+        timeout: GIT_PROBE_TIMEOUT_MS,
+        encoding: 'utf-8',
+      }),
+    );
   } catch {
     return null; // not ignored (exit 1), or not a git work tree
   }

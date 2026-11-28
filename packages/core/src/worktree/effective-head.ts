@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process';
+import { boundedExecOptions } from '@cleocode/paths';
 
 /**
  * Resolve the effective HEAD ref for evidence validation in a worktree context.
@@ -14,10 +15,14 @@ import { execFileSync } from 'node:child_process';
 export async function getEffectiveHead(projectRoot: string, taskId?: string): Promise<string> {
   if (!taskId) return 'HEAD';
   try {
-    execFileSync('git', ['rev-parse', '--verify', `refs/heads/task/${taskId}`], {
-      cwd: projectRoot,
-      stdio: 'ignore',
-    });
+    execFileSync(
+      'git',
+      ['rev-parse', '--verify', `refs/heads/task/${taskId}`],
+      boundedExecOptions({
+        cwd: projectRoot,
+        stdio: 'ignore',
+      }),
+    );
     return `task/${taskId}`;
   } catch {
     return 'HEAD';

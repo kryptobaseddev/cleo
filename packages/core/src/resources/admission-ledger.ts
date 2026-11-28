@@ -87,6 +87,7 @@ import type {
   MemoryPressureReading,
   ResourceClass,
 } from '@cleocode/contracts';
+import { boundedExecOptions } from '@cleocode/paths';
 import lockfile from 'proper-lockfile';
 import { isDetachedCleoHook } from '../git/hooks-install.js';
 import { getLogger } from '../logger.js';
@@ -2216,12 +2217,16 @@ function programOf(command: string): string | null {
 function processTable(): Map<number, { ppid: number; command: string }> | null {
   let out: string;
   try {
-    out = execFileSync('/bin/ps', ['-A', '-o', 'pid=,ppid=,command='], {
-      encoding: 'utf-8',
-      timeout: 2000,
-      stdio: ['ignore', 'pipe', 'ignore'],
-      env: { ...process.env, LC_ALL: 'C' },
-    });
+    out = execFileSync(
+      '/bin/ps',
+      ['-A', '-o', 'pid=,ppid=,command='],
+      boundedExecOptions({
+        encoding: 'utf-8',
+        timeout: 2000,
+        stdio: ['ignore', 'pipe', 'ignore'],
+        env: { ...process.env, LC_ALL: 'C' },
+      }),
+    );
   } catch {
     return null;
   }

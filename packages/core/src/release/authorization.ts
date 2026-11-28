@@ -50,6 +50,7 @@ import type {
   ReleaseAuthorizationScope,
   ReleaseAuthorizationStatus,
 } from '@cleocode/contracts/release/authorization.js';
+import { boundedExecOptions } from '@cleocode/paths';
 import { getCleoHome } from '../paths.js';
 import {
   judgeOwnerState,
@@ -262,11 +263,15 @@ function usesOf(projectRoot: string, id: string, gitRoot: string): number {
   }
   let tags = 0;
   try {
-    tags = execFileSync('git', ['for-each-ref', '--format=%(contents)', 'refs/tags/v*'], {
-      cwd: gitRoot,
-      encoding: 'utf-8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-    })
+    tags = execFileSync(
+      'git',
+      ['for-each-ref', '--format=%(contents)', 'refs/tags/v*'],
+      boundedExecOptions({
+        cwd: gitRoot,
+        encoding: 'utf-8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+      }),
+    )
       .split('\n')
       .filter((l) => l.trim() === `${AUTHORIZED_BY_TRAILER}: ${id}`).length;
   } catch {

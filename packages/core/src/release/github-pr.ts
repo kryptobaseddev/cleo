@@ -11,6 +11,7 @@ import type {
   PRResult,
   RepoIdentity,
 } from '@cleocode/contracts';
+import { boundedExecOptions } from '@cleocode/paths';
 
 // Re-export contract types so existing consumers that import from this module
 // keep working. New code SHOULD import directly from `@cleocode/contracts`.
@@ -65,7 +66,7 @@ export function ghQueryTimeoutMs(): number {
 }
 
 /**
- * Whether a failed `execFileSync('gh', …)` was its deadline firing.
+ * Whether a failed `execFileSync('gh', …, boundedExecOptions())` was its deadline firing.
  *
  * @param err - The caught error.
  * @returns True for a timeout kill.
@@ -95,7 +96,11 @@ export function ghTimeoutReason(what: string): string {
 export function isGhCliAvailable(): boolean {
   try {
     // T12689: bounded like every evidence gh query — a hung gh is "unavailable".
-    execFileSync('gh', ['--version'], { stdio: 'pipe', timeout: ghQueryTimeoutMs() });
+    execFileSync(
+      'gh',
+      ['--version'],
+      boundedExecOptions({ stdio: 'pipe', timeout: ghQueryTimeoutMs() }),
+    );
     return true;
   } catch {
     return false;
@@ -139,21 +144,29 @@ export async function detectBranchProtection(
   // Strategy 1: gh CLI via GitHub API
   if (isGhCliAvailable()) {
     try {
-      const remoteUrl = execFileSync('git', ['remote', 'get-url', remote], {
-        encoding: 'utf-8',
-        stdio: 'pipe',
-        ...cwdOpts,
-      }).trim();
+      const remoteUrl = execFileSync(
+        'git',
+        ['remote', 'get-url', remote],
+        boundedExecOptions({
+          encoding: 'utf-8',
+          stdio: 'pipe',
+          ...cwdOpts,
+        }),
+      ).trim();
 
       const identity = extractRepoOwnerAndName(remoteUrl);
       if (identity) {
         const { owner, repo } = identity;
         try {
-          execFileSync('gh', ['api', `/repos/${owner}/${repo}/branches/${branch}/protection`], {
-            encoding: 'utf-8',
-            stdio: 'pipe',
-            ...cwdOpts,
-          });
+          execFileSync(
+            'gh',
+            ['api', `/repos/${owner}/${repo}/branches/${branch}/protection`],
+            boundedExecOptions({
+              encoding: 'utf-8',
+              stdio: 'pipe',
+              ...cwdOpts,
+            }),
+          );
           // Exit code 0 means protection rules exist
           return { protected: true, detectionMethod: 'gh-api' };
         } catch (apiErr: unknown) {
@@ -173,11 +186,15 @@ export async function detectBranchProtection(
 
   // Strategy 2: git push --dry-run
   try {
-    const result = execFileSync('git', ['push', '--dry-run', remote, `HEAD:${branch}`], {
-      encoding: 'utf-8',
-      stdio: 'pipe',
-      ...cwdOpts,
-    });
+    const result = execFileSync(
+      'git',
+      ['push', '--dry-run', remote, `HEAD:${branch}`],
+      boundedExecOptions({
+        encoding: 'utf-8',
+        stdio: 'pipe',
+        ...cwdOpts,
+      }),
+    );
     // If stderr from a successful dry-run contains protection signals
     const output = typeof result === 'string' ? result : '';
     if (
@@ -231,11 +248,15 @@ const KNOWN_CLEO_LABELS: CleoLabelPalette = {
 export function listExistingLabels(projectRoot?: string): string[] {
   if (!isGhCliAvailable()) return [];
   try {
-    const stdout = execFileSync('gh', ['label', 'list', '--limit', '200', '--json', 'name'], {
-      encoding: 'utf-8',
-      stdio: 'pipe',
-      ...(projectRoot ? { cwd: projectRoot } : {}),
-    });
+    const stdout = execFileSync(
+      'gh',
+      ['label', 'list', '--limit', '200', '--json', 'name'],
+      boundedExecOptions({
+        encoding: 'utf-8',
+        stdio: 'pipe',
+        ...(projectRoot ? { cwd: projectRoot } : {}),
+      }),
+    );
     const parsed = JSON.parse(stdout) as Array<{ name?: string }>;
     return parsed.map((row) => row.name ?? '').filter(Boolean);
   } catch {
@@ -281,11 +302,11 @@ export function ensureCleoLabelsExist(
       execFileSync(
         'gh',
         ['label', 'create', name, '--color', meta.color, '--description', meta.description],
-        {
+        boundedExecOptions({
           encoding: 'utf-8',
           stdio: 'pipe',
           ...(projectRoot ? { cwd: projectRoot } : {}),
-        },
+        }),
       );
       created.push(name);
       ensured.push(name);
@@ -411,11 +432,15 @@ export async function createPullRequest(opts: PRCreateOptions): Promise<PRResult
   };
 
   const runGh = (labels: string[]): string =>
-    execFileSync('gh', buildArgs(labels), {
-      encoding: 'utf-8',
-      stdio: 'pipe',
-      ...(opts.projectRoot ? { cwd: opts.projectRoot } : {}),
-    });
+    execFileSync(
+      'gh',
+      buildArgs(labels),
+      boundedExecOptions({
+        encoding: 'utf-8',
+        stdio: 'pipe',
+        ...(opts.projectRoot ? { cwd: opts.projectRoot } : {}),
+      }),
+    );
 
   const isLabelError = (msg: string): boolean =>
     /not\s+found|no\s+such\s+label|could\s+not\s+add\s+label|invalid\s+label/i.test(msg);

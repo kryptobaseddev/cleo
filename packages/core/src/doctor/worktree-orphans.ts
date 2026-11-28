@@ -55,7 +55,7 @@ import type {
   PruneResult,
   WorktreeAnomaly,
 } from '@cleocode/contracts';
-import { computeProjectHash, getCleoWorktreesRoot } from '@cleocode/paths';
+import { boundedExecOptions, computeProjectHash, getCleoWorktreesRoot } from '@cleocode/paths';
 import { create as tarCreate } from 'tar';
 
 /**
@@ -691,10 +691,14 @@ const COMPREHENSIVE_SCAN_DEPTH = 2;
  * @returns Array of absolute worktree paths.
  */
 function listGitWorktrees(gitDir: string): string[] {
-  const result = spawnSync('git', ['-C', gitDir, 'worktree', 'list', '--porcelain'], {
-    encoding: 'utf8',
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
+  const result = spawnSync(
+    'git',
+    ['-C', gitDir, 'worktree', 'list', '--porcelain'],
+    boundedExecOptions({
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    }),
+  );
   if (result.status !== 0 || !result.stdout) {
     return [];
   }

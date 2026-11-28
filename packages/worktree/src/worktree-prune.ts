@@ -26,6 +26,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import type { PruneWorktreesOptions, PruneWorktreesResult } from '@cleocode/contracts';
+import { boundedExecOptions } from '@cleocode/paths';
 import { getGitRoot, gitSilent } from './git.js';
 import { pruneWorktrees as napiPrune } from './napi-binding.js';
 import { computeProjectHash, resolveWorktreeRootForHash } from './paths.js';
@@ -276,11 +277,15 @@ function pruneSingleEntry(
  */
 function isWorktreeIdle(worktreePath: string, thresholdDays: number): boolean {
   try {
-    const epochStr = execFileSync('git', ['-C', worktreePath, 'log', '-1', '--format=%ct'], {
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-      timeout: 10_000,
-    }).trim();
+    const epochStr = execFileSync(
+      'git',
+      ['-C', worktreePath, 'log', '-1', '--format=%ct'],
+      boundedExecOptions({
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+        timeout: 10_000,
+      }),
+    ).trim();
     if (epochStr.length === 0) return false;
     const lastCommitEpochMs = Number.parseInt(epochStr, 10) * 1000;
     if (Number.isNaN(lastCommitEpochMs)) return false;

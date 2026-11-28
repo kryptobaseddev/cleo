@@ -33,6 +33,7 @@
  */
 
 import { execFileSync } from 'node:child_process';
+import { boundedExecOptions } from '@cleocode/paths';
 import { parse as parseYaml } from 'yaml';
 import { listWorkspacePackages } from './affected-packages.js';
 
@@ -82,12 +83,16 @@ const isMapping = (value: unknown): value is Mapping =>
 /** `git show <rev>:<path>`, or null when the file is absent there. */
 function show(root: string, rev: string, path: string): string | null {
   try {
-    return execFileSync('git', ['show', `${rev}:${path}`], {
-      cwd: root,
-      encoding: 'utf-8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-      maxBuffer: 256 * 1024 * 1024,
-    });
+    return execFileSync(
+      'git',
+      ['show', `${rev}:${path}`],
+      boundedExecOptions({
+        cwd: root,
+        encoding: 'utf-8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+        maxBuffer: 256 * 1024 * 1024,
+      }),
+    );
   } catch {
     return null;
   }

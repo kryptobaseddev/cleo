@@ -1,7 +1,7 @@
 ---
 name: ct-dev-workflow
 description: Development workflow orchestration for task-driven development with atomic commits, conventional commit messages, and systematic release processes. Enforces task traceability, branch discipline, smart test scope selection, and GitHub Actions integration. Use when committing code, creating releases, managing branches, or following contribution protocols. Triggers on commit operations, release preparation, or workflow compliance needs.
-version: 3.14.0
+version: 3.15.0
 protocol: contribution
 dependencies: []
 sharedResources:
@@ -14,7 +14,7 @@ compatibility:
   - gemini-cli
 license: MIT
 metadata:
-  version: 3.14.0
+  version: 3.15.0
   tier: core
   install: harness
   covers:
@@ -28,7 +28,7 @@ metadata:
     - packages/contracts/src/git-hooks.ts
     - packages/core/src/tasks/merge-train.ts
     - packages/cleo/src/cli/commands/merge.ts
-  lastReviewed: 2026-11-26
+  lastReviewed: 2026-11-27
   stability: stable
 ---
 
@@ -572,6 +572,7 @@ gh pr create --fill
 | Manual release creation | Inconsistent releases | Use tag, GH Actions |
 | Giant commits | Hard to review/revert | Atomic commits |
 | Vague commit messages | Lost context | Conventional + task ref |
+| Raw sync `gh`/`git`/`ps` exec | Its timeout SIGTERMs only the child and then waits for it, so a child that ignores SIGTERM blocks the CLI forever (T14670) | Wrap the options: `execFileSync('git', args, boundedExecOptions({...}))` from `@cleocode/paths` |
 
 ---
 

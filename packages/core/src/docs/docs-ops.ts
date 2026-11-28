@@ -30,7 +30,11 @@ import {
 } from 'node:path';
 import type { LocalFileAttachment } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
-import { computeProjectHash, resolveWorktreeRootForHash } from '@cleocode/paths';
+import {
+  boundedExecOptions,
+  computeProjectHash,
+  resolveWorktreeRootForHash,
+} from '@cleocode/paths';
 import type { KnowledgeGraph, MessageInput } from 'llmtxt/graph';
 import type { ReconstructionResult, VersionDiffSummary, VersionEntry } from 'llmtxt/sdk';
 import type { SimilarityRankResult } from 'llmtxt/similarity';
@@ -1157,13 +1161,17 @@ async function canonicalWorktreeProjectDir(root: string, cwd: string): Promise<s
   if (dirname(checkout) !== base) return null;
   const common = (dir: string): string | null => {
     try {
-      return execFileSync('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], {
-        cwd: dir,
-        env: discoveryEnv(),
-        encoding: 'utf8',
-        timeout: 10000,
-        stdio: ['ignore', 'pipe', 'ignore'],
-      }).trim();
+      return execFileSync(
+        'git',
+        ['rev-parse', '--path-format=absolute', '--git-common-dir'],
+        boundedExecOptions({
+          cwd: dir,
+          env: discoveryEnv(),
+          encoding: 'utf8',
+          timeout: 10000,
+          stdio: ['ignore', 'pipe', 'ignore'],
+        }),
+      ).trim();
     } catch {
       return null;
     }
@@ -1204,14 +1212,18 @@ async function validatedPublicationPath(
   const worktreeBase = resolveWorktreeRootForHash(computeProjectHash(canonicalRoot));
   const canonicalBase = await canonicalizePath(worktreeBase);
   const probe = (cwd: string, args: string[]): string =>
-    execFileSync('git', args, {
-      cwd,
-      env: discoveryEnv(),
-      encoding: 'utf8',
-      timeout: 10000,
-      maxBuffer: 1024 * 1024,
-      stdio: ['ignore', 'pipe', 'ignore'],
-    }).trim();
+    execFileSync(
+      'git',
+      args,
+      boundedExecOptions({
+        cwd,
+        env: discoveryEnv(),
+        encoding: 'utf8',
+        timeout: 10000,
+        maxBuffer: 1024 * 1024,
+        stdio: ['ignore', 'pipe', 'ignore'],
+      }),
+    ).trim();
   try {
     // Cold path only: ordinary project publication never loads the worktree barrel.
     const { parseWorktreePorcelain } = await import('@cleocode/worktree');
@@ -1933,13 +1945,17 @@ async function locateUnpulledMirror(
   const repoRel = (sub === '' ? rel : join(sub, rel)).split(sep).join('/');
   for (const ref of gitDefaultBranchRefs(top)) {
     try {
-      const bytes = execFileSync('git', ['show', `${ref}:${repoRel}`], {
-        cwd: top,
-        env: discoveryEnv(),
-        timeout: 10000,
-        maxBuffer: 64 * 1024 * 1024,
-        stdio: ['ignore', 'pipe', 'ignore'],
-      });
+      const bytes = execFileSync(
+        'git',
+        ['show', `${ref}:${repoRel}`],
+        boundedExecOptions({
+          cwd: top,
+          env: discoveryEnv(),
+          timeout: 10000,
+          maxBuffer: 64 * 1024 * 1024,
+          stdio: ['ignore', 'pipe', 'ignore'],
+        }),
+      );
       return {
         kind: 'default-branch',
         sha256: createHash('sha256').update(bytes).digest('hex'),

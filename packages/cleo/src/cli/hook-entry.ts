@@ -592,6 +592,10 @@ export function ancestorCommandText(): string | null {
         encoding: 'utf-8',
         stdio: ['ignore', 'pipe', 'ignore'],
         timeout: 5000,
+        // SIGKILL: a sync exec blocks until its child exits, and SIGTERM can be
+        // ignored (T14670). Inline, not @cleocode/paths boundedExecOptions:
+        // this hot path loads no barrel (T12983).
+        killSignal: 'SIGKILL',
         maxBuffer: 32 * 1024 * 1024,
       });
     } catch {

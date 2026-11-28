@@ -27,6 +27,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { dirname, isAbsolute, join, relative, sep } from 'node:path';
+import { boundedExecOptions } from '@cleocode/paths';
 
 const PNPM_INSTALL_TIMEOUT_MS = 120_000;
 const LOCK_RETRY_INTERVAL_MS = 500;
@@ -222,11 +223,15 @@ const PROVISIONED_NPMRC_RECORD = 'cleo-provisioned-npmrc';
 /** The worktree's own git admin dir (`.git/worktrees/<name>`), or `null` when git fails. */
 function worktreeGitDir(worktreePath: string): string | null {
   try {
-    return execFileSync('git', ['rev-parse', '--path-format=absolute', '--git-dir'], {
-      cwd: worktreePath,
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-    }).trim();
+    return execFileSync(
+      'git',
+      ['rev-parse', '--path-format=absolute', '--git-dir'],
+      boundedExecOptions({
+        cwd: worktreePath,
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+      }),
+    ).trim();
   } catch {
     return null;
   }
@@ -388,10 +393,14 @@ export function pnpmProvisioningProbe(worktreePath: string): (rel: string) => bo
  */
 export function isNpmrcTracked(worktreePath: string): boolean {
   try {
-    execFileSync('git', ['ls-files', '--error-unmatch', '.npmrc'], {
-      cwd: worktreePath,
-      stdio: 'pipe',
-    });
+    execFileSync(
+      'git',
+      ['ls-files', '--error-unmatch', '.npmrc'],
+      boundedExecOptions({
+        cwd: worktreePath,
+        stdio: 'pipe',
+      }),
+    );
     return true;
   } catch {
     return false;
@@ -409,11 +418,15 @@ export function isNpmrcTracked(worktreePath: string): boolean {
  */
 export function excludeFromGit(cwd: string, patterns: readonly string[]): void {
   try {
-    const rel = execFileSync('git', ['rev-parse', '--git-path', 'info/exclude'], {
-      cwd,
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-    }).trim();
+    const rel = execFileSync(
+      'git',
+      ['rev-parse', '--git-path', 'info/exclude'],
+      boundedExecOptions({
+        cwd,
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+      }),
+    ).trim();
     const excludePath = isAbsolute(rel) ? rel : join(cwd, rel);
     const current = existsSync(excludePath) ? readFileSync(excludePath, 'utf-8') : '';
     const have = new Set(current.split('\n').map((l) => l.trim()));

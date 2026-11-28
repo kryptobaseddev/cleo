@@ -20,6 +20,7 @@
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import type { EvidenceAtom, VerificationGate } from '@cleocode/contracts';
+import { boundedExecOptions } from '@cleocode/paths';
 import { discoveryEnv } from '../git/work-tree.js';
 import type { EvidenceRoots } from '../tasks/evidence.js';
 import { isVerificationGate } from '../tasks/verification-policy.js';
@@ -460,12 +461,16 @@ export async function resolveDeployEvidenceAtom(
   }
   let headSha: string;
   try {
-    headSha = execFileSync('git', ['rev-parse', '--verify', '--quiet', `${parsed.sha}^{commit}`], {
-      cwd: roots.executionRoot,
-      encoding: 'utf-8',
-      env: discoveryEnv(),
-      stdio: ['ignore', 'pipe', 'ignore'],
-    }).trim();
+    headSha = execFileSync(
+      'git',
+      ['rev-parse', '--verify', '--quiet', `${parsed.sha}^{commit}`],
+      boundedExecOptions({
+        cwd: roots.executionRoot,
+        encoding: 'utf-8',
+        env: discoveryEnv(),
+        stdio: ['ignore', 'pipe', 'ignore'],
+      }),
+    ).trim();
   } catch {
     // @sync-invariant none:input-shape a deployed commit git cannot read is refused before anything is written
     return {

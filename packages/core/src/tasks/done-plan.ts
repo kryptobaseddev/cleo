@@ -45,6 +45,7 @@ import type {
 } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { TERMINAL_TASK_STATUSES } from '@cleocode/contracts/status-registry.js';
+import { boundedExecOptions } from '@cleocode/paths';
 import { type EngineResult, engineSuccess } from '../engine-result.js';
 import { CleoError } from '../errors.js';
 import { cleoErrorToEngineResult } from '../errors-to-engine.js';
@@ -52,7 +53,6 @@ import { shellQuote } from '../lib/shell-quote.js';
 import { getProjectRoot } from '../paths.js';
 import { readProjectInfoAtDirectorySync, worktreeScope } from '../project-scope.js';
 import { isCiDocumentPath, readCiChecks, readCiSatisfies } from '../release/ci-evidence.js';
-
 import { createOperationExecutionContext } from '../store/background-ops.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import type { AcCoverageResult } from './ac-coverage-gate.js';
@@ -249,11 +249,15 @@ const defaultPreviewEvidence: DoneEvidencePreview = async (storeRoot, taskId, ga
 /** `git` read in `cwd`, trimmed; `null` on failure (a non-zero exit included). */
 function gitRead(cwd: string, args: readonly string[]): string | null {
   try {
-    return execFileSync('git', args, {
-      cwd,
-      encoding: 'utf-8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-    }).trim();
+    return execFileSync(
+      'git',
+      args,
+      boundedExecOptions({
+        cwd,
+        encoding: 'utf-8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+      }),
+    ).trim();
   } catch {
     return null;
   }

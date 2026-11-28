@@ -26,6 +26,7 @@ import type {
   StoreRepairReceipt,
   StoreRestoreIntentMarker,
 } from '@cleocode/contracts/db-recovery.js';
+import { boundedExecOptions } from '@cleocode/paths';
 import { CleoError } from '../errors.js';
 import { lockCompromiseTracker, withLock } from './lock.js';
 import {
@@ -238,12 +239,16 @@ function missingTasks(staged: string, receipt: StoreRepairReceipt, projectRoot: 
     '--format=%B',
     ...(receipt.snapshotAt ? [`--since=${receipt.snapshotAt}`] : []),
   ];
-  const log = spawnSync('git', args, {
-    cwd: projectRoot,
-    encoding: 'utf8',
-    timeout: 15_000,
-    maxBuffer: 16 * 1024 * 1024,
-  });
+  const log = spawnSync(
+    'git',
+    args,
+    boundedExecOptions({
+      cwd: projectRoot,
+      encoding: 'utf8',
+      timeout: 15_000,
+      maxBuffer: 16 * 1024 * 1024,
+    }),
+  );
   if (log.error || log.status !== 0) {
     receipt.diagnostics.push(`git log unavailable: ${log.error?.message ?? log.stderr.trim()}`);
     return [];

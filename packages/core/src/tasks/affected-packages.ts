@@ -34,6 +34,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { isAbsolute, join, matchesGlob, relative } from 'node:path';
 import { isDeepStrictEqual, promisify } from 'node:util';
+import { boundedExecOptions } from '@cleocode/paths';
 import { originDefaultMergeBase } from '../git/base-ref.js';
 import { pushWarning } from '../output.js';
 import { isCiDocumentPath, readCiSatisfies } from '../release/ci-evidence.js';
@@ -790,11 +791,15 @@ export function buildAffectedTestCommand(
 
 function git(cwd: string, args: readonly string[]): string | null {
   try {
-    return execFileSync('git', args, {
-      cwd,
-      encoding: 'utf-8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-    }).trim();
+    return execFileSync(
+      'git',
+      args,
+      boundedExecOptions({
+        cwd,
+        encoding: 'utf-8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+      }),
+    ).trim();
   } catch {
     return null;
   }

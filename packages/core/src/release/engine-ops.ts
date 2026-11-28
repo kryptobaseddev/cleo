@@ -19,6 +19,7 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import { readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
+import { boundedExecOptions } from '@cleocode/paths';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { discoveryEnv } from '../git/work-tree.js';
 import { getLogger } from '../logger.js';
@@ -117,7 +118,7 @@ export function runGitWithLockRetry(
   let lastErr: unknown;
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
-      return execFileSync('git', [...args], effectiveOpts) as unknown as string;
+      return execFileSync('git', [...args], boundedExecOptions(effectiveOpts)) as unknown as string;
     } catch (err: unknown) {
       lastErr = err;
       const errCode = (err as NodeJS.ErrnoException).code ?? '';
@@ -215,7 +216,7 @@ export function pollPrMerged(
       raw = execFileSync(
         'gh',
         ['pr', 'view', prUrl, '--json', 'state,mergeCommit'],
-        execOpts,
+        boundedExecOptions(execOpts),
       ) as unknown as string;
     } catch {
       // Transient gh CLI error — keep polling
@@ -473,7 +474,7 @@ export async function releaseRollbackFull(
   try {
     // Step 1: Delete remote git tag (best-effort; may not exist if push failed)
     try {
-      execFileSync('git', ['push', 'origin', `--delete`, gitTag], gitCwd);
+      execFileSync('git', ['push', 'origin', `--delete`, gitTag], boundedExecOptions(gitCwd));
       steps.push(`Deleted remote tag ${gitTag}`);
     } catch (err: unknown) {
       const msg =
@@ -489,7 +490,7 @@ export async function releaseRollbackFull(
 
     // Step 2: Delete local git tag
     try {
-      execFileSync('git', ['tag', '-d', gitTag], gitCwd);
+      execFileSync('git', ['tag', '-d', gitTag], boundedExecOptions(gitCwd));
       steps.push(`Deleted local tag ${gitTag}`);
     } catch (err: unknown) {
       const msg =
@@ -505,14 +506,14 @@ export async function releaseRollbackFull(
       const logOut = execFileSync(
         'git',
         ['log', '--oneline', '--grep', `release: ship v${version}`, '-1'],
-        gitCwd,
+        boundedExecOptions(gitCwd),
       )
         .toString()
         .trim();
 
       if (logOut) {
         revertSha = logOut.split(' ')[0];
-        execFileSync('git', ['revert', '--no-edit', revertSha!], gitCwd);
+        execFileSync('git', ['revert', '--no-edit', revertSha!], boundedExecOptions(gitCwd));
         steps.push(`Reverted release commit ${revertSha}`);
       } else {
         steps.push(`No release commit found for ${version} — skipping revert`);
@@ -646,12 +647,16 @@ export async function releasePush(
     // Capture commit SHA for provenance and update the manifest
     let commitSha: string | undefined;
     try {
-      commitSha = execFileSync('git', ['rev-parse', 'HEAD'], {
-        cwd: getProjectRoot(projectRoot),
-        encoding: 'utf-8',
-        stdio: 'pipe',
-        timeout: 60_000,
-      })
+      commitSha = execFileSync(
+        'git',
+        ['rev-parse', 'HEAD'],
+        boundedExecOptions({
+          cwd: getProjectRoot(projectRoot),
+          encoding: 'utf-8',
+          stdio: 'pipe',
+          timeout: 60_000,
+        }),
+      )
         .toString()
         .trim();
     } catch {
@@ -747,7 +752,7 @@ export async function releasePrStatus(
     const viewResult = spawnSync(
       'gh',
       ['pr', 'view', releaseBranch, '--json', 'url', '--jq', '.url'],
-      { cwd, encoding: 'utf-8', timeout: 15_000 },
+      boundedExecOptions({ cwd, encoding: 'utf-8', timeout: 15_000 }),
     );
     if (viewResult.status === 0 && viewResult.stdout.trim()) {
       prUrl = viewResult.stdout.trim();
@@ -768,7 +773,7 @@ export async function releasePrStatus(
     const checksResult = spawnSync(
       'gh',
       ['pr', 'checks', prUrl, '--json', 'name,status,conclusion'],
-      { cwd, encoding: 'utf-8', timeout: 30_000 },
+      boundedExecOptions({ cwd, encoding: 'utf-8', timeout: 30_000 }),
     );
     if (checksResult.status === 0 && checksResult.stdout) {
       const raw = JSON.parse(checksResult.stdout) as Array<{

@@ -12,6 +12,7 @@ import { execFileSync } from 'node:child_process';
 import { appendFileSync, existsSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
 import { basename, join } from 'node:path';
+import { boundedExecOptions } from '@cleocode/paths';
 import { getCleoDir, getCleoHome } from '../paths.js';
 import { getCompliancePath, getSessionsMetricsPath, readJsonlFile } from './common.js';
 
@@ -29,10 +30,14 @@ function getGlobalPath(): string {
 
 function getProjectName(): string {
   try {
-    const url = execFileSync('git', ['remote', 'get-url', 'origin'], {
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-    }).trim();
+    const url = execFileSync(
+      'git',
+      ['remote', 'get-url', 'origin'],
+      boundedExecOptions({
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+      }),
+    ).trim();
     const match = url.match(/[/:]([^/]+?)(?:\.git)?$/);
     if (match) return match[1]!;
   } catch {

@@ -1,4 +1,5 @@
 /**
+import { boundedExecOptions } from '@cleocode/paths';
  * Whether a release tag actually shipped (T14173).
  *
  * A tag whose `release.yml` run failed before creating its GitHub Release
@@ -21,7 +22,7 @@
  *
  * @example
  * ```ts
- * githubReleaseState('v2026.10.27', (args) => execFileSync('gh', [...args], { encoding: 'utf-8' })); // true
+ * githubReleaseState('v2026.10.27', (args) => execFileSync('gh', [...args], boundedExecOptions({ encoding: 'utf-8' }))); // true
  * ```
  */
 export function githubReleaseState(

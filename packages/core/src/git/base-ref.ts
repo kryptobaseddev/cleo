@@ -13,6 +13,7 @@
  */
 
 import { execFileSync } from 'node:child_process';
+import { boundedExecOptions } from '@cleocode/paths';
 import { discoveryEnv } from './work-tree.js';
 
 /**
@@ -22,12 +23,16 @@ import { discoveryEnv } from './work-tree.js';
  */
 function git(root: string, args: readonly string[]): string | null {
   try {
-    return execFileSync('git', args, {
-      cwd: root,
-      encoding: 'utf-8',
-      env: discoveryEnv(),
-      stdio: ['ignore', 'pipe', 'ignore'],
-    }).trim();
+    return execFileSync(
+      'git',
+      args,
+      boundedExecOptions({
+        cwd: root,
+        encoding: 'utf-8',
+        env: discoveryEnv(),
+        stdio: ['ignore', 'pipe', 'ignore'],
+      }),
+    ).trim();
   } catch {
     return null;
   }

@@ -38,6 +38,7 @@ import { appendFileSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { ArchiveReasonValue, Task } from '@cleocode/contracts';
 import { ArchiveReason, assertArchiveReason } from '@cleocode/contracts/tasks/archive.js';
+import { boundedExecOptions } from '@cleocode/paths';
 import { getLogger } from '../../logger.js';
 import { allocateNextTaskId } from '../../sequence/index.js';
 import { getTaskAccessor } from '../../store/data-accessor.js';
@@ -96,12 +97,16 @@ export type ReconcileAction =
  */
 function runGit(cwd: string, args: readonly string[]): string {
   try {
-    const out = execFileSync('git', [...args], {
-      cwd,
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-      maxBuffer: 8 * 1024 * 1024,
-    });
+    const out = execFileSync(
+      'git',
+      [...args],
+      boundedExecOptions({
+        cwd,
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+        maxBuffer: 8 * 1024 * 1024,
+      }),
+    );
     return out.trim();
   } catch {
     return '';
