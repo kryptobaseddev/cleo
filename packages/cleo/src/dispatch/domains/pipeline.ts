@@ -34,6 +34,7 @@ import {
   describeChannel,
   resolveChannelFromBranch,
 } from '@cleocode/core/release/channel';
+import { boundedExecOptions } from '@cleocode/paths';
 import {
   defineTypedHandler,
   lafsError,
@@ -293,11 +294,15 @@ async function releaseChannelShowOp(_params: ReleaseChannelShowParams) {
   let currentBranch = 'unknown';
   const projectRoot = getProjectRoot();
   try {
-    currentBranch = execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
-      encoding: 'utf-8',
-      stdio: 'pipe',
-      cwd: projectRoot,
-    }).trim();
+    currentBranch = execFileSync(
+      'git',
+      ['rev-parse', '--abbrev-ref', 'HEAD'],
+      boundedExecOptions({
+        encoding: 'utf-8',
+        stdio: 'pipe',
+        cwd: projectRoot,
+      }),
+    ).trim();
   } catch {
     // git not available or not a git repo — leave as 'unknown'
   }

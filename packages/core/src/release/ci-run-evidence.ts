@@ -27,6 +27,7 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import type { EvidenceAtom } from '@cleocode/contracts';
+import { boundedExecOptions } from '@cleocode/paths';
 import type { EvidenceRoots } from '../tasks/evidence.js';
 
 /** A validated `ci-run:` atom. */
@@ -241,12 +242,16 @@ export function recheckCiRunAtom(
 function ghJson(args: readonly string[], cwd: string): unknown {
   try {
     return JSON.parse(
-      execFileSync('gh', args, {
-        cwd,
-        encoding: 'utf-8',
-        stdio: ['ignore', 'pipe', 'ignore'],
-        timeout: 30_000,
-      }),
+      execFileSync(
+        'gh',
+        args,
+        boundedExecOptions({
+          cwd,
+          encoding: 'utf-8',
+          stdio: ['ignore', 'pipe', 'ignore'],
+          timeout: 30_000,
+        }),
+      ),
     );
   } catch {
     return null;
@@ -279,11 +284,15 @@ function defaultFetchRun(runId: number, cwd: string): CiRunRecord | null {
 function defaultFetchReport(runId: number, cwd: string): RepeatReport | null {
   const dir = mkdtempSync(join(tmpdir(), 'cleo-ci-run-'));
   try {
-    execFileSync('gh', ['run', 'download', String(runId), '-n', REPEAT_RUN_ARTIFACT, '-D', dir], {
-      cwd,
-      stdio: 'ignore',
-      timeout: 60_000,
-    });
+    execFileSync(
+      'gh',
+      ['run', 'download', String(runId), '-n', REPEAT_RUN_ARTIFACT, '-D', dir],
+      boundedExecOptions({
+        cwd,
+        stdio: 'ignore',
+        timeout: 60_000,
+      }),
+    );
     const parsed: unknown = JSON.parse(readFileSync(join(dir, 'repeat-report.json'), 'utf-8'));
     if (parsed === null || typeof parsed !== 'object') return null;
     const r = parsed as Record<string, unknown>;

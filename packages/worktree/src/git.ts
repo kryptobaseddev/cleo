@@ -14,6 +14,7 @@
 
 import { execFile, execFileSync } from 'node:child_process';
 import { promisify } from 'node:util';
+import { boundedExecOptions } from '@cleocode/paths';
 
 const execFileAsync = promisify(execFile);
 
@@ -42,12 +43,16 @@ export const DEFAULT_GIT_TIMEOUT_MS = 180_000;
  * @task T9545
  */
 export function gitSync(args: string[], cwd: string, timeoutMs?: number): string {
-  return execFileSync('git', args, {
-    cwd,
-    encoding: 'utf-8',
-    stdio: ['pipe', 'pipe', 'pipe'],
-    timeout: timeoutMs ?? DEFAULT_GIT_TIMEOUT_MS,
-  }).trim();
+  return execFileSync(
+    'git',
+    args,
+    boundedExecOptions({
+      cwd,
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+      timeout: timeoutMs ?? DEFAULT_GIT_TIMEOUT_MS,
+    }),
+  ).trim();
 }
 
 /**
@@ -64,11 +69,15 @@ export function gitSync(args: string[], cwd: string, timeoutMs?: number): string
  */
 export function gitSilent(args: string[], cwd: string, timeoutMs?: number): boolean {
   try {
-    execFileSync('git', args, {
-      cwd,
-      stdio: 'pipe',
-      timeout: timeoutMs ?? DEFAULT_GIT_TIMEOUT_MS,
-    });
+    execFileSync(
+      'git',
+      args,
+      boundedExecOptions({
+        cwd,
+        stdio: 'pipe',
+        timeout: timeoutMs ?? DEFAULT_GIT_TIMEOUT_MS,
+      }),
+    );
     return true;
   } catch {
     return false;

@@ -73,7 +73,7 @@ import type {
   ProcessCaptureOptions,
   ProcessCaptureResult,
 } from '@cleocode/contracts/resource-governor';
-import { findOnPath } from '@cleocode/paths';
+import { boundedExecOptions, findOnPath } from '@cleocode/paths';
 import { workerInstallCommand } from '@cleocode/worktree/worktree-pnpm.js';
 import { resolveOriginDefault } from '../git/base-ref.js';
 import { discoveryEnv } from '../git/work-tree.js';
@@ -849,12 +849,16 @@ async function runGateBatch(
  */
 function gitOut(cwd: string, args: readonly string[]): string | null {
   try {
-    return execFileSync('git', args, {
-      cwd,
-      encoding: 'utf-8',
-      env: discoveryEnv(),
-      stdio: ['ignore', 'pipe', 'ignore'],
-    }).trim();
+    return execFileSync(
+      'git',
+      args,
+      boundedExecOptions({
+        cwd,
+        encoding: 'utf-8',
+        env: discoveryEnv(),
+        stdio: ['ignore', 'pipe', 'ignore'],
+      }),
+    ).trim();
   } catch {
     return null;
   }
@@ -2244,12 +2248,16 @@ function snapshotMergedInput(
     // @sync-invariant none:input-shape a merge-tree input must be an unambiguous regular file
     throw new Error(`Typed input is not a regular file at merge commit ${commit}: ${rel}`);
   const ceiling = execution.resources.maxBytes ?? 1_048_576;
-  const bytes = execFileSync('git', ['cat-file', 'blob', blob], {
-    cwd: root,
-    env: discoveryEnv(),
-    maxBuffer: ceiling,
-    stdio: ['ignore', 'pipe', 'ignore'],
-  });
+  const bytes = execFileSync(
+    'git',
+    ['cat-file', 'blob', blob],
+    boundedExecOptions({
+      cwd: root,
+      env: discoveryEnv(),
+      maxBuffer: ceiling,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }),
+  );
   execution.assertActive();
   execution.consume({ bytes: bytes.length });
   return { path, sha256: createHash('sha256').update(bytes).digest('hex'), bytes: bytes.length };

@@ -23,6 +23,7 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
 import { isAbsolute, join, resolve } from 'node:path';
+import { boundedExecOptions } from '@cleocode/paths';
 
 /**
  * Error code for "no git work tree at or above the evidence execution root".
@@ -99,12 +100,16 @@ export function discoveryEnv(env: NodeJS.ProcessEnv = process.env): NodeJS.Proce
 /** Run a `git` probe in `dir`, returning trimmed stdout or `null` on any failure. */
 function gitProbe(dir: string, args: readonly string[]): string | null {
   try {
-    const out = execFileSync('git', ['--no-optional-locks', ...args], {
-      cwd: dir,
-      encoding: 'utf-8',
-      env: discoveryEnv(),
-      stdio: ['ignore', 'pipe', 'ignore'],
-    });
+    const out = execFileSync(
+      'git',
+      ['--no-optional-locks', ...args],
+      boundedExecOptions({
+        cwd: dir,
+        encoding: 'utf-8',
+        env: discoveryEnv(),
+        stdio: ['ignore', 'pipe', 'ignore'],
+      }),
+    );
     return out.trim();
   } catch {
     return null;

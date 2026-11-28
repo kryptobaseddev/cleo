@@ -98,7 +98,7 @@ import {
   nexusStreamHeadSchema,
 } from '@cleocode/contracts/nexus-vault.js';
 import { SYNC_SCHEMA_VERSION } from '@cleocode/contracts/sync-schema.js';
-import { readDeclaredProjectIdentity } from '@cleocode/paths';
+import { boundedExecOptions, readDeclaredProjectIdentity } from '@cleocode/paths';
 import { extract as tarExtract } from 'tar';
 import { z } from 'zod';
 import { discoveryEnv } from '../git/work-tree.js';
@@ -1044,15 +1044,19 @@ function gitTracking(t: VaultTarget): GitTracking {
     dir = up;
   }
   try {
-    const out = execFileSync('git', ['ls-files', '-z', '--', '.cleo'], {
-      cwd: t.storeRoot,
-      encoding: 'utf8',
-      timeout: GIT_LS_FILES_TIMEOUT_MS,
-      maxBuffer: GIT_LS_FILES_MAX_BYTES,
-      stdio: ['ignore', 'pipe', 'ignore'],
-      // The store's own checkout, never one an inherited GIT_* names (T14189).
-      env: discoveryEnv(),
-    });
+    const out = execFileSync(
+      'git',
+      ['ls-files', '-z', '--', '.cleo'],
+      boundedExecOptions({
+        cwd: t.storeRoot,
+        encoding: 'utf8',
+        timeout: GIT_LS_FILES_TIMEOUT_MS,
+        maxBuffer: GIT_LS_FILES_MAX_BYTES,
+        stdio: ['ignore', 'pipe', 'ignore'],
+        // The store's own checkout, never one an inherited GIT_* names (T14189).
+        env: discoveryEnv(),
+      }),
+    );
     const tracked = new Set<string>();
     for (const p of out.split('\0'))
       if (p.startsWith('.cleo/')) tracked.add(p.slice('.cleo/'.length));

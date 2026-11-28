@@ -51,7 +51,7 @@ import { createHash, randomBytes, scryptSync } from 'node:crypto';
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import { BRANCH_LOCK_ERROR_CODES } from '@cleocode/contracts/branch-lock.js';
-import { readPortableProjectId } from '@cleocode/paths';
+import { boundedExecOptions, readPortableProjectId } from '@cleocode/paths';
 import { getCleoHome } from '../paths.js';
 import { atomicWriteJson } from '../store/atomic.js';
 import {
@@ -189,11 +189,15 @@ function trackingWarnings(projectRoot: string): string[] {
   const rel = '.cleo/owner-settings.json';
   const git = (args: string[]): { ok: boolean; out: string } => {
     try {
-      const out = execFileSync('git', args, {
-        cwd: projectRoot,
-        encoding: 'utf-8',
-        stdio: ['ignore', 'pipe', 'ignore'],
-      });
+      const out = execFileSync(
+        'git',
+        args,
+        boundedExecOptions({
+          cwd: projectRoot,
+          encoding: 'utf-8',
+          stdio: ['ignore', 'pipe', 'ignore'],
+        }),
+      );
       return { ok: true, out };
     } catch {
       return { ok: false, out: '' };
@@ -226,11 +230,15 @@ function trackingWarnings(projectRoot: string): string[] {
 function settingsHistory(projectRoot: string): 'none' | 'present' | 'unavailable' {
   const git = (args: string[]): string | null => {
     try {
-      return execFileSync('git', args, {
-        cwd: projectRoot,
-        encoding: 'utf-8',
-        stdio: ['ignore', 'pipe', 'ignore'],
-      }).trim();
+      return execFileSync(
+        'git',
+        args,
+        boundedExecOptions({
+          cwd: projectRoot,
+          encoding: 'utf-8',
+          stdio: ['ignore', 'pipe', 'ignore'],
+        }),
+      ).trim();
     } catch {
       return null;
     }
@@ -366,10 +374,14 @@ export function provenance(sessionId: string | null): EnrollmentProvenance {
   const ps = (args: string[]): string | null => {
     try {
       return (
-        execFileSync('ps', args, {
-          encoding: 'utf-8',
-          stdio: ['ignore', 'pipe', 'ignore'],
-        }).trim() || null
+        execFileSync(
+          'ps',
+          args,
+          boundedExecOptions({
+            encoding: 'utf-8',
+            stdio: ['ignore', 'pipe', 'ignore'],
+          }),
+        ).trim() || null
       );
     } catch {
       return null;

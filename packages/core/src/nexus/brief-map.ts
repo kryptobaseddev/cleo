@@ -16,6 +16,7 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { dirname, extname, join } from 'node:path';
 import type { BriefMapFile, BriefMapReport } from '@cleocode/contracts';
+import { boundedExecOptions } from '@cleocode/paths';
 
 /** Default character budget (Ponytail's default). */
 export const BRIEF_MAP_DEFAULT_BUDGET = 2000;
@@ -189,13 +190,17 @@ export function namesInSource(file: string, text: string): string[] {
 function filesFromGitWalk(projectRoot: string): BriefMapFile[] {
   let tracked: string[];
   try {
-    tracked = execFileSync('git', ['ls-files'], {
-      cwd: projectRoot,
-      encoding: 'utf-8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-      timeout: 5000,
-      maxBuffer: 64 * 1024 * 1024,
-    })
+    tracked = execFileSync(
+      'git',
+      ['ls-files'],
+      boundedExecOptions({
+        cwd: projectRoot,
+        encoding: 'utf-8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+        timeout: 5000,
+        maxBuffer: 64 * 1024 * 1024,
+      }),
+    )
       .split('\n')
       .filter(isMappableSource)
       .slice(0, MAX_FILES);

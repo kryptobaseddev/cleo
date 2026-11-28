@@ -58,6 +58,7 @@ import type {
   WorktreeSource,
 } from '@cleocode/contracts';
 import { engineError, engineSuccess } from '@cleocode/contracts/engine-result.js';
+import { boundedExecOptions } from '@cleocode/paths';
 import { readWorktreePorcelain } from '@cleocode/worktree/worktree-locate.js';
 import { resolveOrCwd } from '../paths.js';
 import { claimClockNow, DERIVED_STATUS_SQL } from '../store/task-claim.js';
@@ -398,13 +399,17 @@ export function enumerateWorktrees(projectRoot: string): PorcelainEntry[] {
  */
 export function readFirstParentLine(projectRoot: string, mainBranch: string): Set<string> {
   try {
-    const out = execFileSync('git', ['rev-list', '--first-parent', mainBranch], {
-      cwd: projectRoot,
-      encoding: 'utf-8',
-      timeout: GIT_TIMEOUT_MS,
-      stdio: ['pipe', 'pipe', 'pipe'],
-      maxBuffer: 256 * 1024 * 1024,
-    });
+    const out = execFileSync(
+      'git',
+      ['rev-list', '--first-parent', mainBranch],
+      boundedExecOptions({
+        cwd: projectRoot,
+        encoding: 'utf-8',
+        timeout: GIT_TIMEOUT_MS,
+        stdio: ['pipe', 'pipe', 'pipe'],
+        maxBuffer: 256 * 1024 * 1024,
+      }),
+    );
     return new Set(out.split('\n').filter(Boolean));
   } catch {
     return new Set();
@@ -448,12 +453,16 @@ export function headIsMergedWork(
  */
 export function getLastCommitTimestampMs(branch: string, projectRoot: string): number | null {
   try {
-    const iso = execFileSync('git', ['log', '-1', '--format=%cI', branch], {
-      cwd: projectRoot,
-      encoding: 'utf-8',
-      timeout: GIT_TIMEOUT_MS,
-      stdio: ['pipe', 'pipe', 'pipe'],
-    }).trim();
+    const iso = execFileSync(
+      'git',
+      ['log', '-1', '--format=%cI', branch],
+      boundedExecOptions({
+        cwd: projectRoot,
+        encoding: 'utf-8',
+        timeout: GIT_TIMEOUT_MS,
+        stdio: ['pipe', 'pipe', 'pipe'],
+      }),
+    ).trim();
     if (!iso) return null;
     const ms = Date.parse(iso);
     return Number.isNaN(ms) ? null : ms;
@@ -481,11 +490,15 @@ export function branchIsMergedToMain(
   mainBranch: string = DEFAULT_MAIN_BRANCH,
 ): boolean {
   try {
-    execFileSync('git', ['merge-base', '--is-ancestor', branch, mainBranch], {
-      cwd: projectRoot,
-      timeout: GIT_TIMEOUT_MS,
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
+    execFileSync(
+      'git',
+      ['merge-base', '--is-ancestor', branch, mainBranch],
+      boundedExecOptions({
+        cwd: projectRoot,
+        timeout: GIT_TIMEOUT_MS,
+        stdio: ['pipe', 'pipe', 'pipe'],
+      }),
+    );
     return true;
   } catch {
     return false;
@@ -616,11 +629,15 @@ function mtimeMs(path: string): number {
  */
 function resolveMainBranch(projectRoot: string): string | null {
   try {
-    execFileSync('git', ['rev-parse', '--verify', `refs/heads/${DEFAULT_MAIN_BRANCH}`], {
-      cwd: projectRoot,
-      timeout: GIT_TIMEOUT_MS,
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
+    execFileSync(
+      'git',
+      ['rev-parse', '--verify', `refs/heads/${DEFAULT_MAIN_BRANCH}`],
+      boundedExecOptions({
+        cwd: projectRoot,
+        timeout: GIT_TIMEOUT_MS,
+        stdio: ['pipe', 'pipe', 'pipe'],
+      }),
+    );
     return DEFAULT_MAIN_BRANCH;
   } catch {
     return null;
@@ -644,12 +661,16 @@ function resolveMainBranch(projectRoot: string): string | null {
  */
 export function resolveGitCommonDir(projectRoot: string): string | null {
   try {
-    const out = execFileSync('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], {
-      cwd: projectRoot,
-      encoding: 'utf-8',
-      timeout: GIT_TIMEOUT_MS,
-      stdio: ['pipe', 'pipe', 'pipe'],
-    }).trim();
+    const out = execFileSync(
+      'git',
+      ['rev-parse', '--path-format=absolute', '--git-common-dir'],
+      boundedExecOptions({
+        cwd: projectRoot,
+        encoding: 'utf-8',
+        timeout: GIT_TIMEOUT_MS,
+        stdio: ['pipe', 'pipe', 'pipe'],
+      }),
+    ).trim();
     return out.length > 0 ? out : null;
   } catch {
     return null;
@@ -728,12 +749,12 @@ export function resolvePrimaryWorktreePath(projectRoot: string): string | null {
     const commonDir = execFileSync(
       'git',
       ['rev-parse', '--path-format=absolute', '--git-common-dir'],
-      {
+      boundedExecOptions({
         cwd: projectRoot,
         encoding: 'utf-8',
         timeout: GIT_TIMEOUT_MS,
         stdio: ['pipe', 'pipe', 'pipe'],
-      },
+      }),
     ).trim();
     if (!commonDir) return null;
     // The primary worktree is the parent of `.git` (or `.git/`). Strip the

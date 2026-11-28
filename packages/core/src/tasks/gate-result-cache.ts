@@ -58,6 +58,7 @@ import type {
   AcceptanceGateInvocation,
 } from '@cleocode/contracts/acceptance-gate';
 import { acceptanceGateResultSchema } from '@cleocode/contracts/acceptance-gate-schema.js';
+import { boundedExecOptions } from '@cleocode/paths';
 import { discoveryEnv } from '../git/work-tree.js';
 import { getCleoHome } from '../paths.js';
 import { acItemToText } from './ac-table.js';
@@ -188,12 +189,16 @@ export async function captureGateCacheState(
     cwd = resolve(projectRoot);
   }
   try {
-    const treeHash = execFileSync('git', ['rev-parse', `${head}^{tree}`], {
-      cwd,
-      env: discoveryEnv(),
-      encoding: 'utf-8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-    }).trim();
+    const treeHash = execFileSync(
+      'git',
+      ['rev-parse', `${head}^{tree}`],
+      boundedExecOptions({
+        cwd,
+        env: discoveryEnv(),
+        encoding: 'utf-8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+      }),
+    ).trim();
     return {
       head,
       dirtyFingerprint,
@@ -201,12 +206,16 @@ export async function captureGateCacheState(
       treeHash,
       clean:
         commit !== undefined ||
-        execFileSync('git', ['status', '--porcelain', '--untracked-files=no'], {
-          cwd,
-          env: discoveryEnv(),
-          encoding: 'utf-8',
-          stdio: ['ignore', 'pipe', 'ignore'],
-        }).trim() === '',
+        execFileSync(
+          'git',
+          ['status', '--porcelain', '--untracked-files=no'],
+          boundedExecOptions({
+            cwd,
+            env: discoveryEnv(),
+            encoding: 'utf-8',
+            stdio: ['ignore', 'pipe', 'ignore'],
+          }),
+        ).trim() === '',
       ...(taskId ? { taskId } : {}),
       ...(commit ? { mergeSha: commit } : {}),
     };
@@ -631,12 +640,16 @@ function readEquivalentGateCacheEntry(
           continue;
       }
       // Full-tree identity is required even when the declared gate inputs match.
-      const treeHash = execFileSync('git', ['rev-parse', `${entry.head}^{tree}`], {
-        cwd: state.cwd,
-        env: discoveryEnv(),
-        encoding: 'utf-8',
-        stdio: ['ignore', 'pipe', 'ignore'],
-      }).trim();
+      const treeHash = execFileSync(
+        'git',
+        ['rev-parse', `${entry.head}^{tree}`],
+        boundedExecOptions({
+          cwd: state.cwd,
+          env: discoveryEnv(),
+          encoding: 'utf-8',
+          stdio: ['ignore', 'pipe', 'ignore'],
+        }),
+      ).trim();
       if (treeHash !== entry.treeHash) continue;
       const found = readGateCacheEntry(
         projectRoot,

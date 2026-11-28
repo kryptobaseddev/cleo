@@ -24,6 +24,7 @@ import type {
   WorktreeIntegrationPlan,
   WorktreeMergeResult,
 } from '@cleocode/contracts';
+import { boundedExecOptions } from '@cleocode/paths';
 import {
   getGitRoot,
   gitSilent,
@@ -204,20 +205,24 @@ function fetchUpstreamBranch(
   timeoutMs: number,
 ): boolean {
   try {
-    execFileSync('git', ['fetch', '--quiet', remote, branch], {
-      cwd: gitRoot,
-      // No pipes: a timed-out git's surviving ssh grandchild must not hold
-      // stdout/stderr open and keep this synchronous call waiting.
-      stdio: 'ignore',
-      timeout: timeoutMs,
-      // Known small window: a SIGKILL landing while git updates the
-      // remote-tracking ref can leave `refs/remotes/<remote>/<branch>.lock`
-      // behind, which makes the next fetch of that ref fail until the stale
-      // lock file is removed. SSH connect/keepalive bounds (above) make a
-      // timeout — and so this kill — rare.
-      killSignal: 'SIGKILL',
-      env: nonInteractiveGitEnv(),
-    });
+    execFileSync(
+      'git',
+      ['fetch', '--quiet', remote, branch],
+      boundedExecOptions({
+        cwd: gitRoot,
+        // No pipes: a timed-out git's surviving ssh grandchild must not hold
+        // stdout/stderr open and keep this synchronous call waiting.
+        stdio: 'ignore',
+        timeout: timeoutMs,
+        // Known small window: a SIGKILL landing while git updates the
+        // remote-tracking ref can leave `refs/remotes/<remote>/<branch>.lock`
+        // behind, which makes the next fetch of that ref fail until the stale
+        // lock file is removed. SSH connect/keepalive bounds (above) make a
+        // timeout — and so this kill — rare.
+        killSignal: 'SIGKILL',
+        env: nonInteractiveGitEnv(),
+      }),
+    );
     return true;
   } catch {
     return false;

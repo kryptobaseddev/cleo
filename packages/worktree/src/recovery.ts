@@ -16,6 +16,7 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
+import { boundedExecOptions } from '@cleocode/paths';
 
 function resolveGitAdminDir(worktreePath: string): string {
   const gitPath = join(worktreePath, '.git');
@@ -96,12 +97,16 @@ export function detectPartialWorktree(worktreePath: string): PartialWorktreeSign
 
   // 1. Check for uncommitted changes
   try {
-    const status = execFileSync('git', ['status', '--porcelain'], {
-      cwd: worktreePath,
-      encoding: 'utf-8',
-      timeout: 5_000,
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
+    const status = execFileSync(
+      'git',
+      ['status', '--porcelain'],
+      boundedExecOptions({
+        cwd: worktreePath,
+        encoding: 'utf-8',
+        timeout: 5_000,
+        stdio: ['pipe', 'pipe', 'pipe'],
+      }),
+    );
     signals.hasUncommittedChanges = status.trim().length > 0;
   } catch {
     signals.hasUncommittedChanges = false;
@@ -174,12 +179,16 @@ export function recoverPartialWorktree(
       if (existsSync(lockPath)) {
         rmSync(lockPath, { force: true });
       }
-      execFileSync('git', ['worktree', 'unlock', worktreePath], {
-        cwd: projectRoot,
-        encoding: 'utf-8',
-        timeout: 10_000,
-        stdio: ['pipe', 'pipe', 'pipe'],
-      });
+      execFileSync(
+        'git',
+        ['worktree', 'unlock', worktreePath],
+        boundedExecOptions({
+          cwd: projectRoot,
+          encoding: 'utf-8',
+          timeout: 10_000,
+          stdio: ['pipe', 'pipe', 'pipe'],
+        }),
+      );
       actions.push('unlock-git-index');
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

@@ -42,6 +42,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { MergeSweepResult, ReviewJudgement } from '@cleocode/contracts';
+import { boundedExecOptions } from '@cleocode/paths';
 
 /** Label that lets a PR merge while main is red: it is the fix. */
 export const MAIN_FIX_LABEL = 'main-fix';
@@ -660,13 +661,17 @@ export async function runMergeTrain(
 async function gh(args: string[], cwd: string): Promise<string> {
   const { ghQueryTimeoutMs } = await import('../release/github-pr.js');
   try {
-    return execFileSync('gh', args, {
-      cwd,
-      encoding: 'utf-8',
-      stdio: ['ignore', 'pipe', 'pipe'],
-      maxBuffer: 64 * 1024 * 1024,
-      timeout: ghQueryTimeoutMs(),
-    });
+    return execFileSync(
+      'gh',
+      args,
+      boundedExecOptions({
+        cwd,
+        encoding: 'utf-8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+        maxBuffer: 64 * 1024 * 1024,
+        timeout: ghQueryTimeoutMs(),
+      }),
+    );
   } catch (err) {
     const stderr = (err as { stderr?: unknown }).stderr;
     const said = typeof stderr === 'string' && stderr.trim() !== '' ? stderr.trim() : String(err);

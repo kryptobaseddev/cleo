@@ -57,6 +57,7 @@ import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { boundedExecOptions } from '@cleocode/paths';
 import { type HeavyToolEnv, heavyToolEnv, isHeavyTool, parseHeapFlags } from './heavy-tool-env.js';
 import { DISABLE_ENV, MEMORY_MAX_ENV } from './heavy-tool-limit.js';
 import type { CanonicalTool } from './tool-resolver.js';
@@ -80,12 +81,16 @@ const INSTALL_SNAPSHOTS = [
 /** Directories of every tracked `package.json`, relative to `root`. */
 function workspacePackageDirs(root: string): string[] {
   try {
-    const out = execFileSync('git', ['ls-files', '-z', '--', 'package.json', '**/package.json'], {
-      cwd: root,
-      encoding: 'utf-8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-      maxBuffer: 16 * 1024 * 1024,
-    });
+    const out = execFileSync(
+      'git',
+      ['ls-files', '-z', '--', 'package.json', '**/package.json'],
+      boundedExecOptions({
+        cwd: root,
+        encoding: 'utf-8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+        maxBuffer: 16 * 1024 * 1024,
+      }),
+    );
     return out
       .split('\0')
       .filter(Boolean)

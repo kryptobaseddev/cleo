@@ -62,6 +62,7 @@ import type {
   MergeAttributionRunPin,
   MergeAttributionVerdict,
 } from '@cleocode/contracts';
+import { boundedExecOptions } from '@cleocode/paths';
 import {
   blockingTestIds,
   type CommitCheck,
@@ -467,13 +468,17 @@ export interface MergeAttributionIo {
 /** Run git; its trimmed stdout, or `null` when it fails. */
 function git(args: readonly string[], cwd: string, input?: string): string | null {
   try {
-    return execFileSync('git', args, {
-      cwd,
-      encoding: 'utf-8',
-      input,
-      stdio: ['pipe', 'pipe', 'ignore'],
-      maxBuffer: 256 * 1024 * 1024,
-    }).trim();
+    return execFileSync(
+      'git',
+      args,
+      boundedExecOptions({
+        cwd,
+        encoding: 'utf-8',
+        input,
+        stdio: ['pipe', 'pipe', 'ignore'],
+        maxBuffer: 256 * 1024 * 1024,
+      }),
+    ).trim();
   } catch {
     return null;
   }

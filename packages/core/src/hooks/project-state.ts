@@ -16,6 +16,7 @@ import {
   type ProjectHooksManifest,
   ProjectHooksManifestSchema,
 } from '@cleocode/contracts/project-hooks.js';
+import { boundedExecOptions } from '@cleocode/paths';
 import { discoveryEnv } from '../git/work-tree.js';
 import { atomicWrite } from '../store/atomic.js';
 import { canonicalizePath, readFileText } from '../tools/fs.js';
@@ -51,13 +52,17 @@ export function createProjectHookDeliveryServices(): ProjectHookDeliveryServices
 /** Resolve checkout and hook paths through Git without reading CLEO stores. */
 export function resolveProjectHookContext(cwd: string): ProjectHookContext {
   const gitPath = (...args: string[]): string =>
-    execFileSync('git', ['-C', cwd, ...args], {
-      encoding: 'utf8',
-      env: discoveryEnv(),
-      timeout: 5000,
-      maxBuffer: 16384,
-      stdio: ['ignore', 'pipe', 'ignore'],
-    }).trim();
+    execFileSync(
+      'git',
+      ['-C', cwd, ...args],
+      boundedExecOptions({
+        encoding: 'utf8',
+        env: discoveryEnv(),
+        timeout: 5000,
+        maxBuffer: 16384,
+        stdio: ['ignore', 'pipe', 'ignore'],
+      }),
+    ).trim();
   const projectRoot = gitPath('rev-parse', '--show-toplevel');
   return {
     projectRoot,
@@ -311,7 +316,7 @@ async function resolveDefinitions(
     execFileSync(
       'git',
       ['-C', context.projectRoot, 'ls-files', '--error-unmatch', '--', '.cleo/hooks.json'],
-      { timeout: 5000, maxBuffer: 16384, stdio: 'ignore' },
+      boundedExecOptions({ timeout: 5000, maxBuffer: 16384, stdio: 'ignore' }),
     );
     sourceTracked = true;
   } catch {

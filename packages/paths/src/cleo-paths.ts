@@ -22,6 +22,7 @@ import { dirname, join, resolve } from 'node:path';
 // sqlite-lazy-init.test.ts (T1331). Only resolveCanonicalCleoDir's nexus-registry
 // lookup actually opens a database.
 import type { DatabaseSync as DatabaseSyncType } from 'node:sqlite';
+import { boundedExecOptions } from './exec-path.js';
 import {
   createPlatformPathsResolver,
   type PlatformPaths,
@@ -433,11 +434,15 @@ function _isGitDirectory(dir: string): boolean {
  */
 function _findGitRootSync(fromPath: string): string | null {
   try {
-    const stdout = execFileSync('git', ['rev-parse', '--show-toplevel'], {
-      cwd: resolve(fromPath),
-      encoding: 'utf-8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-    });
+    const stdout = execFileSync(
+      'git',
+      ['rev-parse', '--show-toplevel'],
+      boundedExecOptions({
+        cwd: resolve(fromPath),
+        encoding: 'utf-8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+      }),
+    );
     return resolve(stdout.trim());
   } catch {
     return null;
@@ -450,11 +455,15 @@ function _findGitRootSync(fromPath: string): string | null {
  */
 function _findGitRemoteUrlSync(fromPath: string): string | null {
   try {
-    const stdout = execFileSync('git', ['remote', 'get-url', 'origin'], {
-      cwd: resolve(fromPath),
-      encoding: 'utf-8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-    });
+    const stdout = execFileSync(
+      'git',
+      ['remote', 'get-url', 'origin'],
+      boundedExecOptions({
+        cwd: resolve(fromPath),
+        encoding: 'utf-8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+      }),
+    );
     const url = stdout.trim();
     return url || null;
   } catch {

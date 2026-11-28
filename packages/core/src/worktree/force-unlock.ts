@@ -32,6 +32,7 @@ import type {
   ForceUnlockWorktreeResult,
 } from '@cleocode/contracts';
 import { engineError, engineSuccess } from '@cleocode/contracts/engine-result.js';
+import { boundedExecOptions } from '@cleocode/paths';
 import { unlockWorktree } from '@cleocode/worktree';
 import { getLogger } from '../logger.js';
 import { appendWorktreeAuditEntry, resolveWorktreeAuditActor } from './audit.js';
@@ -198,12 +199,16 @@ export function resolveIndexLockCandidates(worktreePath: string): string[] {
   // Candidate 2: the canonical admin dir resolved via `git rev-parse`.
   // Failures here are fine — we just fall back to the proxy path above.
   try {
-    const gitDir = execFileSync('git', ['rev-parse', '--git-dir'], {
-      cwd: worktreePath,
-      encoding: 'utf-8',
-      timeout: GIT_TIMEOUT_MS,
-      stdio: ['pipe', 'pipe', 'pipe'],
-    }).trim();
+    const gitDir = execFileSync(
+      'git',
+      ['rev-parse', '--git-dir'],
+      boundedExecOptions({
+        cwd: worktreePath,
+        encoding: 'utf-8',
+        timeout: GIT_TIMEOUT_MS,
+        stdio: ['pipe', 'pipe', 'pipe'],
+      }),
+    ).trim();
     if (gitDir && gitDir !== '.git') {
       // `git rev-parse --git-dir` returns either an absolute path or a path
       // relative to the worktree; resolve both correctly.
@@ -233,12 +238,16 @@ export function resolveIndexLockCandidates(worktreePath: string): string[] {
  */
 export function detectUncommittedChanges(worktreePath: string): boolean {
   try {
-    const out = execFileSync('git', ['status', '--porcelain'], {
-      cwd: worktreePath,
-      encoding: 'utf-8',
-      timeout: GIT_TIMEOUT_MS,
-      stdio: ['pipe', 'pipe', 'pipe'],
-    }).trim();
+    const out = execFileSync(
+      'git',
+      ['status', '--porcelain'],
+      boundedExecOptions({
+        cwd: worktreePath,
+        encoding: 'utf-8',
+        timeout: GIT_TIMEOUT_MS,
+        stdio: ['pipe', 'pipe', 'pipe'],
+      }),
+    ).trim();
     return out.length > 0;
   } catch {
     // If git status itself can't run (e.g. wedge so bad it errors), we can't

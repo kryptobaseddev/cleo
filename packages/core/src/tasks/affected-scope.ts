@@ -23,6 +23,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { ChangeSetMergeState, EvidenceAtom, TaskChangeSet } from '@cleocode/contracts';
+import { boundedExecOptions } from '@cleocode/paths';
 import { discoveryEnv } from '../git/work-tree.js';
 import { cleoConfigSchemaFor, listWorkspacePackages } from './affected-packages.js';
 import type {
@@ -233,10 +234,14 @@ function sameOver(
   paths: readonly string[],
 ): boolean | null {
   try {
-    execFileSync('git', ['diff', '--quiet', '--no-renames', from, to, '--', ...paths], {
-      cwd: root,
-      stdio: 'ignore',
-    });
+    execFileSync(
+      'git',
+      ['diff', '--quiet', '--no-renames', from, to, '--', ...paths],
+      boundedExecOptions({
+        cwd: root,
+        stdio: 'ignore',
+      }),
+    );
     return true;
   } catch (err) {
     return (err as { status?: number }).status === 1 ? false : null;
@@ -471,10 +476,10 @@ export function qaRunTreeMismatchReason(
       execFileSync(
         'git',
         ['diff', '--quiet', '--no-renames', a.treeHash, current, '--', ...paths],
-        {
+        boundedExecOptions({
           cwd: scope.root,
           stdio: 'ignore',
-        },
+        }),
       );
       continue;
     } catch (err) {
@@ -553,13 +558,17 @@ export function setAsideJoinedReason(
   let tracked: Set<string>;
   try {
     tracked = new Set(
-      execFileSync('git', ['-c', 'core.quotePath=false', 'ls-files', '-z'], {
-        cwd,
-        encoding: 'utf-8',
-        env: discoveryEnv(),
-        stdio: ['ignore', 'pipe', 'ignore'],
-        maxBuffer: 256 * 1024 * 1024,
-      })
+      execFileSync(
+        'git',
+        ['-c', 'core.quotePath=false', 'ls-files', '-z'],
+        boundedExecOptions({
+          cwd,
+          encoding: 'utf-8',
+          env: discoveryEnv(),
+          stdio: ['ignore', 'pipe', 'ignore'],
+          maxBuffer: 256 * 1024 * 1024,
+        }),
+      )
         .split('\0')
         .filter(Boolean),
     );
@@ -895,10 +904,14 @@ function configSchemaCommitDiffers(
 ): string | null {
   const at = atom.configSchemaCommit!;
   try {
-    execFileSync('git', ['diff', '--quiet', at, merge, '--', ...(atom.configSchema ?? [])], {
-      cwd: root,
-      stdio: 'ignore',
-    });
+    execFileSync(
+      'git',
+      ['diff', '--quiet', at, merge, '--', ...(atom.configSchema ?? [])],
+      boundedExecOptions({
+        cwd: root,
+        stdio: 'ignore',
+      }),
+    );
     return null;
   } catch (err) {
     return (err as { status?: number }).status === 1
@@ -920,7 +933,7 @@ function differingPaths(root: string, tree: string, merge: string, paths: string
     const out = execFileSync(
       'git',
       ['diff', '--name-only', '--no-renames', tree, merge, '--', ...paths],
-      { cwd: root, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] },
+      boundedExecOptions({ cwd: root, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] }),
     );
     const names = out.split('\n').filter(Boolean);
     return names.length === 0
@@ -1016,10 +1029,14 @@ export function scopedRunStandsAfterRedCi(
           : null;
     if (unseen) return { ok: false, why: unseen };
     try {
-      execFileSync('git', ['merge-base', '--is-ancestor', merge, run.headSha], {
-        cwd: root,
-        stdio: 'ignore',
-      });
+      execFileSync(
+        'git',
+        ['merge-base', '--is-ancestor', merge, run.headSha],
+        boundedExecOptions({
+          cwd: root,
+          stdio: 'ignore',
+        }),
+      );
     } catch {
       return {
         ok: false,
@@ -1120,7 +1137,7 @@ export function landedCarryTarget(
       const out = execFileSync(
         'git',
         ['diff-tree', '--no-commit-id', '--name-only', '--no-renames', '-r', '--root', sha],
-        { cwd: root, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] },
+        boundedExecOptions({ cwd: root, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] }),
       );
       for (const line of out.split('\n')) if (line) files.add(line);
     }
@@ -1207,11 +1224,15 @@ export function mergeCarryTarget(
   if (!merge) return null;
   let out: string;
   try {
-    out = execFileSync('git', ['diff', '--name-status', '--no-renames', `${merge}^1`, merge], {
-      cwd: root,
-      encoding: 'utf-8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-    });
+    out = execFileSync(
+      'git',
+      ['diff', '--name-status', '--no-renames', `${merge}^1`, merge],
+      boundedExecOptions({
+        cwd: root,
+        encoding: 'utf-8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+      }),
+    );
   } catch {
     return null;
   }

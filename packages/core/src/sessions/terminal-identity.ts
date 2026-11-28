@@ -51,6 +51,7 @@
 
 import { execFileSync } from 'node:child_process';
 import { PS_STABLE_ENV } from '@cleocode/contracts/process-probe.js';
+import { boundedExecOptions } from '@cleocode/paths';
 
 /**
  * Where a terminal key comes from. `agent` is a provider key qualified by
@@ -331,7 +332,7 @@ export function readProcessEntry(pid: number): ProcessAncestor | null {
     const out = execFileSync(
       'ps',
       ['-o', 'ppid=', '-o', 'lstart=', '-o', 'comm=', '-p', String(pid)],
-      {
+      boundedExecOptions({
         encoding: 'utf8',
         timeout: 1000,
         stdio: ['ignore', 'pipe', 'ignore'],
@@ -339,7 +340,7 @@ export function readProcessEntry(pid: number): ProcessAncestor | null {
         // two shells with different TZ/LANG would derive different keys for
         // the same process and silently lose their binding. Pin both.
         env: { ...process.env, ...PS_STABLE_ENV },
-      },
+      }),
     ).trim();
     // `lstart` is five whitespace-separated fields: `Sat Sep 27 22:07:02 2026`.
     const match = /^(\d+)\s+(\S+\s+\S+\s+\S+\s+\S+\s+\S+)\s+(.+)$/.exec(out);
@@ -369,12 +370,16 @@ export function readProcessEntry(pid: number): ProcessAncestor | null {
 export function readProcessArgs(pid: number): string | null {
   if (process.platform === 'win32' || !Number.isInteger(pid) || pid <= 1) return null;
   try {
-    const out = execFileSync('ps', ['-o', 'args=', '-p', String(pid)], {
-      encoding: 'utf8',
-      timeout: 1000,
-      stdio: ['ignore', 'pipe', 'ignore'],
-      env: { ...process.env, ...PS_STABLE_ENV },
-    }).trim();
+    const out = execFileSync(
+      'ps',
+      ['-o', 'args=', '-p', String(pid)],
+      boundedExecOptions({
+        encoding: 'utf8',
+        timeout: 1000,
+        stdio: ['ignore', 'pipe', 'ignore'],
+        env: { ...process.env, ...PS_STABLE_ENV },
+      }),
+    ).trim();
     return out === '' ? null : out;
   } catch {
     return null;

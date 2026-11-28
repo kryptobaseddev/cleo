@@ -44,6 +44,7 @@ import type {
 } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { REVIEW_WORKERS_COUNTED_KEY } from '@cleocode/contracts/review-verdict.js';
+import { boundedExecOptions } from '@cleocode/paths';
 import { CleoError } from '../errors.js';
 import type { TrainPr } from './merge-train.js';
 import {
@@ -517,13 +518,17 @@ export async function defaultReviewDispatchDeps(root: string): Promise<ReviewDis
   const github = ghMergeTrainGitHub(cwd);
   const gh = (args: string[]): string | null => {
     try {
-      return execFileSync('gh', args, {
-        cwd,
-        encoding: 'utf-8',
-        stdio: ['ignore', 'pipe', 'pipe'],
-        maxBuffer: 64 * 1024 * 1024,
-        timeout: 60_000,
-      });
+      return execFileSync(
+        'gh',
+        args,
+        boundedExecOptions({
+          cwd,
+          encoding: 'utf-8',
+          stdio: ['ignore', 'pipe', 'pipe'],
+          maxBuffer: 64 * 1024 * 1024,
+          timeout: 60_000,
+        }),
+      );
     } catch {
       return null;
     }

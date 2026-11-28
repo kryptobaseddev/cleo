@@ -60,6 +60,7 @@ import {
   PR_REQUIRED_WORKFLOWS_CONTEXT_KEY,
   PR_REQUIRED_WORKFLOWS_ENV_VAR,
 } from '@cleocode/contracts/release/evidence-atoms.js';
+import { boundedExecOptions } from '@cleocode/paths';
 import {
   describeUnusableEvidenceGitRoot,
   discoveryEnv,
@@ -67,7 +68,6 @@ import {
   isGitWorkTree,
 } from '../git/work-tree.js';
 import type { EvidenceRoots } from '../tasks/evidence.js';
-
 import {
   extractRepoOwnerAndName,
   ghQueryTimeoutMs,
@@ -167,12 +167,16 @@ export function prRepoIdentity(executionRoot: string): string {
 export function originRepoSlug(root: string): string | null {
   let url: string;
   try {
-    url = execFileSync('git', ['remote', 'get-url', 'origin'], {
-      cwd: root,
-      encoding: 'utf-8',
-      env: discoveryEnv(),
-      stdio: ['ignore', 'pipe', 'ignore'],
-    }).trim();
+    url = execFileSync(
+      'git',
+      ['remote', 'get-url', 'origin'],
+      boundedExecOptions({
+        cwd: root,
+        encoding: 'utf-8',
+        env: discoveryEnv(),
+        stdio: ['ignore', 'pipe', 'ignore'],
+      }),
+    ).trim();
   } catch {
     return null;
   }
@@ -374,12 +378,12 @@ export const defaultFetchGhPrPayload: FetchGhPrPayload = async (
         '--json',
         'state,mergedAt,mergeable,headRefOid,mergeCommit,title,body,headRefName,files,changedFiles,statusCheckRollup',
       ],
-      {
+      boundedExecOptions({
         encoding: 'utf-8',
         stdio: ['ignore', 'pipe', 'pipe'],
         cwd,
         timeout: ghQueryTimeoutMs(),
-      },
+      }),
     );
     let parsed: unknown;
     try {
@@ -482,7 +486,12 @@ export const defaultFetchGhPrFilesPage: FetchGhPrFilesPage = async (
         'api',
         `repos/${ghRepo(cwd) ?? '{owner}/{repo}'}/pulls/${prNumber}/files?per_page=${PR_FILES_PAGE_SIZE}&page=${page}`,
       ],
-      { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'pipe'], cwd, timeout: ghQueryTimeoutMs() },
+      boundedExecOptions({
+        encoding: 'utf-8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+        cwd,
+        timeout: ghQueryTimeoutMs(),
+      }),
     );
   } catch (err) {
     if (isGhTimeout(err)) {
@@ -891,7 +900,12 @@ export const defaultFetchGhBranchProtection: FetchGhBranchProtection = async (cw
     const repoStdout = execFileSync(
       'gh',
       ['repo', 'view', ...(target ? [target] : []), '--json', 'nameWithOwner,defaultBranchRef'],
-      { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'pipe'], cwd, timeout: ghQueryTimeoutMs() },
+      boundedExecOptions({
+        encoding: 'utf-8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+        cwd,
+        timeout: ghQueryTimeoutMs(),
+      }),
     );
     const repoInfo = JSON.parse(repoStdout) as {
       nameWithOwner?: unknown;
@@ -908,7 +922,12 @@ export const defaultFetchGhBranchProtection: FetchGhBranchProtection = async (cw
     const stdout = execFileSync(
       'gh',
       ['api', `repos/${repo}/branches/${branch}/protection/required_status_checks`],
-      { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'pipe'], cwd, timeout: ghQueryTimeoutMs() },
+      boundedExecOptions({
+        encoding: 'utf-8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+        cwd,
+        timeout: ghQueryTimeoutMs(),
+      }),
     );
     const parsed = JSON.parse(stdout) as { contexts?: unknown; checks?: unknown };
     const contexts = new Set<string>();
@@ -1383,7 +1402,12 @@ export const defaultFetchGhCommitCheckRuns: FetchGhCommitCheckRuns = async (sha,
         '--jq',
         '.check_runs[] | {name, status, conclusion, started_at, completed_at}',
       ],
-      { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'pipe'], cwd, timeout: ghQueryTimeoutMs() },
+      boundedExecOptions({
+        encoding: 'utf-8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+        cwd,
+        timeout: ghQueryTimeoutMs(),
+      }),
     );
   } catch (err) {
     if (isGhTimeout(err)) return { ok: false, reason: ghTimeoutReason(`gh api ${sha} check-runs`) };

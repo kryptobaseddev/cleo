@@ -52,6 +52,7 @@ import type {
   DisposeWorktreeResult,
   WorktreeArchiveReceipt,
 } from '@cleocode/contracts';
+import { boundedExecOptions } from '@cleocode/paths';
 import {
   destroyWorktree as napiDestroyWorktree,
   removeDir as napiRemoveDir,
@@ -92,13 +93,17 @@ function gitEnv(extra: Record<string, string> = {}): NodeJS.ProcessEnv {
 /** Run git without optional index writes; untrimmed stdout, or `null` on any failure. */
 function git(cwd: string, args: string[], env?: NodeJS.ProcessEnv): string | null {
   try {
-    return execFileSync('git', ['--no-optional-locks', '-C', cwd, ...args], {
-      env: env ?? gitEnv(),
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'pipe'],
-      timeout: 120_000,
-      maxBuffer: 256 * 1024 * 1024,
-    });
+    return execFileSync(
+      'git',
+      ['--no-optional-locks', '-C', cwd, ...args],
+      boundedExecOptions({
+        env: env ?? gitEnv(),
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+        timeout: 120_000,
+        maxBuffer: 256 * 1024 * 1024,
+      }),
+    );
   } catch {
     return null;
   }

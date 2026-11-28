@@ -57,6 +57,7 @@ import type {
   DocsModernizeReceiptOp,
 } from '@cleocode/contracts';
 import { docsModernizeJournalLineSchema } from '@cleocode/contracts/docs/modernize.js';
+import { boundedExecOptions } from '@cleocode/paths';
 import { pushWarning } from '../../output.js';
 import { getCleoDirAbsolute } from '../../paths.js';
 import { createAttachmentStore } from '../../store/attachment-store.js';
@@ -283,11 +284,15 @@ function ownerOf(row: DocsModernizePlanRow): string {
 function assertCleanTree(root: string, paths: readonly string[] = ['.']): void {
   let status: string;
   try {
-    status = execFileSync('git', ['status', '--porcelain', '--', ...paths], {
-      cwd: root,
-      encoding: 'utf-8',
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
+    status = execFileSync(
+      'git',
+      ['status', '--porcelain', '--', ...paths],
+      boundedExecOptions({
+        cwd: root,
+        encoding: 'utf-8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+      }),
+    );
   } catch {
     // @sync-invariant none:input-shape a root git cannot vouch for is refused before any write; --allow-dirty overrides
     throw new DocsModernizeDirtyError(

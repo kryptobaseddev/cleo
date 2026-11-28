@@ -10,6 +10,7 @@
 
 import { execFileSync } from 'node:child_process';
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
+import { boundedExecOptions } from '@cleocode/paths';
 import { BUILD_CONFIG } from '../config/build-config.js';
 import { CleoError } from '../errors.js';
 import { collectDiagnostics, formatDiagnosticsTable } from './diagnostics.js';
@@ -73,10 +74,14 @@ export function buildIssueBody(
  */
 export function checkGhCli(): void {
   try {
-    execFileSync('gh', ['--version'], {
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
+    execFileSync(
+      'gh',
+      ['--version'],
+      boundedExecOptions({
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+      }),
+    );
   } catch {
     throw new CleoError(ExitCode.DEPENDENCY_ERROR, 'GitHub CLI (gh) is not installed', {
       fix: 'Install gh: https://cli.github.com/ or brew install gh',
@@ -84,10 +89,14 @@ export function checkGhCli(): void {
   }
 
   try {
-    execFileSync('gh', ['auth', 'status', '--hostname', 'github.com'], {
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
+    execFileSync(
+      'gh',
+      ['auth', 'status', '--hostname', 'github.com'],
+      boundedExecOptions({
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+      }),
+    );
   } catch {
     throw new CleoError(ExitCode.DEPENDENCY_ERROR, 'GitHub CLI is not authenticated', {
       fix: "Run 'gh auth login' to authenticate",
@@ -103,10 +112,10 @@ function addGhIssue(title: string, body: string, labels: string): string {
     const result = execFileSync(
       'gh',
       ['issue', 'create', '--repo', CLEO_REPO, '--title', title, '--body', body, '--label', labels],
-      {
+      boundedExecOptions({
         encoding: 'utf-8',
         stdio: ['pipe', 'pipe', 'pipe'],
-      },
+      }),
     );
     return result.trim();
   } catch (err) {

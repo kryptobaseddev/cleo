@@ -76,6 +76,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, realpathSync, statSync } from 'node:fs';
 import { dirname, isAbsolute, relative, resolve } from 'node:path';
 import type { EvidenceAtom } from '@cleocode/contracts';
+import { boundedExecOptions } from '@cleocode/paths';
 import { discoveryEnv } from '../git/work-tree.js';
 import { TARGETED_RUN_COVERAGE } from '../release/ci-evidence.js';
 import {
@@ -172,12 +173,16 @@ function mtimeOf(path: string): number | null {
 /** Read-only git in `root`; null on any failure. */
 function git(root: string, args: readonly string[]): string | null {
   try {
-    return execFileSync('git', args, {
-      cwd: root,
-      encoding: 'utf-8',
-      env: discoveryEnv(),
-      stdio: ['ignore', 'pipe', 'ignore'],
-    });
+    return execFileSync(
+      'git',
+      args,
+      boundedExecOptions({
+        cwd: root,
+        encoding: 'utf-8',
+        env: discoveryEnv(),
+        stdio: ['ignore', 'pipe', 'ignore'],
+      }),
+    );
   } catch {
     return null;
   }

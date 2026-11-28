@@ -41,6 +41,7 @@ import {
   SATISFIES_VERSION_PIN_REGEX,
 } from '@cleocode/contracts/evidence-atom-schema.js';
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
+import { boundedExecOptions } from '@cleocode/paths';
 import { parse as parseYaml } from 'yaml';
 import { z } from 'zod';
 import { type EngineResult, engineSuccess } from '../engine-result.js';
@@ -204,11 +205,15 @@ function fail(message: string, fix?: string): never {
 /** `git` in `root`, or null when it fails. */
 function git(root: string, args: string[]): string | null {
   try {
-    return execFileSync('git', ['-C', root, ...args], {
-      encoding: 'utf-8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-      maxBuffer: 64 * 1024 * 1024,
-    });
+    return execFileSync(
+      'git',
+      ['-C', root, ...args],
+      boundedExecOptions({
+        encoding: 'utf-8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+        maxBuffer: 64 * 1024 * 1024,
+      }),
+    );
   } catch {
     return null;
   }
@@ -266,7 +271,7 @@ function treeAt(root: string, ref: string | null, workspace: string | undefined)
             ...(paths.length ? paths.map(repoPath) : [workspace ?? '.']),
             ':(exclude).opencode/goals',
           ],
-          { stdio: 'ignore' },
+          boundedExecOptions({ stdio: 'ignore' }),
         );
         return false; // exit 0: a match remains
       } catch (err) {

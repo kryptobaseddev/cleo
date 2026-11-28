@@ -12,7 +12,7 @@ import { execFileSync } from 'node:child_process';
 import { accessSync, constants, existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { getCleoPlatformPaths, getCleoWorktreesRoot } from '@cleocode/paths';
+import { boundedExecOptions, getCleoPlatformPaths, getCleoWorktreesRoot } from '@cleocode/paths';
 import { listRegisteredWorktrees } from '@cleocode/worktree';
 import { CORE_PROTECTED_FILES } from '../../constants.js';
 import {
@@ -518,10 +518,14 @@ export function checkVitalFilesTracked(projectRoot?: string): CheckResult {
     if (!existsSync(fullPath)) continue; // file doesn't exist, that's fine
 
     try {
-      execFileSync('git', ['ls-files', '--error-unmatch', file], {
-        cwd: root,
-        stdio: 'pipe',
-      });
+      execFileSync(
+        'git',
+        ['ls-files', '--error-unmatch', file],
+        boundedExecOptions({
+          cwd: root,
+          stdio: 'pipe',
+        }),
+      );
     } catch {
       untracked.push(file);
     }
@@ -576,11 +580,15 @@ const STAGED_STATE_DB_NAMES = new Set(
  */
 export function stagedCleoStatePaths(root: string): string[] | null {
   const git = (args: string[]): string =>
-    execFileSync('git', args, {
-      cwd: root,
-      encoding: 'utf-8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-    });
+    execFileSync(
+      'git',
+      args,
+      boundedExecOptions({
+        cwd: root,
+        encoding: 'utf-8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+      }),
+    );
   let raw: string;
   try {
     raw = git([
@@ -697,10 +705,14 @@ export function checkCoreFilesNotIgnored(projectRoot?: string): CheckResult {
     if (!existsSync(fullPath)) continue;
 
     try {
-      execFileSync('git', ['check-ignore', '-q', relPath], {
-        cwd: root,
-        stdio: 'pipe',
-      });
+      execFileSync(
+        'git',
+        ['check-ignore', '-q', relPath],
+        boundedExecOptions({
+          cwd: root,
+          stdio: 'pipe',
+        }),
+      );
       // Exit code 0 means the file IS ignored
       ignoredFiles.push(relPath);
     } catch {
@@ -771,10 +783,14 @@ export function checkSqliteNotTracked(projectRoot?: string): CheckResult {
   }
 
   try {
-    execFileSync('git', ['ls-files', '--error-unmatch', sqliteFile], {
-      cwd: root,
-      stdio: 'pipe',
-    });
+    execFileSync(
+      'git',
+      ['ls-files', '--error-unmatch', sqliteFile],
+      boundedExecOptions({
+        cwd: root,
+        stdio: 'pipe',
+      }),
+    );
     // Exit code 0 means the file IS tracked — that's the problem
     return {
       id: 'sqlite_not_tracked',
@@ -868,11 +884,15 @@ export function checkSharedWorktreeStashes(projectRoot?: string): CheckResult {
   const worktrees = sharedWorktreeCount(root);
   let entries: string[];
   try {
-    entries = execFileSync('git', ['stash', 'list', '--pretty=%H %gd %gs'], {
-      cwd: root,
-      encoding: 'utf-8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-    })
+    entries = execFileSync(
+      'git',
+      ['stash', 'list', '--pretty=%H %gd %gs'],
+      boundedExecOptions({
+        cwd: root,
+        encoding: 'utf-8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+      }),
+    )
       .split('\n')
       .filter((l) => l.trim().length > 0);
   } catch {
@@ -988,11 +1008,15 @@ export function checkSharedGitIdentity(projectRoot?: string): CheckResult {
 
   const gitValue = (args: readonly string[]): string | null => {
     try {
-      const out = execFileSync('git', [...args], {
-        cwd: root,
-        encoding: 'utf-8',
-        stdio: ['ignore', 'pipe', 'ignore'],
-      }).trim();
+      const out = execFileSync(
+        'git',
+        [...args],
+        boundedExecOptions({
+          cwd: root,
+          encoding: 'utf-8',
+          stdio: ['ignore', 'pipe', 'ignore'],
+        }),
+      ).trim();
       return out.length > 0 ? out : null;
     } catch {
       return null;

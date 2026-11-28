@@ -77,7 +77,11 @@ import type {
 import { BRANCH_LOCK_ERROR_CODES } from '@cleocode/contracts/branch-lock.js';
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
 import { PS_STABLE_ENV } from '@cleocode/contracts/process-probe.js';
-import { resolveStableDeviceIdPath, resolveWorktreeTaskLockPath } from '@cleocode/paths';
+import {
+  boundedExecOptions,
+  resolveStableDeviceIdPath,
+  resolveWorktreeTaskLockPath,
+} from '@cleocode/paths';
 import { type FileLockHandleNapi, tryLockFile } from './napi-binding.js';
 
 /** Default heartbeat TTL: 4 hours. Override with `CLEO_WORKTREE_LOCK_TTL_MS`. */
@@ -182,12 +186,16 @@ export function resolveWorktreeLockTtlMs(env: NodeJS.ProcessEnv = process.env): 
 export function readProcessStartTime(pid: number): string | null {
   if (process.platform === 'win32' || !Number.isInteger(pid) || pid <= 0) return null;
   try {
-    const out = execFileSync('ps', ['-o', 'lstart=', '-p', String(pid)], {
-      encoding: 'utf8',
-      timeout: 2_000,
-      stdio: ['ignore', 'pipe', 'ignore'],
-      env: { ...process.env, ...PS_STABLE_ENV },
-    }).trim();
+    const out = execFileSync(
+      'ps',
+      ['-o', 'lstart=', '-p', String(pid)],
+      boundedExecOptions({
+        encoding: 'utf8',
+        timeout: 2_000,
+        stdio: ['ignore', 'pipe', 'ignore'],
+        env: { ...process.env, ...PS_STABLE_ENV },
+      }),
+    ).trim();
     return out === '' ? null : out.replace(/\s+/g, ' ');
   } catch {
     return null;

@@ -12,7 +12,7 @@
 import { execFile, execFileSync } from 'node:child_process';
 import type { WorktreeHook, WorktreeHookResult } from '@cleocode/contracts';
 import type { HookExecutor, HookOutcome } from '@cleocode/contracts/project-hooks.js';
-import { shellInvocation } from '@cleocode/paths';
+import { boundedExecOptions, shellInvocation } from '@cleocode/paths';
 
 const DEFAULT_HOOK_TIMEOUT_MS = 30_000;
 
@@ -30,16 +30,25 @@ export async function runProjectWorktreeHooks(
   }
   let outcomes: HookOutcome[];
   try {
-    const projectRoot = execFileSync('git', ['-C', worktreePath, 'rev-parse', '--show-toplevel'], {
-      encoding: 'utf8',
-      timeout: 5000,
-      maxBuffer: 16384,
-      stdio: ['ignore', 'pipe', 'ignore'],
-    }).trim();
+    const projectRoot = execFileSync(
+      'git',
+      ['-C', worktreePath, 'rev-parse', '--show-toplevel'],
+      boundedExecOptions({
+        encoding: 'utf8',
+        timeout: 5000,
+        maxBuffer: 16384,
+        stdio: ['ignore', 'pipe', 'ignore'],
+      }),
+    ).trim();
     const gitCommonDir = execFileSync(
       'git',
       ['-C', worktreePath, 'rev-parse', '--path-format=absolute', '--git-common-dir'],
-      { encoding: 'utf8', timeout: 5000, maxBuffer: 16384, stdio: ['ignore', 'pipe', 'ignore'] },
+      boundedExecOptions({
+        encoding: 'utf8',
+        timeout: 5000,
+        maxBuffer: 16384,
+        stdio: ['ignore', 'pipe', 'ignore'],
+      }),
     ).trim();
     outcomes = await executor.execute({
       schemaVersion: 1,

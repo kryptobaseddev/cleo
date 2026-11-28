@@ -57,9 +57,13 @@ export {
   resolveSyncReplicaRegistryPath,
 } from './cleo-paths.js';
 export {
+  BOUNDED_EXEC_DEFAULT_TIMEOUT_MS,
+  type BoundedExecDefaults,
+  boundedExecOptions,
   type ExecPathOptions,
   executableNames,
   findOnPath,
+  NON_INTERACTIVE_EXEC_ENV,
   pathDelimiterFor,
   pathEnvKey,
   prependPathEntry,

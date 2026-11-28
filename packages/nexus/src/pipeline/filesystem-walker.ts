@@ -229,6 +229,10 @@ function gitExcludedPaths(repoPath: string, paths: readonly string[]): Set<strin
     cwd: repoPath,
     encoding: 'utf8',
     timeout: GIT_PROBE_TIMEOUT_MS,
+    // SIGKILL: a timeout's default SIGTERM can be ignored, and a sync exec then
+    // blocks the thread until the child exits (T14670). Nexus cannot import
+    // @cleocode/paths `boundedExecOptions`, so the bound is inline here.
+    killSignal: 'SIGKILL',
   });
   if (probe.error) {
     throw new Error(
@@ -287,6 +291,7 @@ function runGitCheckIgnore(
     encoding: 'utf8',
     input: `${batch.join('\0')}\0`,
     timeout,
+    killSignal: 'SIGKILL',
     maxBuffer: 4 * 1024 * 1024,
   });
 }

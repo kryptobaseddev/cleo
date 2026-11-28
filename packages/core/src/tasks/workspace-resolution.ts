@@ -43,6 +43,7 @@ import {
 } from 'node:fs';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
+import { boundedExecOptions } from '@cleocode/paths';
 import { CleoError } from '../errors.js';
 import { discoveryEnv } from '../git/work-tree.js';
 import { inPackageDir, listWorkspacePackages, TEST_FILE } from './affected-packages.js';
@@ -142,12 +143,16 @@ function cleanTreeOf(dir: string): string | null {
   if (rel === '' || rel.startsWith('..')) return null;
   const git = (args: readonly string[]): string | null => {
     try {
-      return execFileSync('git', args, {
-        cwd: checkout,
-        encoding: 'utf-8',
-        env: discoveryEnv(),
-        stdio: ['ignore', 'pipe', 'ignore'],
-      }).trim();
+      return execFileSync(
+        'git',
+        args,
+        boundedExecOptions({
+          cwd: checkout,
+          encoding: 'utf-8',
+          env: discoveryEnv(),
+          stdio: ['ignore', 'pipe', 'ignore'],
+        }),
+      ).trim();
     } catch {
       return null;
     }
@@ -169,13 +174,17 @@ function trackedSources(root: string, dirs: readonly string[]): Map<string, stri
   if (dirs.length === 0) return out;
   let listed: string;
   try {
-    listed = execFileSync('git', ['ls-files', '-z', '--', ...dirs.map((d) => `${d}/src`)], {
-      cwd: root,
-      encoding: 'utf-8',
-      env: discoveryEnv(),
-      stdio: ['ignore', 'pipe', 'ignore'],
-      maxBuffer: 64 * 1024 * 1024,
-    });
+    listed = execFileSync(
+      'git',
+      ['ls-files', '-z', '--', ...dirs.map((d) => `${d}/src`)],
+      boundedExecOptions({
+        cwd: root,
+        encoding: 'utf-8',
+        env: discoveryEnv(),
+        stdio: ['ignore', 'pipe', 'ignore'],
+        maxBuffer: 64 * 1024 * 1024,
+      }),
+    );
   } catch {
     return out;
   }
@@ -381,12 +390,16 @@ export function packagesNamedByTestArgs(
 export function checkoutRootOf(dir: string): string | null {
   try {
     return (
-      execFileSync('git', ['rev-parse', '--show-toplevel'], {
-        cwd: dir,
-        encoding: 'utf-8',
-        env: discoveryEnv(),
-        stdio: ['ignore', 'pipe', 'ignore'],
-      }).trim() || null
+      execFileSync(
+        'git',
+        ['rev-parse', '--show-toplevel'],
+        boundedExecOptions({
+          cwd: dir,
+          encoding: 'utf-8',
+          env: discoveryEnv(),
+          stdio: ['ignore', 'pipe', 'ignore'],
+        }),
+      ).trim() || null
     );
   } catch {
     return null;

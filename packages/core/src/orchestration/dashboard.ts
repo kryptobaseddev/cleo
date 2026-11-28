@@ -11,6 +11,7 @@ import { statSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Task, WorktreeInfo } from '@cleocode/contracts';
+import { boundedExecOptions } from '@cleocode/paths';
 import type { DataAccessor } from '../store/data-accessor.js';
 import { getTaskAccessor } from '../store/data-accessor.js';
 import {
@@ -334,12 +335,16 @@ function describeWorktreeState(worktree: WorktreeInfo): DashboardWorktreeState {
 function hasDirtyWorktree(worktreePath: string): boolean {
   try {
     return (
-      execFileSync('git', ['status', '--porcelain'], {
-        cwd: worktreePath,
-        encoding: 'utf-8',
-        stdio: ['pipe', 'pipe', 'pipe'],
-        timeout: 15_000,
-      }).trim().length > 0
+      execFileSync(
+        'git',
+        ['status', '--porcelain'],
+        boundedExecOptions({
+          cwd: worktreePath,
+          encoding: 'utf-8',
+          stdio: ['pipe', 'pipe', 'pipe'],
+          timeout: 15_000,
+        }),
+      ).trim().length > 0
     );
   } catch {
     return false;
@@ -348,12 +353,16 @@ function hasDirtyWorktree(worktreePath: string): boolean {
 
 function hasUnpushedWork(worktreePath: string): boolean {
   try {
-    const count = execFileSync('git', ['rev-list', '--count', '@{u}..HEAD'], {
-      cwd: worktreePath,
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-      timeout: 15_000,
-    }).trim();
+    const count = execFileSync(
+      'git',
+      ['rev-list', '--count', '@{u}..HEAD'],
+      boundedExecOptions({
+        cwd: worktreePath,
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+        timeout: 15_000,
+      }),
+    ).trim();
     return Number.parseInt(count, 10) > 0;
   } catch {
     return false;

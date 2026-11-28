@@ -62,6 +62,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { EvidenceAtom, EvidenceValidationContext } from '@cleocode/contracts';
 import type { CiChecksConfig, CiJobRequirements } from '@cleocode/contracts/project-context.js';
+import { boundedExecOptions } from '@cleocode/paths';
 import { similarityScore } from '../docs/slug-similarity.js';
 import { isGitWorkTree } from '../git/work-tree.js';
 import type { ViewComponentPr } from '../tasks/component-pr.js';
@@ -2563,12 +2564,16 @@ export function missingPrHunk(
 ): string | null {
   const read = (args: readonly string[]): string | null => {
     try {
-      return execFileSync('git', args, {
-        cwd,
-        encoding: 'utf-8',
-        stdio: ['ignore', 'pipe', 'ignore'],
-        maxBuffer: 64 * 1024 * 1024,
-      });
+      return execFileSync(
+        'git',
+        args,
+        boundedExecOptions({
+          cwd,
+          encoding: 'utf-8',
+          stdio: ['ignore', 'pipe', 'ignore'],
+          maxBuffer: 64 * 1024 * 1024,
+        }),
+      );
     } catch {
       return null;
     }
@@ -2679,7 +2684,12 @@ export function ghDefaultBranch(cwd: string): string | null {
     const name = execFileSync(
       'gh',
       ['repo', 'view', '--json', 'defaultBranchRef', '--jq', '.defaultBranchRef.name'],
-      { cwd, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'], timeout: ghQueryTimeoutMs() },
+      boundedExecOptions({
+        cwd,
+        encoding: 'utf-8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+        timeout: ghQueryTimeoutMs(),
+      }),
     ).trim();
     return /^[A-Za-z0-9._/-]+$/.test(name) ? name : null;
   } catch {
@@ -2745,11 +2755,15 @@ export function defaultFirstParentOf(sha: string, cwd: string): string | null {
 
 function gitRead(cwd: string, args: readonly string[]): string | null {
   try {
-    return execFileSync('git', args, {
-      cwd,
-      encoding: 'utf-8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-    }).trim();
+    return execFileSync(
+      'git',
+      args,
+      boundedExecOptions({
+        cwd,
+        encoding: 'utf-8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+      }),
+    ).trim();
   } catch {
     return null;
   }
@@ -2759,13 +2773,17 @@ function gitRead(cwd: string, args: readonly string[]): string | null {
 function ghApi(path: string, cwd: string): unknown {
   try {
     return JSON.parse(
-      execFileSync('gh', ['api', path], {
-        cwd,
-        encoding: 'utf-8',
-        stdio: ['ignore', 'pipe', 'pipe'],
-        maxBuffer: 32 * 1024 * 1024,
-        timeout: ghQueryTimeoutMs(),
-      }),
+      execFileSync(
+        'gh',
+        ['api', path],
+        boundedExecOptions({
+          cwd,
+          encoding: 'utf-8',
+          stdio: ['ignore', 'pipe', 'pipe'],
+          maxBuffer: 32 * 1024 * 1024,
+          timeout: ghQueryTimeoutMs(),
+        }),
+      ),
     );
   } catch {
     return null;
@@ -2854,13 +2872,17 @@ export async function defaultFetchJobLog(jobId: number, cwd: string): Promise<st
       '--allow-escape-sequences',
       `repos/{owner}/{repo}/actions/jobs/${jobId}/logs`,
     ];
-    return execFileSync('gh', args, {
-      cwd,
-      encoding: 'utf-8',
-      stdio: ['ignore', 'pipe', 'pipe'],
-      maxBuffer: 64 * 1024 * 1024,
-      timeout: ghQueryTimeoutMs(),
-    });
+    return execFileSync(
+      'gh',
+      args,
+      boundedExecOptions({
+        cwd,
+        encoding: 'utf-8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+        maxBuffer: 64 * 1024 * 1024,
+        timeout: ghQueryTimeoutMs(),
+      }),
+    );
   } catch {
     return null;
   }

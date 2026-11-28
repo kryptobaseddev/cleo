@@ -44,6 +44,7 @@
  */
 
 import { execFileSync } from 'node:child_process';
+import { boundedExecOptions } from '@cleocode/paths';
 
 /** Subprocess ceiling for the git calls below. */
 const SUBPROCESS_TIMEOUT_MS = 60_000;
@@ -84,13 +85,17 @@ export type CommitPresence =
 /** Run git, returning stdout, or `null` when the call fails. */
 function git(projectRoot: string, args: readonly string[]): string | null {
   try {
-    return execFileSync('git', [...args], {
-      cwd: projectRoot,
-      encoding: 'utf-8',
-      stdio: ['ignore', 'pipe', 'pipe'],
-      timeout: SUBPROCESS_TIMEOUT_MS,
-      maxBuffer: 256 * 1024 * 1024,
-    });
+    return execFileSync(
+      'git',
+      [...args],
+      boundedExecOptions({
+        cwd: projectRoot,
+        encoding: 'utf-8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+        timeout: SUBPROCESS_TIMEOUT_MS,
+        maxBuffer: 256 * 1024 * 1024,
+      }),
+    );
   } catch {
     return null;
   }
@@ -115,14 +120,18 @@ function patchIdStream(projectRoot: string, stream: string): Map<string, string>
   const map = new Map<string, string>();
   let out: string;
   try {
-    out = execFileSync('git', ['patch-id', '--stable'], {
-      cwd: projectRoot,
-      input: stream,
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-      timeout: SUBPROCESS_TIMEOUT_MS,
-      maxBuffer: 256 * 1024 * 1024,
-    });
+    out = execFileSync(
+      'git',
+      ['patch-id', '--stable'],
+      boundedExecOptions({
+        cwd: projectRoot,
+        input: stream,
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+        timeout: SUBPROCESS_TIMEOUT_MS,
+        maxBuffer: 256 * 1024 * 1024,
+      }),
+    );
   } catch {
     return map;
   }

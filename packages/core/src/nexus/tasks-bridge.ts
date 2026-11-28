@@ -24,6 +24,7 @@ import type {
   TaskReference,
 } from '@cleocode/contracts';
 import { pushWarning } from '@cleocode/lafs';
+import { boundedExecOptions } from '@cleocode/paths';
 import { EDGE_TYPES } from '../memory/edge-types.js';
 import { getBrainDb, getBrainNativeDb } from '../store/memory-sqlite.js';
 import { getNexusDb, getNexusNativeDb } from '../store/nexus-sqlite.js';
@@ -442,16 +443,20 @@ export async function runGitLogTaskLinker(
         args.push(`${since}..HEAD`);
       }
 
-      gitLogOutput = execFileSync('git', args, {
-        cwd: projectRoot,
-        encoding: 'utf-8',
-        // T9771: capture stderr (pipe) so git's own diagnostics do NOT leak
-        // to the parent's stderr when running under JSON-emitting handlers.
-        // Without this, "fatal: not a git repository" from git would land in
-        // the user's terminal even though we route the failure through
-        // pushWarning() for envelope-only delivery.
-        stdio: ['ignore', 'pipe', 'pipe'],
-      });
+      gitLogOutput = execFileSync(
+        'git',
+        args,
+        boundedExecOptions({
+          cwd: projectRoot,
+          encoding: 'utf-8',
+          // T9771: capture stderr (pipe) so git's own diagnostics do NOT leak
+          // to the parent's stderr when running under JSON-emitting handlers.
+          // Without this, "fatal: not a git repository" from git would land in
+          // the user's terminal even though we route the failure through
+          // pushWarning() for envelope-only delivery.
+          stdio: ['ignore', 'pipe', 'pipe'],
+        }),
+      );
     } catch {
       // T9771: git command failed — likely not a git repo; surface as
       // envelope warning instead of stderr so JSON consumers stay clean.

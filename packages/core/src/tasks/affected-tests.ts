@@ -42,6 +42,7 @@
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { join, posix } from 'node:path';
+import { boundedExecOptions } from '@cleocode/paths';
 import { resolveOriginDefault } from '../git/base-ref.js';
 import {
   deriveAffectedPackages,
@@ -230,12 +231,16 @@ interface ModuleInfo {
 /** NUL-separated git output as a list, or null when git fails. */
 function gitList(root: string, args: readonly string[]): string[] | null {
   try {
-    return execFileSync('git', ['-c', 'core.quotePath=false', ...args, '-z'], {
-      cwd: root,
-      encoding: 'utf-8',
-      maxBuffer: 64 * 1024 * 1024,
-      stdio: ['ignore', 'pipe', 'ignore'],
-    })
+    return execFileSync(
+      'git',
+      ['-c', 'core.quotePath=false', ...args, '-z'],
+      boundedExecOptions({
+        cwd: root,
+        encoding: 'utf-8',
+        maxBuffer: 64 * 1024 * 1024,
+        stdio: ['ignore', 'pipe', 'ignore'],
+      }),
+    )
       .split('\0')
       .filter(Boolean);
   } catch {
@@ -623,11 +628,15 @@ export type AffectedTestReport = AffectedTestSelection & {
 export async function affectedTestReport(cwd: string, base?: string): Promise<AffectedTestReport> {
   const line = (args: readonly string[]): string | null => {
     try {
-      return execFileSync('git', args, {
-        cwd,
-        encoding: 'utf-8',
-        stdio: ['ignore', 'pipe', 'ignore'],
-      }).trim();
+      return execFileSync(
+        'git',
+        args,
+        boundedExecOptions({
+          cwd,
+          encoding: 'utf-8',
+          stdio: ['ignore', 'pipe', 'ignore'],
+        }),
+      ).trim();
     } catch {
       return null;
     }

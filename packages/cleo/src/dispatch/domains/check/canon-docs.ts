@@ -42,6 +42,7 @@ import {
   readDocNameBaseline,
 } from '@cleocode/core/docs/doc-name-rule';
 import { resolveCanonDocPathPolicy } from '@cleocode/core/session/canon-lint';
+import { boundedExecOptions } from '@cleocode/paths';
 import { parse as parseYaml } from 'yaml';
 
 // ---------------------------------------------------------------------------
@@ -213,12 +214,12 @@ function listAddedMarkdownFiles(projectRoot: string, baseRef: string): string[] 
         `${baseRef}...HEAD`,
         '--',
       ],
-      {
+      boundedExecOptions({
         cwd: projectRoot,
         encoding: 'utf8',
         stdio: ['pipe', 'pipe', 'pipe'],
         timeout: 30_000,
-      },
+      }),
     );
     return out.split('\0').filter((line) => line.length > 0 && line.endsWith('.md'));
   } catch (error) {
@@ -238,12 +239,16 @@ function listAddedMarkdownFiles(projectRoot: string, baseRef: string): string[] 
  */
 function listTrackedDocs(projectRoot: string): string[] {
   try {
-    const out = execFileSync('git', ['ls-files', '-z', '--', 'docs'], {
-      cwd: projectRoot,
-      encoding: 'utf8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-      timeout: 30_000,
-    });
+    const out = execFileSync(
+      'git',
+      ['ls-files', '-z', '--', 'docs'],
+      boundedExecOptions({
+        cwd: projectRoot,
+        encoding: 'utf8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+        timeout: 30_000,
+      }),
+    );
     return out.split('\0').filter((line) => line.length > 0);
   } catch (error) {
     throw new CanonDocsDiffError(

@@ -68,6 +68,7 @@ import { join, matchesGlob, resolve } from 'node:path';
 
 import type { HeavyToolResourcePlan } from '@cleocode/contracts';
 import { ExitCode } from '@cleocode/contracts/exit-codes.js';
+import { boundedExecOptions } from '@cleocode/paths';
 import { CleoError } from '../errors.js';
 import { discoveryEnv } from '../git/work-tree.js';
 import { ADMISSION_ENV, planFootprintBytes } from '../resources/admission-ledger.js';
@@ -1546,13 +1547,17 @@ function resolveRuntimePaths(root: string, protectedInputs: readonly string[]): 
   const mergeBase = originDefaultMergeBase(root);
   const globs = mergeBase ? declaredEvidencePatterns(root, mergeBase, 'runtimePaths') : [];
   if (globs.length === 0) return { globs: [], files: [] };
-  const files = execFileSync('git', ['ls-files', '-z', '--', ...globs.map((g) => `:(glob)${g}`)], {
-    cwd: root,
-    encoding: 'utf-8',
-    maxBuffer: 64 * 1024 * 1024,
-    env: discoveryEnv(),
-    stdio: ['ignore', 'pipe', 'ignore'],
-  })
+  const files = execFileSync(
+    'git',
+    ['ls-files', '-z', '--', ...globs.map((g) => `:(glob)${g}`)],
+    boundedExecOptions({
+      cwd: root,
+      encoding: 'utf-8',
+      maxBuffer: 64 * 1024 * 1024,
+      env: discoveryEnv(),
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }),
+  )
     .split('\0')
     .filter((p) => p !== '');
   const inputs = new Set(protectedInputs);
@@ -1717,13 +1722,17 @@ export async function captureTree(
       if (reset.exitCode !== 0) return none(runtime.refusal);
     }
 
-    const listed = execFileSync('git', ['ls-files', '-o', '--exclude-standard', '-z', '--', '.'], {
-      cwd: root,
-      encoding: 'utf-8',
-      maxBuffer: 256 * 1024 * 1024,
-      stdio: ['ignore', 'pipe', 'ignore'],
-      env: { ...base, ...env },
-    });
+    const listed = execFileSync(
+      'git',
+      ['ls-files', '-o', '--exclude-standard', '-z', '--', '.'],
+      boundedExecOptions({
+        cwd: root,
+        encoding: 'utf-8',
+        maxBuffer: 256 * 1024 * 1024,
+        stdio: ['ignore', 'pipe', 'ignore'],
+        env: { ...base, ...env },
+      }),
+    );
     const untracked = listed.split('\0').filter((p) => {
       if (p === '' || isUntrackedRuntimeOutput(p)) return false;
       // A protected input is never runtime, tracked or not (review of #2129).
@@ -1733,12 +1742,16 @@ export async function captureTree(
       return st?.isFile() === true && st.size <= MAX_UNTRACKED_HASH_BYTES;
     });
     if (untracked.length > 0) {
-      execFileSync('git', ['update-index', '--add', '-z', '--stdin'], {
-        cwd: root,
-        input: `${untracked.join('\0')}\0`,
-        stdio: ['pipe', 'ignore', 'ignore'],
-        env: { ...base, ...env },
-      });
+      execFileSync(
+        'git',
+        ['update-index', '--add', '-z', '--stdin'],
+        boundedExecOptions({
+          cwd: root,
+          input: `${untracked.join('\0')}\0`,
+          stdio: ['pipe', 'ignore', 'ignore'],
+          env: { ...base, ...env },
+        }),
+      );
     }
 
     const tree = await spawnCmd('git', ['write-tree'], root, undefined, env, base);
@@ -2003,13 +2016,17 @@ async function runFocused(
  */
 function listTrackedFiles(root: string): string[] {
   try {
-    return execFileSync('git', ['ls-files', '-z'], {
-      cwd: root,
-      encoding: 'utf-8',
-      maxBuffer: 64 * 1024 * 1024,
-      env: discoveryEnv(),
-      stdio: ['ignore', 'pipe', 'ignore'],
-    })
+    return execFileSync(
+      'git',
+      ['ls-files', '-z'],
+      boundedExecOptions({
+        cwd: root,
+        encoding: 'utf-8',
+        maxBuffer: 64 * 1024 * 1024,
+        env: discoveryEnv(),
+        stdio: ['ignore', 'pipe', 'ignore'],
+      }),
+    )
       .split('\0')
       .filter(Boolean);
   } catch {

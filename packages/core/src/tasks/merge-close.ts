@@ -54,6 +54,7 @@ import type {
   ReviewVerdict,
   TaskAuditLogRow,
 } from '@cleocode/contracts';
+import { boundedExecOptions } from '@cleocode/paths';
 import { discoveryEnv } from '../git/work-tree.js';
 import { captureProjectScope, worktreeScope } from '../project-scope.js';
 import type { RepoWorkflow } from '../release/ci-evidence.js';
@@ -1865,12 +1866,16 @@ async function ghOrError(
   const { ghQueryTimeoutMs } = await import('../release/github-pr.js');
   try {
     return {
-      out: execFileSync('gh', args, {
-        cwd,
-        encoding: 'utf-8',
-        stdio: ['ignore', 'pipe', 'pipe'],
-        timeout: ghQueryTimeoutMs(),
-      }),
+      out: execFileSync(
+        'gh',
+        args,
+        boundedExecOptions({
+          cwd,
+          encoding: 'utf-8',
+          stdio: ['ignore', 'pipe', 'pipe'],
+          timeout: ghQueryTimeoutMs(),
+        }),
+      ),
     };
   } catch (err) {
     const stderr =

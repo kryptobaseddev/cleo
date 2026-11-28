@@ -27,6 +27,7 @@
  */
 
 import { spawnSync } from 'node:child_process';
+import { boundedExecOptions } from '@cleocode/paths';
 import { getProjectRoot } from '../paths.js';
 import { buildSpawnArgs, hasSystemdRun } from '../resources/spawn-wrapper.js';
 
@@ -324,10 +325,14 @@ export function buildGateArgv(
  * @internal exported for unit testing
  */
 export function resolveWorkingTree(): string {
-  const top = spawnSync('git', ['rev-parse', '--show-toplevel'], {
-    encoding: 'utf8',
-    stdio: ['ignore', 'pipe', 'ignore'],
-  });
+  const top = spawnSync(
+    'git',
+    ['rev-parse', '--show-toplevel'],
+    boundedExecOptions({
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }),
+  );
   if (top.status === 0 && typeof top.stdout === 'string' && top.stdout.trim().length > 0) {
     return top.stdout.trim();
   }

@@ -36,6 +36,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { boundedExecOptions } from '@cleocode/paths';
 import { discoveryEnv } from '../git/work-tree.js';
 import { ghQueryTimeoutMs, ghTimeoutReason, isGhTimeout } from '../release/github-pr.js';
 
@@ -161,16 +162,20 @@ function runGit(
   opts: { input?: string; env?: NodeJS.ProcessEnv; maxBuffer?: number } = {},
 ): string {
   try {
-    return execFileSync('git', args, {
-      cwd: root,
-      encoding: 'utf-8',
-      input: opts.input,
-      stdio: [opts.input === undefined ? 'ignore' : 'pipe', 'pipe', 'ignore'],
-      env: { ...(opts.env ?? process.env), GIT_NO_LAZY_FETCH: '1', GIT_TERMINAL_PROMPT: '0' },
-      maxBuffer: opts.maxBuffer ?? GIT_MAX_BUFFER,
-      timeout: gitTimeoutMs(),
-      killSignal: 'SIGKILL',
-    });
+    return execFileSync(
+      'git',
+      args,
+      boundedExecOptions({
+        cwd: root,
+        encoding: 'utf-8',
+        input: opts.input,
+        stdio: [opts.input === undefined ? 'ignore' : 'pipe', 'pipe', 'ignore'],
+        env: { ...(opts.env ?? process.env), GIT_NO_LAZY_FETCH: '1', GIT_TERMINAL_PROMPT: '0' },
+        maxBuffer: opts.maxBuffer ?? GIT_MAX_BUFFER,
+        timeout: gitTimeoutMs(),
+        killSignal: 'SIGKILL',
+      }),
+    );
   } catch (err) {
     const code = (err as { code?: unknown } | null)?.code;
     if (code === 'ETIMEDOUT') throw new GitTimeoutError(args);
@@ -217,12 +222,12 @@ export const defaultViewComponentPr: ViewComponentPr = async (prNumber, root) =>
           '--json',
           'number,title,body,headRefName,baseRefName,state,mergeCommit,headRefOid,commits',
         ],
-        {
+        boundedExecOptions({
           cwd: root,
           encoding: 'utf-8',
           stdio: ['ignore', 'pipe', 'pipe'],
           timeout: ghQueryTimeoutMs(),
-        },
+        }),
       ),
     ) as Record<string, unknown>;
   } catch {
@@ -783,12 +788,12 @@ function searchMergedPrs(search: string, root: string): LandingSearch {
           '--limit',
           '20',
         ],
-        {
+        boundedExecOptions({
           cwd: root,
           encoding: 'utf-8',
           stdio: ['ignore', 'pipe', 'pipe'],
           timeout: ghQueryTimeoutMs(),
-        },
+        }),
       ),
     );
   } catch (err) {

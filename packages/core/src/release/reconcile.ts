@@ -44,6 +44,7 @@ import {
   RELEASE_PERSISTED_CHANNEL,
   safeParseReleasePlan,
 } from '@cleocode/contracts/release/plan.js';
+import { boundedExecOptions } from '@cleocode/paths';
 import { and, eq, inArray } from 'drizzle-orm';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { getLogger } from '../logger.js';
@@ -118,12 +119,16 @@ function inferPrevTag(
   releaseState: (tag: string) => boolean | null,
 ): string | null {
   try {
-    const raw = execFileSync('git', ['tag', '--list', '--sort=creatordate'], {
-      cwd: projectRoot,
-      encoding: 'utf-8',
-      stdio: ['ignore', 'pipe', 'pipe'],
-      timeout: SUBPROCESS_TIMEOUT_MS,
-    }).trim();
+    const raw = execFileSync(
+      'git',
+      ['tag', '--list', '--sort=creatordate'],
+      boundedExecOptions({
+        cwd: projectRoot,
+        encoding: 'utf-8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+        timeout: SUBPROCESS_TIMEOUT_MS,
+      }),
+    ).trim();
     const tags = raw
       .split('\n')
       .map((t) => t.trim())
@@ -204,13 +209,17 @@ function extractTokensFromGitLog(
 ): { taskIds: string[]; prNumbers: number[] } {
   try {
     const range = prevTag ? `${prevTag}..${tag}` : tag;
-    const logOut = execFileSync('git', ['log', '--pretty=format:%s%n%b%n---COMMIT---', range], {
-      cwd: projectRoot,
-      encoding: 'utf-8',
-      stdio: ['ignore', 'pipe', 'pipe'],
-      timeout: SUBPROCESS_TIMEOUT_MS,
-      maxBuffer: 64 * 1024 * 1024,
-    }).trim();
+    const logOut = execFileSync(
+      'git',
+      ['log', '--pretty=format:%s%n%b%n---COMMIT---', range],
+      boundedExecOptions({
+        cwd: projectRoot,
+        encoding: 'utf-8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+        timeout: SUBPROCESS_TIMEOUT_MS,
+        maxBuffer: 64 * 1024 * 1024,
+      }),
+    ).trim();
 
     SYNTH_TASK_TOKEN_RE.lastIndex = 0;
     const taskIds = new Set<string>();
@@ -298,12 +307,16 @@ export async function synthesizePlanForReconcile(
   projectRoot: string,
   releaseState: (tag: string) => boolean | null = (tag) =>
     githubReleaseState(tag, (args) =>
-      execFileSync('gh', [...args], {
-        cwd: projectRoot,
-        encoding: 'utf-8',
-        stdio: ['ignore', 'pipe', 'pipe'],
-        timeout: SUBPROCESS_TIMEOUT_MS,
-      }),
+      execFileSync(
+        'gh',
+        [...args],
+        boundedExecOptions({
+          cwd: projectRoot,
+          encoding: 'utf-8',
+          stdio: ['ignore', 'pipe', 'pipe'],
+          timeout: SUBPROCESS_TIMEOUT_MS,
+        }),
+      ),
     ),
 ): Promise<SynthesizedPlanReport> {
   const prevTag = inferPrevTag(version, projectRoot, releaseState);
@@ -351,12 +364,16 @@ export async function synthesizePlanForReconcile(
     // Fall back to first commit subject CC type.
     try {
       const range = prevTag ? `${prevTag}..${version}` : version;
-      const firstSubject = execFileSync('git', ['log', '--pretty=format:%s', '--reverse', range], {
-        cwd: projectRoot,
-        encoding: 'utf-8',
-        stdio: ['ignore', 'pipe', 'pipe'],
-        timeout: SUBPROCESS_TIMEOUT_MS,
-      })
+      const firstSubject = execFileSync(
+        'git',
+        ['log', '--pretty=format:%s', '--reverse', range],
+        boundedExecOptions({
+          cwd: projectRoot,
+          encoding: 'utf-8',
+          stdio: ['ignore', 'pipe', 'pipe'],
+          timeout: SUBPROCESS_TIMEOUT_MS,
+        }),
+      )
         .trim()
         .split('\n')[0];
       if (firstSubject) seedKind = synthCcToTaskKind(firstSubject);
@@ -657,13 +674,17 @@ interface ParsedPR {
  * "tag not found") MUST wrap with their own try/catch.
  */
 function runGit(args: readonly string[], cwd: string): string {
-  return execFileSync('git', [...args], {
-    cwd,
-    encoding: 'utf-8',
-    stdio: ['ignore', 'pipe', 'pipe'],
-    timeout: SUBPROCESS_TIMEOUT_MS,
-    maxBuffer: 64 * 1024 * 1024,
-  }).trim();
+  return execFileSync(
+    'git',
+    [...args],
+    boundedExecOptions({
+      cwd,
+      encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+      timeout: SUBPROCESS_TIMEOUT_MS,
+      maxBuffer: 64 * 1024 * 1024,
+    }),
+  ).trim();
 }
 
 /**
@@ -671,13 +692,17 @@ function runGit(args: readonly string[], cwd: string): string {
  * throws on non-zero exit.
  */
 function runGh(args: readonly string[], cwd: string): string {
-  return execFileSync('gh', [...args], {
-    cwd,
-    encoding: 'utf-8',
-    stdio: ['ignore', 'pipe', 'pipe'],
-    timeout: SUBPROCESS_TIMEOUT_MS,
-    maxBuffer: 64 * 1024 * 1024,
-  }).trim();
+  return execFileSync(
+    'gh',
+    [...args],
+    boundedExecOptions({
+      cwd,
+      encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+      timeout: SUBPROCESS_TIMEOUT_MS,
+      maxBuffer: 64 * 1024 * 1024,
+    }),
+  ).trim();
 }
 
 // ─── Helpers — plan / tag / staleness validation ────────────────────────────

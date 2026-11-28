@@ -10,7 +10,7 @@ description: >-
   gates, package boundaries, validation, data safety or anything the task asked for.
 license: MIT
 metadata:
-  version: 1.6.0
+  version: 1.7.0
   tier: core
   install: harness
   covers:
@@ -19,7 +19,7 @@ metadata:
     - packages/core/src/orchestration/lean-debt.ts
     - packages/core/src/orchestration/lean-gain.ts
     - packages/core/src/nexus/brief-map.ts
-  lastReviewed: 2026-10-13
+  lastReviewed: 2026-11-27
   stability: stable
   attribution: Adapted from Ponytail 5.1.0 by DietrichGebert (MIT) — https://github.com/DietrichGebert/ponytail
 ---
@@ -83,6 +83,8 @@ callers that stop working, stores it would migrate. That is scope. Extra feature
 - Bug fix: grep every caller of the function you touch, then fix the root cause once in the
   shared code. No workaround at a call site.
 - Code you move or merge keeps its error handling and validation.
+- A synchronous `gh`, `git` or `ps` call reuses `boundedExecOptions` (`@cleocode/paths`)
+  for its options instead of hand-picking a timeout and signal (T14670).
 - Between options of equal size, take the one that is correct on edge cases.
 - New non-trivial logic (a branch, a loop, a parser, a store write, security) leaves one
   small test. Trivial changes need none. Run single test files through `cleo run --wait`.

@@ -24,6 +24,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { NEXUS_GIT_HOOK_NAMES } from '@cleocode/contracts/git-hooks.js';
+import { boundedExecOptions } from '@cleocode/paths';
 import { getConfigValue } from '../config/registry.js';
 import { setConfigValue } from '../config.js';
 import { resolveBaseRef, resolveOriginDefault } from '../git/base-ref.js';
@@ -137,11 +138,15 @@ async function anyoneQueued(): Promise<boolean> {
 
 /** The branch HEAD is on, or `null` when detached. */
 function currentBranch(projectRoot: string): string | null {
-  const out = spawnSync('git', ['symbolic-ref', '--quiet', '--short', 'HEAD'], {
-    cwd: projectRoot,
-    encoding: 'utf-8',
-    stdio: ['ignore', 'pipe', 'ignore'],
-  });
+  const out = spawnSync(
+    'git',
+    ['symbolic-ref', '--quiet', '--short', 'HEAD'],
+    boundedExecOptions({
+      cwd: projectRoot,
+      encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }),
+  );
   return out.status === 0 ? out.stdout.trim() || null : null;
 }
 
@@ -188,7 +193,7 @@ export async function setReindexOnMerge(projectRoot: string, enabled: boolean): 
   const args = enabled
     ? ['config', REINDEX_ON_MERGE_GIT_KEY, 'true']
     : ['config', '--unset', REINDEX_ON_MERGE_GIT_KEY];
-  const out = spawnSync('git', args, { cwd: projectRoot, stdio: 'ignore' });
+  const out = spawnSync('git', args, boundedExecOptions({ cwd: projectRoot, stdio: 'ignore' }));
   // `--unset` exits 5 when the key is already absent.
   // @sync-invariant none:local-only a git config marker; no CLEO store is written
   if (out.status !== 0 && !(out.status === 5 && !enabled))
@@ -373,10 +378,14 @@ export async function setNexusHooks(
   projectRoot: string,
   enabled: boolean,
 ): Promise<InstallCleoHooksResult> {
-  const out = spawnSync('git', ['config', NEXUS_AUTO_REINDEX_GIT_KEY, String(enabled)], {
-    cwd: projectRoot,
-    stdio: 'ignore',
-  });
+  const out = spawnSync(
+    'git',
+    ['config', NEXUS_AUTO_REINDEX_GIT_KEY, String(enabled)],
+    boundedExecOptions({
+      cwd: projectRoot,
+      stdio: 'ignore',
+    }),
+  );
   // @sync-invariant none:local-only a git config marker; no CLEO store is written
   if (out.status !== 0) throw new Error(`git config ${NEXUS_AUTO_REINDEX_GIT_KEY} failed`);
   return installCleoHooks(projectRoot, { names: NEXUS_GIT_HOOK_NAMES, uninstall: !enabled });
