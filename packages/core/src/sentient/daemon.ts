@@ -37,6 +37,7 @@ import { installDaemonExitGuard } from '../llm/pi/pi-errors.js';
 import { useBrainWriterThread } from '../memory/brain-writer-thread.js';
 import { reVerifyWorkerReport } from '../orchestrate/worker-verify.js';
 import { spawnWrapped } from '../resources/spawn-wrapper.js';
+import { exitProcess } from '../shutdown-deadline.js';
 import { safeRunCrossProjectHygiene } from './cross-project-hygiene.js';
 import { type ProposeTickOptions, safeRunProposeTick } from './propose-tick.js';
 import { patchSentientState, readSentientState, type SentientState } from './state.js';
@@ -669,6 +670,70 @@ export interface BootstrapDaemonOptions {
   scopeEpicId?: string;
 }
 
+/** What {@link shutdownDaemon} stops and releases. */
+export interface DaemonShutdownContext {
+  /** The Studio supervisor, when the daemon supervises Studio. */
+  readonly studio: Pick<StudioSupervisor, 'stop'> | null;
+  /** The state-file watcher, when one was started. */
+  readonly watcher: Pick<FSWatcher, 'close'> | null;
+  /** The sentient state file. */
+  readonly statePath: string;
+  /** The daemon lock to release. */
+  readonly lock: LockHandle;
+  /** Un-pins the Pi exit guard so the final exit is real. */
+  readonly unpinExitGuard: () => void;
+  /** Ends the process; core `exitProcess` by default (tests inject one). */
+  readonly exit?: (code: number) => unknown;
+}
+
+/**
+ * The daemon's graceful shutdown (T1683), run by its own SIGTERM/SIGINT
+ * listener: stop Studio (10 s grace), close the watcher, clear the pid, release
+ * the lock, then exit through `exitProcess`. The daemon owns its signals; core
+ * modules it loads (the BRAIN writer) install none, so nothing exits before
+ * this sequence finishes (T14670), and `exitProcess` stops a wedged worker
+ * thread instead of hanging in its join.
+ *
+ * @param reason - Why the daemon stops (recorded as `killSwitchReason`).
+ * @param ctx - What to stop and release.
+ * @returns Resolves after the exit call (never, in production).
+ * @task T14670
+ */
+export async function shutdownDaemon(reason: string, ctx: DaemonShutdownContext): Promise<void> {
+  // 1. Stop Studio first (SIGTERM with 10 s grace period).
+  if (ctx.studio !== null) {
+    process.stderr.write('[CLEO DAEMON] Forwarding shutdown to Studio (SIGTERM)…\n');
+    try {
+      await ctx.studio.stop();
+    } catch {
+      // ignore
+    }
+  }
+  try {
+    ctx.watcher?.close();
+  } catch {
+    // ignore
+  }
+  try {
+    await patchSentientState(ctx.statePath, {
+      pid: null,
+      killSwitchReason: reason,
+    });
+  } catch {
+    // ignore
+  }
+  try {
+    await releaseLock(ctx.lock);
+  } catch {
+    // ignore
+  }
+  // Un-pin the Pi exit guard so this controlled shutdown reaches the REAL
+  // process.exit (the trap would otherwise convert it into a thrown error and
+  // the daemon would never terminate).
+  ctx.unpinExitGuard();
+  await (ctx.exit ?? exitProcess)(0);
+}
+
 /**
  * Bootstrap the sentient daemon process.
  *
@@ -777,40 +842,14 @@ export async function bootstrapDaemon(
   // ---------------------------------------------------------------------------
   // Graceful shutdown — cascades SIGTERM to Studio child (T1683)
   // ---------------------------------------------------------------------------
-  const shutdown = async (reason: string): Promise<void> => {
-    // 1. Stop Studio first (SIGTERM with 10 s grace period).
-    if (studioSupervisor !== null) {
-      process.stderr.write('[CLEO DAEMON] Forwarding shutdown to Studio (SIGTERM)…\n');
-      try {
-        await studioSupervisor.stop();
-      } catch {
-        // ignore
-      }
-    }
-    try {
-      watcher?.close();
-    } catch {
-      // ignore
-    }
-    try {
-      await patchSentientState(statePath, {
-        pid: null,
-        killSwitchReason: reason,
-      });
-    } catch {
-      // ignore
-    }
-    try {
-      await releaseLock(lock);
-    } catch {
-      // ignore
-    }
-    // Un-pin the Pi exit guard so this controlled shutdown reaches the REAL
-    // process.exit (the trap would otherwise convert it into a thrown error and
-    // the daemon would never terminate).
-    unpinExitGuard();
-    process.exit(0);
-  };
+  const shutdown = (reason: string): Promise<void> =>
+    shutdownDaemon(reason, {
+      studio: studioSupervisor,
+      watcher,
+      statePath,
+      lock,
+      unpinExitGuard,
+    });
   process.on('SIGTERM', () => {
     void shutdown('SIGTERM');
   });

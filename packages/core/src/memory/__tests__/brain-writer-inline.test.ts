@@ -12,11 +12,12 @@
  *   are inside it at once and yields mid-write. Two (and twenty) overlapping
  *   `enqueueBrainWrite` calls must never be inside it together. Remove the
  *   `runInline` mutex from the default path and the maximum rises above 1.
- * - Opt-in: `getManager()` registers process `exit`/`SIGTERM`/`SIGINT`
- *   listeners when it builds the worker manager, before any worker file is
- *   resolved (see t12239-no-worker-resurrection.test.ts for why that, and not
- *   "was a Worker constructed", is the observable). The default path must add
- *   none; an opted-in process must add them.
+ * - Opt-in: `getManager()` registers a process `exit` listener when it builds
+ *   the worker manager, before any worker file is resolved (see
+ *   t12239-no-worker-resurrection.test.ts for why that, and not "was a Worker
+ *   constructed", is the observable). The default path must add none; an
+ *   opted-in process adds that one and no SIGTERM/SIGINT listener: the host
+ *   owns its signals (T14670).
  *
  * The T10301 reproduction against the real handlers (concurrent setImmediate
  * writers, then `PRAGMA integrity_check`) lives in brain-writer-thread.test.ts
@@ -138,7 +139,44 @@ describe('inline brain writer (default, T13126)', () => {
     // back inline after it is built; the write still completes.
     const result = await enqueueBrainWrite(observe('opted-in'));
     expect(result.kind).toBe('observe');
-    expect(writerListeners() - before).toBe(3);
+    // `exit` only: no SIGTERM/SIGINT listener, so a host's own shutdown (the
+    // daemon's Studio stop and lock release) is never cut short (T14670).
+    expect(writerListeners() - before).toBe(1);
+  });
+
+  it('runs the daemon shutdown to completion with the writer loaded (T14670)', async () => {
+    const { enqueueBrainWrite, useBrainWriterThread } = await import('../brain-writer-thread.js');
+    const { acquireLock, shutdownDaemon } = await import('../../sentient/daemon.js');
+    useBrainWriterThread();
+    const sigterm = process.listenerCount('SIGTERM');
+    await enqueueBrainWrite(observe('daemon-host'));
+    // The writer took no part in SIGTERM handling...
+    expect(process.listenerCount('SIGTERM')).toBe(sigterm);
+    const lockPath = join(tempDir, 'sentient.lock');
+    const lock = await acquireLock(lockPath);
+    expect(lock).not.toBeNull();
+    const steps: string[] = [];
+    // ...so the daemon's own sequence runs every step, Studio's grace first.
+    await shutdownDaemon('SIGTERM', {
+      studio: {
+        stop: async () => {
+          await new Promise((resolve) => setTimeout(resolve, 100));
+          steps.push('studio');
+        },
+      },
+      watcher: { close: () => steps.push('watcher') },
+      statePath: join(tempDir, 'sentient-state.json'),
+      lock: lock as NonNullable<typeof lock>,
+      unpinExitGuard: () => steps.push('unpin'),
+      exit: (code) => steps.push(`exit:${code}`),
+    });
+    expect(steps).toEqual(['studio', 'watcher', 'unpin', 'exit:0']);
+    // The lock handle was released and the state records why it stopped.
+    expect(lock?.handle.fd).toBe(-1);
+    const { readSentientState } = await import('../../sentient/state.js');
+    const state = await readSentientState(join(tempDir, 'sentient-state.json'));
+    expect(state.killSwitchReason).toBe('SIGTERM');
+    expect(state.pid).toBeNull();
   });
 
   it('honours CLEO_BRAIN_WRITER_THREAD=1 as the host flag', async () => {

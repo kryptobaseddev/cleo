@@ -21,6 +21,7 @@
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { trackExitWorker } from '../shutdown-deadline.js';
 
 /** Maximum items processed per worker message cycle. */
 const BATCH_SIZE = 10;
@@ -111,6 +112,7 @@ export class EmbeddingQueue {
     try {
       const { Worker } = await import('node:worker_threads');
       const worker = new Worker(workerPath);
+      trackExitWorker(worker);
 
       worker.on('message', (msg: { id: string; embedding?: number[]; error?: string }) => {
         const cb = this.callbacks.get(msg.id);
@@ -300,7 +302,7 @@ let _instance: EmbeddingQueue | null = null;
  * Get or create the shared EmbeddingQueue singleton.
  *
  * Registers a process `exit` handler on first call to flush and
- * terminate the worker thread cleanly.
+ * terminate the worker thread cleanly; no signal listener (T14670).
  *
  * @returns The shared EmbeddingQueue instance.
  */
@@ -313,27 +315,8 @@ export function getEmbeddingQueue(): EmbeddingQueue {
         // exit handler — cannot await
       });
     });
-    // For SIGTERM/SIGINT give the queue time to flush with a 2s hard deadline.
-    const gracefulShutdown = (): void => {
-      // Enforce a hard 2s deadline so tests/CI are never blocked by a stuck drain.
-      const deadline = setTimeout(() => process.exit(0), 2_000);
-      deadline.unref();
-      const instance = _instance;
-      if (instance) {
-        instance
-          .shutdown()
-          .catch(() => {})
-          .finally(() => {
-            clearTimeout(deadline);
-            process.exit(0);
-          });
-      } else {
-        clearTimeout(deadline);
-        process.exit(0);
-      }
-    };
-    process.once('SIGTERM', gracefulShutdown);
-    process.once('SIGINT', gracefulShutdown);
+    // No SIGTERM/SIGINT listener (T14670): the host owns its signals, and a
+    // listener here exited every host on SIGTERM, cutting its own shutdown.
   }
   return _instance;
 }

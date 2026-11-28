@@ -1742,6 +1742,12 @@ jobs:
 
           if [[ $RC -ne 0 ]]; then exit $RC; fi
           exit $ARC
+      # T14670: the BUILT `cleo review verdict` (stub gh, sandbox store) must exit
+      # in bounded time and leave no defunct children, inline and with the BRAIN
+      # writer thread.
+      - name: "Verdict Exit Smoke (T14670): built review verdict exits and reaps"
+        if: ${{ !cancelled() && needs.changes.outputs.code == 'true' }}
+        run: node scripts/smoke-review-verdict-exit.mjs
       # T14367: formerly the Install Test job; runs on code changes, as it did.
       - name: "Install Test: Test global link (simulates global install)"
         if: ${{ !cancelled() && needs.changes.outputs.code == 'true' }}

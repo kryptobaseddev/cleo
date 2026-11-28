@@ -64,6 +64,7 @@ import { fileURLToPath } from 'node:url';
 import type { ObserveBrainParams, ObserveBrainResult } from '@cleocode/contracts';
 import type { OperationExecutionContext } from '@cleocode/contracts/jobs';
 import { getLogger } from '../logger.js';
+import { trackExitWorker } from '../shutdown-deadline.js';
 import { resolveDualScopeDbPath } from '../store/dual-scope-db.js';
 import type { NewBrainDecisionRow, NewBrainLearningRow } from '../store/schema/memory-schema.js';
 import {
@@ -403,6 +404,7 @@ class BrainWriterManager {
     if (this.shuttingDown || isBrainWriterShuttingDown())
       throw new BrainWriterShutDownError('observe');
     const worker = new Worker(workerPath);
+    trackExitWorker(worker);
 
     worker.on('message', (msg: WriterResponseEnvelope | WriterDrainedMessage) => {
       if ('drained' in msg) return; // answered to drainAndTerminateWriter
@@ -746,18 +748,13 @@ function getManager(kind: BrainWriteOp['kind'] = 'observe'): BrainWriterManager 
     process.on('exit', () => {
       _manager?.shutdown().catch(() => undefined);
     });
-    const gracefulShutdown = (): void => {
-      const deadline = setTimeout(() => process.exit(0), 2_000);
-      deadline.unref();
-      _manager
-        ?.shutdown()
-        .catch(() => undefined)
-        .finally(() => {
-          clearTimeout(deadline);
-        });
-    };
-    process.once('SIGTERM', gracefulShutdown);
-    process.once('SIGINT', gracefulShutdown);
+    // No SIGTERM/SIGINT listener (T14670): a listener replaces the signal's
+    // default action, so a core module that installs one takes over
+    // process-wide signal handling from its host. It once cut the sentient
+    // daemon's own shutdown short, and in the CLI it ignored SIGTERM. The host
+    // owns its signals: the CLI keeps the default action and exits through
+    // `exitProcess`; the daemon's handler runs its shutdown, then calls it. A
+    // write that has not committed rolls back; an acknowledged one is on disk.
   }
   return _manager;
 }
