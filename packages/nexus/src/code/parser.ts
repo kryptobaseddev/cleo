@@ -20,7 +20,12 @@ import type {
   ParserExecutionLimits,
 } from '@cleocode/contracts';
 import type Parser from 'tree-sitter';
-import { detectLanguage, type TreeSitterLanguage } from './tree-sitter-languages.js';
+import {
+  detectLanguage,
+  grammarPackage,
+  SUPPORTED_LANGUAGES,
+  type TreeSitterLanguage,
+} from './tree-sitter-languages.js';
 
 // ---------------------------------------------------------------------------
 // Native module loading (CommonJS interop via createRequire)
@@ -364,6 +369,49 @@ function loadGrammar(langKey: string): unknown {
   return grammar ?? null;
 }
 
+/**
+ * What restores a grammar that did not load (T14665).
+ *
+ * A grammar without a prebuilt binding for this platform builds from source on
+ * install, which needs g++, make and python3; npm drops it when that build fails
+ * (cpp, java, ruby and typescript ship no linux-arm64 prebuild). Reinstalling
+ * with the toolchain present builds it.
+ */
+export const TREE_SITTER_GRAMMAR_FIX =
+  'install a C++ toolchain (Debian/Ubuntu: apt-get install -y g++ make python3; ' +
+  'Alpine: apk add g++ make python3), then reinstall: npm install -g @cleocode/cleo';
+
+/**
+ * Explain that one language's grammar did not load, and how to restore it.
+ *
+ * @param language - Language whose grammar package did not load
+ * @returns Message naming the grammar package, the platform and {@link TREE_SITTER_GRAMMAR_FIX}
+ * @example
+ * ```ts
+ * missingGrammarMessage('cpp'); // 'Grammar tree-sitter-cpp (cpp) did not load on linux/arm64 …'
+ * ```
+ */
+export function missingGrammarMessage(language: TreeSitterLanguage): string {
+  return (
+    `Grammar ${grammarPackage(language)} (${language}) did not load on ` +
+    `${process.platform}/${process.arch}: it is not installed or its native binding did not ` +
+    `build. Fix: ${TREE_SITTER_GRAMMAR_FIX}`
+  );
+}
+
+/**
+ * List the supported languages whose grammar does not load in this install.
+ *
+ * @returns Languages, in {@link SUPPORTED_LANGUAGES} order; empty when every grammar loads
+ * @example
+ * ```ts
+ * for (const language of missingGrammars()) console.error(missingGrammarMessage(language));
+ * ```
+ */
+export function missingGrammars(): TreeSitterLanguage[] {
+  return SUPPORTED_LANGUAGES.filter((language) => loadGrammar(language) === null);
+}
+
 // ---------------------------------------------------------------------------
 // S-expression query patterns per language family
 // ---------------------------------------------------------------------------
@@ -441,7 +489,7 @@ const QUERY_PATTERNS: Record<string, string> = {
 (class_specifier name: (type_identifier) @name) @definition.class
 (struct_specifier name: (type_identifier) @name) @definition.struct
 (enum_specifier name: (type_identifier) @name) @definition.enum
-(namespace_definition name: (identifier) @name) @definition.module
+(namespace_definition name: (namespace_identifier) @name) @definition.module
 `,
 };
 
@@ -483,7 +531,7 @@ const _queryCache = new Map<string, NativeQuery>();
  * Get or compile a tree-sitter Query for the given language and pattern.
  *
  * @param grammar - The loaded grammar object (language)
- * @param langKey - Key used for cache lookup
+ * @param langKey - Cache key; one per grammar, since a query is bound to the grammar it was compiled for
  * @param pattern - S-expression query pattern string
  * @returns Compiled Query instance, or null on compilation failure
  */
@@ -626,7 +674,7 @@ export function parseFile(filePath: string, projectRoot?: string): ParseResult {
       filePath: relPath,
       language,
       symbols: [],
-      errors: [`Grammar package not installed for ${language}`],
+      errors: [missingGrammarMessage(language)],
     };
   }
 
@@ -643,7 +691,9 @@ export function parseFile(filePath: string, projectRoot?: string): ParseResult {
     parser.setLanguage(grammar);
     const tree = parseOriginalSource(parser, source);
 
-    const query = getQuery(grammar, queryKey, pattern);
+    // Keyed by language, not query key: tsx shares the typescript pattern but a
+    // query compiled for one grammar captures nothing in the other's tree (T14665).
+    const query = getQuery(grammar, language, pattern);
     if (!query) {
       return {
         filePath: relPath,

@@ -8,8 +8,8 @@
  * Relationship to other modules:
  *   - `platform.ts` — provides `commandExists()` and `PLATFORM` utilities.
  *   - `health.ts` — calls `checkAllDependencies()` inside `coreDoctorReport()`.
- *   - `code/parser.ts` — `isTreeSitterAvailable()` is delegated here for the
- *     `tree-sitter` dependency check.
+ *   - `@cleocode/nexus` — `isTreeSitterAvailable()` and `missingGrammars()`
+ *     back the `tree-sitter` dependency check.
  *
  * @task T507
  */
@@ -255,16 +255,19 @@ function checkGit(): DependencyCheckResult {
 }
 
 /**
- * Check tree-sitter native Node module availability.
+ * Check tree-sitter native Node module and grammar availability.
  *
- * Delegates to `isTreeSitterAvailable()` from `packages/core/src/code/parser.ts`
- * which probes whether the `tree-sitter` native module loads successfully.
- * No CLI binary on PATH is required — the module is an optional dependency
- * that npm skips where it cannot build (T14629).
+ * Probes through `@cleocode/nexus`, the parser `cleo code` and the nexus
+ * passes use. No CLI binary on PATH is required — the module and its grammars
+ * are optional dependencies that npm skips where they cannot build (T14629).
+ * A grammar without a prebuild for this platform is skipped when no C++
+ * toolchain is present, so each one that does not load is named with its fix
+ * (T14665).
  */
 async function checkTreeSitter(): Promise<DependencyCheckResult> {
-  // Lazy import to avoid circular dependency and to keep this module lightweight
-  const { isTreeSitterAvailable } = await import('../code/parser.js');
+  // Lazy import to keep this module lightweight
+  const { isTreeSitterAvailable, missingGrammars, grammarPackage, TREE_SITTER_GRAMMAR_FIX } =
+    await import('@cleocode/nexus');
   const available = isTreeSitterAvailable();
 
   // Read the installed package version from its package.json if available
@@ -277,6 +280,7 @@ async function checkTreeSitter(): Promise<DependencyCheckResult> {
       version = undefined;
     }
   }
+  const missing = available ? missingGrammars() : [];
 
   return {
     name: 'tree-sitter',
@@ -286,13 +290,18 @@ async function checkTreeSitter(): Promise<DependencyCheckResult> {
     location: available ? 'node_modules/tree-sitter (native binding)' : undefined,
     // Optional: missing is healthy (feature simply disabled)
     healthy: true,
-    ...(available
-      ? {}
-      : {
+    ...(!available
+      ? {
           error:
             'tree-sitter native module not loaded — cleo code outline/search/unfold features are disabled',
           suggestedFix: 'pnpm install',
-        }),
+        }
+      : missing.length > 0
+        ? {
+            error: `grammars not loaded on ${process.platform}/${process.arch}, so these languages are not parsed: ${missing.map((language) => `${language} (${grammarPackage(language)})`).join(', ')}`,
+            suggestedFix: TREE_SITTER_GRAMMAR_FIX,
+          }
+        : {}),
   };
 }
 
@@ -537,7 +546,7 @@ export async function checkAllDependencies(): Promise<DependencyReport> {
 
   const warnings: string[] = [];
   for (const result of results) {
-    if (!result.installed && result.error) {
+    if (result.error) {
       warnings.push(result.error);
     }
   }

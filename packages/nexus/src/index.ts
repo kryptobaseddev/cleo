@@ -25,6 +25,8 @@ export {
   detectLanguage,
   grammarPackage,
   isTreeSitterAvailable,
+  missingGrammarMessage,
+  missingGrammars,
   type OutlineNode,
   parseFile,
   type SmartOutlineResult,
@@ -36,6 +38,7 @@ export {
   smartOutline,
   smartSearch,
   smartUnfold,
+  TREE_SITTER_GRAMMAR_FIX,
   type TreeSitterLanguage,
 } from './code/index.js';
 // Code intelligence — language providers, graph extraction, impact analysis

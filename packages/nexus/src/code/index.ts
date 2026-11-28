@@ -8,7 +8,14 @@
  */
 
 export { type OutlineNode, type SmartOutlineResult, smartOutline } from './outline.js';
-export { batchParse, isTreeSitterAvailable, parseFile } from './parser.js';
+export {
+  batchParse,
+  isTreeSitterAvailable,
+  missingGrammarMessage,
+  missingGrammars,
+  parseFile,
+  TREE_SITTER_GRAMMAR_FIX,
+} from './parser.js';
 export { type SmartSearchOptions, type SmartSearchResult, smartSearch } from './search.js';
 export {
   detectLanguage,

@@ -4,7 +4,10 @@
  * tarballs; third-party dependencies may use npm's registry. Studio task readback and local embedding require actual installed execution.
  * Provider workflows and publication remain unassessed.
  * `--install-only` (T14629) stops after the installed `cleo --version` check and,
- * since T14637, a `cleo code outline` tree-sitter parse.
+ * since T14637, a `cleo code outline` tree-sitter parse of every grammar.
+ * `--toolchain-free-image=<image>` (T14665, implies `--install-only`) runs the npm
+ * install and the installed CLI inside that container image, which must have no
+ * C++ toolchain; each grammar must then parse or be reported missing with its fix.
  */
 import { execFileSync } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
@@ -24,6 +27,12 @@ import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'nod
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parse as parseYaml } from 'yaml';
 import { captureWrapped } from '../packages/core/dist/resources/spawn-wrapper.js';
+import {
+  containerCommand,
+  GRAMMAR_SAMPLES,
+  judgeGrammarOutline,
+  TOOLCHAIN_EXECUTABLES,
+} from './lib/packed-grammars.mjs';
 import { sandboxEnvironment } from './lib/sandbox-env.mjs';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -1517,7 +1526,7 @@ async function verifyPackedRuntimeInScope(app, root, env, deadlineAt) {
  *   the Linux x64 runtime stages (Studio, embedding, git shim) are not the subject.
  * @returns {Promise<void>} Resolves once every selected stage passed.
  */
-async function main({ installOnly = false } = {}) {
+async function main({ installOnly = false, toolchainFreeImage = null } = {}) {
   const evidenceParent = resolve(
     process.env.CLEO_PACKED_EVIDENCE_DIR ?? (process.platform === 'win32' ? tmpdir() : '/tmp'),
   );
@@ -1533,6 +1542,20 @@ async function main({ installOnly = false } = {}) {
           : {}),
       }
     : undefined;
+  // T14665: the install and the installed CLI run in a toolchain-free image when
+  // one is given; packing and the byte checks stay on the host.
+  const runInstalled = (command, args, options) =>
+    toolchainFreeImage
+      ? runPackedCommand(
+          'docker',
+          containerCommand(toolchainFreeImage, command, args, {
+            cwd: resolve(options.cwd ?? REPO_ROOT),
+            env: options.env ?? env,
+            mount: root,
+          }),
+          { ...options, env: { PATH: process.env.PATH, HOME: env.HOME } },
+        )
+      : runPackedCommand(command, args, options);
   const tarballs = join(root, 'tarballs');
   const app = join(root, 'app');
   mkdirSync(tarballs);
@@ -1633,7 +1656,7 @@ async function main({ installOnly = false } = {}) {
       // T14145: a registry or network fault retries; a real missing dependency does not.
       installed = await installPackedWithRetry(
         () =>
-          runPackedCommand('npm', ['install', '--no-audit', '--no-fund', '--loglevel=warn'], {
+          runInstalled('npm', ['install', '--no-audit', '--no-fund', '--loglevel=warn'], {
             cwd: app,
             env,
             systemdControl,
@@ -1721,7 +1744,7 @@ syncBuiltinESMExports();
 `,
     );
     const version = (
-      await runPackedCommand(process.execPath, ['--import', guard, binary, '--version'], {
+      await runInstalled(process.execPath, ['--import', guard, binary, '--version'], {
         cwd: env.CLEO_ROOT,
         env,
         timeout: 30_000,
@@ -1747,30 +1770,54 @@ syncBuiltinESMExports();
       );
       // T14637: tree-sitter@0.25.1 ships a linux-arm64 prebuild; cpp, java, ruby and
       // typescript (and the c@0.23 and javascript@0.23 they pull in) ship x86-64 files
-      // under linux-arm64 and build from source there, which needs a C++ toolchain
-      // (T14665). A skipped one is a regression, and a parse proves the binding loads.
+      // under linux-arm64 and build from source there, which needs a C++ toolchain.
+      // With a toolchain a skipped one is a regression. Without one (T14665) tree-sitter
+      // must still load, and each grammar must parse or be reported with its fix.
       const skipped = Object.entries(manifest.optionalNative)
         .filter(([name, installed]) => name.startsWith('tree-sitter') && !installed)
         .map(([name]) => name);
-      if (skipped.length)
+      if (toolchainFreeImage) {
+        const probe = `const {existsSync}=require('node:fs');const {join}=require('node:path');const dirs=(process.env.PATH||'').split(':');process.stdout.write(JSON.stringify(${JSON.stringify(TOOLCHAIN_EXECUTABLES)}.filter((t)=>dirs.some((d)=>existsSync(join(d,t))))));`;
+        const found = JSON.parse(
+          await runInstalled(process.execPath, ['-e', probe], { cwd: root, env, systemdControl }),
+        );
+        if (found.length)
+          throw new Error(`${toolchainFreeImage} is not toolchain-free: ${found.join(', ')}`);
+        manifest.toolchain = { image: toolchainFreeImage, absent: TOOLCHAIN_EXECUTABLES };
+        if (skipped.includes('tree-sitter'))
+          throw new Error('tree-sitter was skipped although it ships a prebuild for this platform');
+      } else if (skipped.length)
         throw new Error(`Optional native dependencies skipped: ${skipped.join(', ')}`);
-      const sample = join(root, 'code-parse-sample.ts');
-      writeFileSync(
-        sample,
-        'export function packedSmokeGreet(name: string): string {\n  return name;\n}\n',
-      );
-      const outline = await runPackedCommand(
-        process.execPath,
-        [binary, '--human', 'code', 'outline', sample],
-        { cwd: root, env, timeout: 60_000, systemdControl },
-      );
-      if (!outline.includes('function packedSmokeGreet'))
-        throw new Error(`cleo code outline did not report the parsed function: ${outline}`);
+      manifest.grammars = {};
+      for (const sample of GRAMMAR_SAMPLES) {
+        const [language, name, pkg, source] = sample;
+        const file = join(root, 'code-parse', name);
+        mkdirSync(dirname(file), { recursive: true });
+        writeFileSync(file, source);
+        const run = await runInstalled(
+          process.execPath,
+          [binary, '--human', 'code', 'outline', file],
+          {
+            cwd: root,
+            env,
+            timeout: 60_000,
+            systemdControl,
+          },
+        ).then(
+          (output) => ({ ok: true, output }),
+          (error) => ({ ok: false, output: `${error.stdout ?? ''}\n${error.stderr ?? ''}` }),
+        );
+        manifest.grammars[language] = judgeGrammarOutline(sample, run, {
+          installed: manifest.optionalNative[pkg] === true,
+          toolchainFree: Boolean(toolchainFreeImage),
+        });
+        save();
+      }
       manifest.coverage.codeParse = 'verified-tree-sitter-outline';
       manifest.status = 'verified-packed-install';
       save();
       console.log(
-        `[packed-smoke] Installed CLI version verified on ${process.platform}/${process.arch} (${version}); optional native: ${JSON.stringify(manifest.optionalNative)}; cleo code outline parsed ${sample}. Evidence: ${root}`,
+        `[packed-smoke] Installed CLI version verified on ${process.platform}/${process.arch}${toolchainFreeImage ? ` in toolchain-free ${toolchainFreeImage}` : ''} (${version}); optional native: ${JSON.stringify(manifest.optionalNative)}; grammars: ${JSON.stringify(manifest.grammars)}. Evidence: ${root}`,
       );
       return;
     }
@@ -1814,7 +1861,15 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
             (receipt) => process.stdout.write(JSON.stringify(receipt)),
           );
         })()
-      : main({ installOnly: process.argv.includes('--install-only') });
+      : (() => {
+          const image = process.argv
+            .find((arg) => arg.startsWith('--toolchain-free-image='))
+            ?.slice('--toolchain-free-image='.length);
+          return main({
+            installOnly: Boolean(image) || process.argv.includes('--install-only'),
+            toolchainFreeImage: image || null,
+          });
+        })();
   operation.catch((error) => {
     console.error(`[packed-smoke] FAILED: ${error.message}`);
     process.exitCode = 1;

@@ -281,7 +281,7 @@ const QUERY_PATTERNS: Record<string, string> = {
 (class_specifier name: (type_identifier) @name) @definition.class
 (struct_specifier name: (type_identifier) @name) @definition.struct
 (enum_specifier name: (type_identifier) @name) @definition.enum
-(namespace_definition name: (identifier) @name) @definition.module
+(namespace_definition name: (namespace_identifier) @name) @definition.module
 `,
 };
 
