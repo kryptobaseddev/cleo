@@ -35,6 +35,7 @@ import type {
 } from '@cleocode/contracts';
 import { ProjectId } from '@cleocode/contracts/cloud';
 import { readDeclaredProjectIdentity } from '@cleocode/paths';
+import { shellQuote } from '../lib/shell-quote.js';
 import { NexusAccountError, resolveNexusApiUrl } from './nexus-auth.js';
 import { listNexusCloudProjects, type NexusCloudProjectsOptions } from './nexus-cloud.js';
 
@@ -57,9 +58,6 @@ const LEGACY_ID = /^[0-9a-f]{12}$/;
  */
 const UNSAFE_NAME_CHARS =
   /[\u0000-\u001f\u007f-\u009f\u061c\u200b-\u200f\u2028-\u202e\u2066-\u2069\ufeff]/g;
-
-/** A word a POSIX shell takes literally without quotes. */
-const SHELL_SAFE = /^[A-Za-z0-9._@%+=:,/-]+$/;
 
 /** Opens one project's `encryptedName`; throws when it cannot. */
 export type NexusProjectNameOpener = (projectId: string, encryptedName: string) => Promise<string>;
@@ -141,15 +139,8 @@ export function safeNexusProjectName(raw: string | null | undefined): string | n
   return clean === '' ? null : clean;
 }
 
-/**
- * Quote a word for a POSIX shell (single quotes; `'` becomes `'\''`).
- *
- * @param word - The word.
- * @returns It unchanged when it needs no quoting, else single-quoted.
- */
-export function shellQuoteWord(word: string): string {
-  return SHELL_SAFE.test(word) ? word : `'${word.replace(/'/g, `'\\''`)}'`;
-}
+/** Quote a word for a POSIX shell; the shared {@link shellQuote} (T14672). */
+export { shellQuote as shellQuoteWord } from '../lib/shell-quote.js';
 
 /** Open every `encryptedName` with `opener`, if any; failures become one warning, never an error. */
 async function openNames(
@@ -243,7 +234,7 @@ export function nexusApiUrlFlag(apiUrl: string): string {
   } catch {
     fallback = null;
   }
-  return apiUrl === fallback ? '' : ` --api-url ${shellQuoteWord(apiUrl)}`;
+  return apiUrl === fallback ? '' : ` --api-url ${shellQuote(apiUrl)}`;
 }
 
 /**
@@ -256,7 +247,7 @@ export function nexusApiUrlFlag(apiUrl: string): string {
  * @returns The command.
  */
 export function nexusRestoreCommand(project: NexusNamedProject, apiUrl: string): string {
-  return `cleo cloud restore ${shellQuoteWord(project.projectId)}${nexusApiUrlFlag(apiUrl)}`;
+  return `cleo cloud restore ${shellQuote(project.projectId)}${nexusApiUrlFlag(apiUrl)}`;
 }
 
 /**
@@ -280,9 +271,7 @@ export function nexusRestoreByNameCommand(
     !UUID_ID.test(project.name) &&
     matches.length === 1 &&
     matches[0]?.projectId === project.projectId;
-  return byName
-    ? `cleo cloud restore ${shellQuoteWord(project.name)}${nexusApiUrlFlag(apiUrl)}`
-    : null;
+  return byName ? `cleo cloud restore ${shellQuote(project.name)}${nexusApiUrlFlag(apiUrl)}` : null;
 }
 
 /**
@@ -412,7 +401,7 @@ export function assertNexusRestoreTarget(into?: string): void {
       throw new NexusAccountError(
         'E_NEXUS_VAULT_TARGET_OCCUPIED',
         `${target} is inside the CLEO project at ${dir}; restoring here would nest a second project in it`,
-        `run it in ${dir} (or pass --into ${shellQuoteWord(dir)}) to restore that project there, or pass --into an empty directory outside it`,
+        `run it in ${dir} (or pass --into ${shellQuote(dir)}) to restore that project there, or pass --into an empty directory outside it`,
       );
     }
     const parent = path.dirname(dir);

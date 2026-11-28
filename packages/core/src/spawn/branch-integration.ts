@@ -33,7 +33,8 @@ import {
   locateTaskWorktree,
   WORKTREE_LIFECYCLE_AUDIT_FILE,
 } from '@cleocode/worktree';
-import { pruneWorktree, resolveAgentWorktreeRoot, shellQuote } from './branch-lock.js';
+import { shellQuoteAlways } from '../lib/shell-quote.js';
+import { pruneWorktree, resolveAgentWorktreeRoot } from './branch-lock.js';
 
 // ---------------------------------------------------------------------------
 // Project-agnostic default-branch resolution (ADR-062 / T1587)
@@ -341,9 +342,9 @@ export function assessUpstreamIntegration(
 
   // Single-quoted for the shell: macOS roots often contain spaces, and branch
   // / remote names are operator-controlled.
-  const quotedRoot = shellQuote(gitRoot);
-  const quotedTarget = shellQuote(targetBranch);
-  const quotedUpstream = shellQuote(upstreamShort);
+  const quotedRoot = shellQuoteAlways(gitRoot);
+  const quotedTarget = shellQuoteAlways(targetBranch);
+  const quotedUpstream = shellQuoteAlways(upstreamShort);
   // Diverged (ahead AND behind): merge, never `pull --rebase` — a rebase
   // would drop the local ADR-062 `--no-ff` task merge commits and rewrite
   // agent SHAs. Behind only: fast-forward.

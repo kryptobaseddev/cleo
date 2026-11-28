@@ -43,6 +43,7 @@ import {
   prependPathEntry,
   resolveWorktreeRootForHash,
 } from '@cleocode/paths';
+import { shellQuoteAlways } from '../lib/shell-quote.js';
 
 // ---------------------------------------------------------------------------
 // Re-exports from @cleocode/worktree
@@ -171,19 +172,6 @@ export async function createAgentWorktree(
 }
 
 /**
- * POSIX single-quote one shell word: wrap it in `'...'` and rewrite each
- * embedded `'` as `'\''`. The result is one literal word for any input — no
- * word splitting, parameter, command or glob expansion — so a copy-pasted
- * `cd` into a worktree under `Application Support` parses (T12528).
- *
- * @param value - Raw path.
- * @returns The single-quoted shell word.
- */
-export function shellQuote(value: string): string {
-  return `'${value.replace(/'/g, `'\\''`)}'`;
-}
-
-/**
  * Construct the spawn env-var injection + preamble for the agent.
  *
  * Called by orchestrateSpawn after createAgentWorktree to produce the
@@ -246,7 +234,7 @@ export function buildWorktreeSpawnResult(
     '',
     `CLEO_AGENT_CWD=${worktree.path}`,
     '',
-    `FIRST ACTION: cd ${shellQuote(worktree.path)}`,
+    `FIRST ACTION: cd ${shellQuoteAlways(worktree.path)}`,
     '',
     `You are working on branch: ${worktree.branch}`,
     'You MUST NOT run any of these git commands:',

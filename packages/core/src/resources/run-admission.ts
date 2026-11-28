@@ -45,6 +45,7 @@ import {
 import { hostname } from 'node:os';
 import { join } from 'node:path';
 import type { MemoryPressureReading, ResourceClass } from '@cleocode/contracts';
+import { shellQuote } from '../lib/shell-quote.js';
 import { getCleoHome } from '../paths.js';
 import type { AdmissionScope, LedgerEntry } from './admission-ledger.js';
 import type { PressureState } from './monitor.js';
@@ -1022,10 +1023,6 @@ export interface RunDeferralDetails {
   readonly memoryPressure: MemoryPressureReading | null;
   /** Live `cleo run` jobs and the ledger's other admitted runs, oldest first. */
   readonly running: readonly RunningEntry[];
-}
-
-function shellQuote(token: string): string {
-  return /^[\w@%+=:,./-]+$/.test(token) ? token : `'${token.replace(/'/g, `'\\''`)}'`;
 }
 
 /**
