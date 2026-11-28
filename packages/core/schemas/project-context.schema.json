@@ -127,7 +127,7 @@
         "outputPaths": {
           "type": "array",
           "items": { "type": "string" },
-          "description": "Globs (path.matchesGlob), relative to the project root, of build output beyond dist/, .turbo/, coverage/ and *.tsbuildinfo: ignored content at or under a match never blocks a worktree's disposal by itself, while any other ignored content still does (T14627)."
+          "description": "Globs (path.matchesGlob), relative to the project root, of build output beyond dist/, .turbo/, coverage/ and *.tsbuildinfo: ignored content at or under a match never blocks a worktree's disposal by itself, while any other ignored content still does (T14627). Only plain globs count: a segment starting with '.', braces, brackets and extglobs are refused."
         }
       }
     },

@@ -20,19 +20,25 @@ import {
 } from '../resources/agent-lease.js';
 
 /**
- * The in-use probe for one worktree's task.
+ * The in-use probe for one worktree's task. A worktree no task owns has no
+ * task lock to show use, so when its path is given it is probed for process
+ * use instead ({@link worktreeProcessUse}, T14627).
  *
  * @param readLock - The worktree package's lock reader (callers load it statically or lazily).
  * @param projectRoot - Project whose lock records are read.
  * @param taskId - The worktree's task, or `null`.
- * @returns The probe, or `undefined` when no task owns the worktree.
+ * @param worktreePath - The worktree, probed for process use when `taskId` is `null`.
+ * @returns The probe, or `undefined` when no task owns the worktree and no path is given.
  */
 export function worktreeInUseProbe(
   readLock: typeof import('@cleocode/worktree').readWorktreeTaskLock,
   projectRoot: string,
   taskId: string | null,
+  worktreePath?: string,
 ): (() => string | null) | undefined {
-  if (taskId === null) return undefined;
+  if (taskId === null) {
+    return worktreePath === undefined ? undefined : () => worktreeProcessUse(worktreePath);
+  }
   return () =>
     readLock(computeProjectHash(projectRoot), taskId) !== null ? 'task lock held' : null;
 }

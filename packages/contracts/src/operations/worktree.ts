@@ -464,19 +464,24 @@ export interface CreateWorktreeResult {
  * @adr ADR-062
  */
 export interface DestroyWorktreeOptions {
-  /**
-   * Task ID whose worktree to destroy. Optional with {@link worktreePath},
-   * where it only labels the audit row, the lock and the archive receipt.
-   */
+  /** Task ID whose worktree to destroy. Give it or {@link worktreePath}, never both. */
   taskId?: string;
   /**
    * Exact path of the worktree to destroy (T14627), for a checkout no task id
-   * names (a detached HEAD). Only a linked worktree git has registered for the
-   * repository is accepted, never the main checkout; it wins over `taskId`
-   * for locating the worktree, and its own branch (none when detached) is
-   * the one `deleteBranch` considers.
+   * names (a detached HEAD). Accepted only for a linked worktree git has
+   * registered for the repository, under the project's canonical worktree
+   * root, that no task's directory name or branch names (that one is refused
+   * with the `cleo worktree destroy <taskId>` to run); never the main
+   * checkout. Its own branch (none when detached) is the one `deleteBranch`
+   * considers. Requires {@link inUse}: without it the worktree is kept.
    */
   worktreePath?: string;
+  /**
+   * The process-use probe for a {@link worktreePath} destroy (T14627): the
+   * reason the worktree is in use (a process with its cwd or an open file in
+   * it), or `null` when nothing is. A throw counts as in use.
+   */
+  inUse?: (worktreePath: string) => string | null;
   /**
    * When true, delete the associated git branch after removing the worktree.
    *

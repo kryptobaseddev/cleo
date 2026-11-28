@@ -13,11 +13,18 @@ now exempt ignored build output whenever the disposal engine's commit proof
 holds, which is the guarantee the source that rebuilds it survives.
 
 - `cleo worktree destroy --path <p>` disposes a registered linked worktree by
-  its exact path through `disposeWorktree`. It refuses the main checkout and
-  any directory git has not registered, and deletes no branch for a detached
-  checkout.
+  its exact path through `disposeWorktree`. It accepts only a worktree under
+  the project's canonical worktree root that no task names (a task worktree is
+  refused with the `cleo worktree destroy <taskId>` to run), refuses the main
+  checkout and any directory git has not registered, keeps a worktree a
+  process has its cwd or an open file in, and deletes no branch for a
+  detached checkout.
+- List and prune consider a worktree that names no task only under the
+  canonical worktree root, and keep one a process is using.
 - `build.outputPaths` in `.cleo/project-context.json` declares build output
   beyond `dist/`, `.turbo/`, `coverage/` and `*.tsbuildinfo` (globs, read from
-  the main checkout). Ignored content outside those still keeps a worktree.
+  the main checkout). Only plain globs are accepted: a segment starting with
+  `.`, braces, brackets and extglobs are refused, since each can reach a
+  dotfile such as `.env`. Ignored content outside those still keeps a worktree.
   This repository declares `packages/cant/napi`, compiled `extensions/` output
   and `__pycache__`.

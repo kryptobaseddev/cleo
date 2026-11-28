@@ -56,6 +56,7 @@ import {
   listWorktrees,
   pruneOrphanedWorktreesByStatus,
   recoverPartialWorktree,
+  worktreeProcessUse,
 } from '@cleocode/core/internal';
 import type { DispatchResponse, DomainHandler } from '../types.js';
 import { errorResult, handleErrorResult, unsupportedOp, wrapResult } from './_base.js';
@@ -274,7 +275,9 @@ export class WorktreeHandler implements DomainHandler {
             );
           }
           const opts: DestroyWorktreeOptions = {
-            ...(hasTask ? { taskId: taskId as string } : { worktreePath: worktreePath as string }),
+            ...(hasTask
+              ? { taskId: taskId as string }
+              : { worktreePath: worktreePath as string, inUse: worktreeProcessUse }),
             force: params?.['force'] === true,
             deleteBranch: params?.['deleteBranch'] !== false,
             ...(typeof params?.['reason'] === 'string' && params['reason'].length > 0

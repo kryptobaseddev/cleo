@@ -48,7 +48,13 @@
 
 import { execFileSync } from 'node:child_process';
 import { existsSync, realpathSync, statSync } from 'node:fs';
-import { basename, join, resolve as resolvePath } from 'node:path';
+import {
+  basename,
+  isAbsolute as isAbsolutePath,
+  join,
+  relative as relativePath,
+  resolve as resolvePath,
+} from 'node:path';
 import type {
   DisposeWorktreeResult,
   EngineResult,
@@ -58,7 +64,11 @@ import type {
   WorktreeSource,
 } from '@cleocode/contracts';
 import { engineError, engineSuccess } from '@cleocode/contracts/engine-result.js';
-import { boundedExecOptions } from '@cleocode/paths';
+import {
+  boundedExecOptions,
+  computeProjectHash,
+  resolveWorktreeRootForHash,
+} from '@cleocode/paths';
 import { readWorktreePorcelain } from '@cleocode/worktree/worktree-locate.js';
 import { resolveOrCwd } from '../paths.js';
 import { claimClockNow, DERIVED_STATUS_SQL } from '../store/task-claim.js';
@@ -141,7 +151,7 @@ export async function listWorktrees(
       // still holds (HEAD on a remote or the default branch), so the source
       // that rebuilds it survives: a detached checkout of a main commit too.
       exemptRegenerable: opts.exemptRegenerable !== false,
-      inUse: worktreeInUseProbe(readWorktreeTaskLock, projectRoot, taskId),
+      inUse: worktreeInUseProbe(readWorktreeTaskLock, projectRoot, taskId, path),
       dryRun: true,
       dependentsScan,
     });
@@ -217,6 +227,8 @@ export async function listWorktrees(
   // this guard, `cleo worktree prune --orphaned` would offer to delete the
   // project root.
   const primaryWorktreePath = resolvePrimaryWorktreePath(projectRoot);
+  // T14627: a taskless detached checkout is a candidate only under this root.
+  const canonicalRoot = resolveWorktreeRootForHash(computeProjectHash(projectRoot));
 
   // Pre-resolve the git common dir so `createdAt` can stat the per-worktree
   // admin file `<gitCommonDir>/worktrees/<basename(path)>/HEAD`, which is
@@ -257,6 +269,10 @@ export async function listWorktrees(
       owningTaskStatus,
       // At or past the window: a zero-day window makes every taskless worktree a candidate.
       idlePastWindow: idleMs >= staleThresholdMs,
+      detachedOutsideRoot:
+        taskId === null &&
+        entry.branch === 'HEAD' &&
+        !isUnderWorktreeRoot(canonicalRoot, entry.path),
     });
     const classified =
       taskId !== null && !taskStatusResult.success
@@ -316,6 +332,10 @@ export async function listWorktrees(
       isPrimary: false,
       owningTaskStatus,
       idlePastWindow: idleMs >= staleThresholdMs,
+      detachedOutsideRoot:
+        taskId === null &&
+        (sentinel.branch === 'HEAD' || sentinel.branch === '') &&
+        !isUnderWorktreeRoot(canonicalRoot, sentinel.path),
     });
     const classified =
       taskId !== null && !taskStatusResult.success
@@ -509,9 +529,12 @@ export function branchIsMergedToMain(
 /**
  * Whether a worktree is a disposal candidate at all (T14274): not the primary
  * checkout (T9686-D), and its task is done or cancelled, or it has no stored
- * task and has been idle past the stale window. Everything else is `active`.
+ * task and has been idle past the stale window. A detached checkout that names
+ * no task is a candidate only under the project's canonical worktree root
+ * (T14627). Everything else is `active`.
  *
- * @param flags - The primary guard, the owning task's status and idleness.
+ * @param flags - The primary guard, the owning task's status, idleness, and
+ *   and whether it is a taskless detached checkout outside the canonical root.
  * @returns Whether the disposal proof decides its category.
  * @internal Exported for tests only.
  */
@@ -519,11 +542,34 @@ export function isDisposalCandidate(flags: {
   isPrimary: boolean;
   owningTaskStatus: string | null;
   idlePastWindow: boolean;
+  detachedOutsideRoot?: boolean;
 }): boolean {
   if (flags.isPrimary) return false;
   if (flags.owningTaskStatus === 'done' || flags.owningTaskStatus === 'cancelled') return true;
   if (flags.owningTaskStatus !== null) return false; // an open task
+  if (flags.detachedOutsideRoot === true) return false;
   return flags.idlePastWindow;
+}
+
+/**
+ * Whether `path` lies strictly inside `root`, symlinks resolved (T14627).
+ *
+ * @param root - The canonical worktree root.
+ * @param path - A worktree path.
+ * @returns `false` for the root itself, anything outside it, or an unresolvable path.
+ * @internal Exported for tests only.
+ */
+export function isUnderWorktreeRoot(root: string, path: string): boolean {
+  let realRoot: string;
+  let realPath: string;
+  try {
+    realRoot = realpathSync(root);
+    realPath = realpathSync(path);
+  } catch {
+    return false;
+  }
+  const rel = relativePath(realRoot, realPath);
+  return rel !== '' && !rel.startsWith('..') && !isAbsolutePath(rel);
 }
 
 /**

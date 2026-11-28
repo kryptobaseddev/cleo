@@ -166,31 +166,69 @@ export function isRegenerable(rel: string, declared: readonly string[] = []): bo
   return false;
 }
 
+/** Characters a declared build-output glob may use: names, `-`, `_`, `.`, `/`, `*` and `?`. */
+const OUTPUT_PATH_CHARS = /^[A-Za-z0-9_\-.*?/]+$/;
+
+/**
+ * Why a declared build-output glob is refused, or `null` when it is accepted
+ * (T14627). Only explicit build-output paths or plain globs qualify: a
+ * relative path of named segments with `*`, `**` and `?` (which never match a
+ * leading dot). Refused: an absolute path, `..`, an empty segment, a segment
+ * that starts with `.` (`.*`, `**` then `.env`), and any brace, bracket or
+ * extglob syntax (`{.env,x}`, `[.]env`, `!(x)`, `@(…)`), each of which can
+ * reach a dotfile such as `.env`.
+ *
+ * @param glob - One `build.outputPaths` entry.
+ * @returns The refusal reason, or `null`.
+ * @task T14627
+ */
+export function refuseOutputPath(glob: string): string | null {
+  if (glob.length === 0) return 'empty glob';
+  if (isAbsolute(glob) || glob.startsWith('/')) return `absolute path refused: ${glob}`;
+  if (!OUTPUT_PATH_CHARS.test(glob)) {
+    return `only names, '/', '*', '**' and '?' are allowed (no braces, brackets or extglobs): ${glob}`;
+  }
+  for (const segment of glob.split('/')) {
+    if (segment === '') return `empty path segment refused: ${glob}`;
+    if (segment === '..') return `'..' refused: ${glob}`;
+    if (segment.startsWith('.')) return `a segment starting with '.' refused: ${glob}`;
+  }
+  return null;
+}
+
 /**
  * The build-output globs a project declares in the `build.outputPaths` of its
  * main checkout's `.cleo/project-context.json` (T14627), relative to the
  * checkout root (`path.matchesGlob`), e.g. `packages/cant/napi`. Read from the
  * main checkout, never from the worktree being judged. Fail-closed: a missing
- * or unreadable file, or a malformed field, declares nothing; an absolute or
- * `..` glob is ignored.
+ * or unreadable file, or a malformed field, declares nothing, and every glob
+ * {@link refuseOutputPath} refuses is dropped (so it exempts nothing).
  *
  * @param projectRoot - The main checkout.
- * @returns The declared globs.
+ * @returns The accepted globs, and each refused one with its reason.
  * @task T14627
  */
-export function declaredOutputPaths(projectRoot: string): string[] {
+export function declaredOutputPaths(projectRoot: string): {
+  globs: string[];
+  refused: Array<{ glob: string; reason: string }>;
+} {
+  const none = { globs: [], refused: [] };
   let parsed: { build?: { outputPaths?: unknown } };
   try {
     parsed = JSON.parse(readFileSync(join(projectRoot, '.cleo', 'project-context.json'), 'utf8'));
   } catch {
-    return [];
+    return none;
   }
-  const globs = parsed?.build?.outputPaths;
-  if (!Array.isArray(globs)) return [];
-  return globs.filter(
-    (g): g is string =>
-      typeof g === 'string' && g.length > 0 && !isAbsolute(g) && !g.split('/').includes('..'),
-  );
+  const declared = parsed?.build?.outputPaths;
+  if (!Array.isArray(declared)) return none;
+  const globs: string[] = [];
+  const refused: Array<{ glob: string; reason: string }> = [];
+  for (const glob of declared) {
+    const reason = typeof glob === 'string' ? refuseOutputPath(glob) : 'not a string';
+    if (reason === null) globs.push(glob as string);
+    else refused.push({ glob: String(glob), reason });
+  }
+  return { globs, refused };
 }
 
 /**
@@ -473,7 +511,11 @@ export function archiveWorktree(
         return { error: 'git rm --cached of pnpm provisioning failed' };
       }
     }
-    const ignored = archivableIgnored(entries, provisioning, declaredOutputPaths(projectRoot));
+    const ignored = archivableIgnored(
+      entries,
+      provisioning,
+      declaredOutputPaths(projectRoot).globs,
+    );
     for (let i = 0; i < ignored.length; i += 200) {
       if (git(worktreePath, ['add', '-f', '--', ...ignored.slice(i, i + 200)], env) === null) {
         return { error: 'git add -f of ignored content failed' };
@@ -633,13 +675,18 @@ function disposeChecked(opts: DisposeWorktreeOptions, releaseLock: boolean): Dis
     if (inUse !== null) return keep(`in use: ${inUse}`);
   }
 
+  const declared =
+    opts.exemptRegenerable === true ? declaredOutputPaths(projectRoot) : { globs: [], refused: [] };
   const unpreserved =
     unprovenContent(worktreePath, projectRoot, {
       exemptRegenerable: opts.exemptRegenerable,
-      outputPaths: opts.exemptRegenerable === true ? declaredOutputPaths(projectRoot) : [],
+      outputPaths: declared.globs,
     }) ?? unpreservedCommits(worktreePath, opts.defaultBranch);
   if (unpreserved !== null && opts.force !== true) {
-    return keep(`not proven preserved: ${unpreserved}`, {
+    // T14627: name any declaration that was refused, so its owner can fix it.
+    const refused = declared.refused.map((r) => `${r.glob} (${r.reason})`).join('; ');
+    const note = refused ? `; refused build.outputPaths: ${refused}` : '';
+    return keep(`not proven preserved: ${unpreserved}${note}`, {
       unpreserved,
       ...(PROBE_FAILURES.has(unpreserved) ? { indeterminate: true } : {}),
     });

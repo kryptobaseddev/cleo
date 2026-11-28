@@ -11,10 +11,14 @@
  */
 
 import { existsSync, realpathSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { basename, isAbsolute, relative, resolve } from 'node:path';
 import type { DestroyWorktreeOptions, DestroyWorktreeResult } from '@cleocode/contracts';
 import { countUnmergedCommits, getGitRoot, gitSilent, gitSync } from './git.js';
-import { computeProjectHash, resolveTaskWorktreePath } from './paths.js';
+import {
+  computeProjectHash,
+  resolveTaskWorktreePath,
+  resolveWorktreeRootForHash,
+} from './paths.js';
 import { appendWorktreeAuditLog, removeWorktreeFromSentinelIndex } from './worktree-audit.js';
 import { disposeWorktree } from './worktree-dispose.js';
 import { runWorktreeHooks } from './worktree-hooks.js';
@@ -24,6 +28,21 @@ import {
   locateTaskWorktree,
 } from './worktree-locate.js';
 import { releaseWorktreeTaskLock } from './worktree-lock.js';
+
+/** The task a worktree's directory name or branch names (`T1234`, `task/T1234-x`), or `null`. */
+function taskNamedBy(path: string, branch: string | null): string | null {
+  const dir = /^(T\d+)(?:-|$)/.exec(basename(path))?.[1];
+  const onBranch = branch
+    ? /^(?:task|feat|fix|test|chore)\/(T\d+)(?:-|$)/.exec(branch)?.[1]
+    : undefined;
+  return dir ?? onBranch ?? null;
+}
+
+/** Whether `path` is strictly inside `root`, both with symlinks resolved. */
+function isUnder(root: string, path: string): boolean {
+  const rel = relative(canonicalPath(root), canonicalPath(path));
+  return rel !== '' && !rel.startsWith('..') && !isAbsolute(rel);
+}
 
 /** `path` with symlinks resolved when it exists, else made absolute. */
 function canonicalPath(path: string): string {
@@ -46,13 +65,19 @@ type DestroyTarget =
 
 /**
  * Resolve the worktree a destroy names (T14627): by exact path, only a linked
- * worktree git has registered for this repository (never the main checkout,
- * a bare entry or an unregistered directory), keeping its own branch or
- * `null` when detached; else by task id, as git locates it (T12086).
+ * worktree git has registered for this repository, under the project's
+ * canonical worktree root (`<cleoHome>/worktrees/<projectHash>/`, symlinks
+ * resolved), and no task's worktree (that one goes by its task id, which
+ * also releases its lock and sentinel entry); never the main checkout, a bare
+ * entry or an unregistered directory. It keeps its own branch, or `null` when
+ * detached. Else by task id, as git locates it (T12086).
  */
 function resolveDestroyTarget(projectRoot: string, options: DestroyWorktreeOptions): DestroyTarget {
   const taskId = options.taskId ?? null;
   if (options.worktreePath !== undefined) {
+    if (taskId !== null) {
+      return { error: 'Name the worktree once: a task id or --path, not both.' };
+    }
     const wanted = canonicalPath(options.worktreePath);
     const registered = listRegisteredWorktrees(projectRoot);
     const index = registered.findIndex((e) => canonicalPath(e.path) === wanted);
@@ -68,7 +93,19 @@ function resolveDestroyTarget(projectRoot: string, options: DestroyWorktreeOptio
         error: `${entry.path} is the main checkout, not a linked worktree; it is never destroyed.`,
       };
     }
-    return { taskId, worktreePath: entry.path, branch: entry.branch, located: entry };
+    const root = resolveWorktreeRootForHash(computeProjectHash(projectRoot));
+    if (!isUnder(root, entry.path)) {
+      return {
+        error: `${entry.path} is not under this project's worktree root ${root}; destroy --path disposes only canonical worktrees.`,
+      };
+    }
+    const owner = taskNamedBy(entry.path, entry.branch);
+    if (owner !== null) {
+      return {
+        error: `${entry.path} is task ${owner}'s worktree; destroy it by task id so its lock and sentinel entry go too: cleo worktree destroy ${owner}`,
+      };
+    }
+    return { taskId: null, worktreePath: entry.path, branch: entry.branch, located: entry };
   }
   if (taskId === null || taskId.length === 0) {
     return { error: 'Name the worktree to destroy: a task id or an exact worktree path.' };
@@ -147,6 +184,12 @@ export async function destroyWorktree(
   // unpreserved work (ref + patch + receipt) first. The dependents/evidence
   // guard always holds. The pre-remove hooks run only once removal is decided.
   const reason = options.reason ?? 'manual';
+  // T14627: a worktree no task owns has no task lock to show it is in use, so
+  // the path route needs the caller's process probe; without one it is kept.
+  const inUse =
+    options.worktreePath === undefined
+      ? undefined
+      : () => (options.inUse ? options.inUse(worktreePath) : 'no process-use probe was supplied');
   const dispose = (probe: boolean) =>
     disposeWorktree({
       worktreePath,
@@ -155,6 +198,7 @@ export async function destroyWorktree(
       taskId,
       reason,
       evidence: options.evidence,
+      ...(inUse ? { inUse } : {}),
       // T14627: ignored build output never blocks by itself; the commit proof still holds.
       exemptRegenerable: true,
       force,
@@ -163,7 +207,9 @@ export async function destroyWorktree(
   const refuse = (disposal: ReturnType<typeof disposeWorktree>): DestroyWorktreeResult => {
     const message = disposal.kept
       ? (disposal.keptReason ?? '')
-      : `Worktree kept: ${disposal.keptReason ?? 'not proven preserved'}. Commit and push it, or pass --force to archive it and remove it.`;
+      : disposal.keptReason?.startsWith('in use:')
+        ? `Worktree kept: ${disposal.keptReason}. Stop what uses it, then retry.`
+        : `Worktree kept: ${disposal.keptReason ?? 'not proven preserved'}. Commit and push it, or pass --force to archive it and remove it.`;
     appendWorktreeAuditLog(projectRoot, {
       action: 'destroy',
       xdgPath: worktreePath,

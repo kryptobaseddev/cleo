@@ -22,7 +22,10 @@
     "outputDir": "dist",
     "outputPaths": [
       "packages/cant/napi",
-      "packages/*/extensions/**/*.{js,js.map,d.ts,d.ts.map}",
+      "packages/*/extensions/**/*.js",
+      "packages/*/extensions/**/*.js.map",
+      "packages/*/extensions/**/*.d.ts",
+      "packages/*/extensions/**/*.d.ts.map",
       "**/__pycache__"
     ]
   },

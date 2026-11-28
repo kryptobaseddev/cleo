@@ -30,7 +30,12 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { computeProjectHash, resolveWorktreeRootForHash } from '../paths.js';
 import { destroyWorktree } from '../worktree-destroy.js';
-import { disposeWorktree, unpreservedCommits } from '../worktree-dispose.js';
+import {
+  declaredOutputPaths,
+  disposeWorktree,
+  refuseOutputPath,
+  unpreservedCommits,
+} from '../worktree-dispose.js';
 import { configureWorktreePnpmStore, pnpmProvisioningProbe } from '../worktree-pnpm.js';
 import { pruneWorktrees } from '../worktree-prune.js';
 
@@ -697,6 +702,8 @@ describe('pruneWorktrees goes through the engine (T13924)', () => {
 });
 
 describe('detached worktrees and declared build output (T14627)', () => {
+  /** A process-use probe that finds nothing (core supplies the real lsof probe). */
+  const idle = (): null => null;
   /** Commit and push an ignore file, then add a detached worktree at main's pushed commit. */
   function detached(name: string): string {
     writeFileSync(join(repo, '.gitignore'), 'node_modules\n.env\ndist\nnapi/\nsecret/\n');
@@ -744,7 +751,7 @@ describe('detached worktrees and declared build output (T14627)', () => {
   it('destroy --path disposes a detached worktree by its exact path', async () => {
     declare(['napi']);
     const wt = detached('review-hotfix-2');
-    const r = await destroyWorktree(repo, { worktreePath: wt, reason: 'test' });
+    const r = await destroyWorktree(repo, { worktreePath: wt, reason: 'test', inUse: idle });
     expect(r).toMatchObject({ taskId: null, worktreeRemoved: true, branchDeleted: false });
     expect(r.error).toBeUndefined();
     expect(existsSync(wt)).toBe(false);
@@ -754,21 +761,115 @@ describe('detached worktrees and declared build output (T14627)', () => {
     declare(['napi']);
     const wt = detached('p0caps-main');
     commitIn(wt, 'b.ts', 'export const b = 2;\n');
-    const r = await destroyWorktree(repo, { worktreePath: wt, reason: 'test' });
+    const r = await destroyWorktree(repo, { worktreePath: wt, reason: 'test', inUse: idle });
     expect(r.worktreeRemoved).toBe(false);
     expect(r.error).toContain('commit(s) on no remote');
     expect(existsSync(wt)).toBe(true);
   });
 
   it('destroy --path refuses the main checkout and an unregistered directory', async () => {
-    const main = await destroyWorktree(repo, { worktreePath: repo, reason: 'test' });
+    const main = await destroyWorktree(repo, { worktreePath: repo, reason: 'test', inUse: idle });
     expect(main).toMatchObject({ worktreeRemoved: false });
     expect(main.error).toContain('is the main checkout');
     expect(existsSync(join(repo, 'a.ts'))).toBe(true);
     const stray = join(wtRoot, 'stray');
     mkdirSync(stray);
-    const r = await destroyWorktree(repo, { worktreePath: stray, reason: 'test' });
+    const r = await destroyWorktree(repo, {
+      worktreePath: stray,
+      reason: 'test',
+      inUse: idle,
+    });
     expect(r.error).toContain('is not a worktree registered with this repository');
     expect(existsSync(stray)).toBe(true);
+  });
+
+  it('destroy --path keeps a worktree without a process probe, or one the probe finds in use', async () => {
+    declare(['napi']);
+    const wt = detached('release-24');
+    const none = await destroyWorktree(repo, { worktreePath: wt, reason: 'test' });
+    expect(none.worktreeRemoved).toBe(false);
+    expect(none.error).toContain('in use: no process-use probe was supplied');
+    const probed: string[] = [];
+    const busy = await destroyWorktree(repo, {
+      worktreePath: wt,
+      reason: 'test',
+      inUse: (p) => {
+        probed.push(p);
+        return 'a process has its cwd or an open file in the worktree';
+      },
+    });
+    expect(busy.worktreeRemoved).toBe(false);
+    expect(busy.error).toContain('in use: a process has its cwd');
+    expect(probed).toContain(wt);
+    expect(existsSync(wt)).toBe(true);
+  });
+
+  it('destroy --path refuses a registered worktree outside the canonical root', async () => {
+    const sibling = join(base, 'sibling');
+    git(repo, 'worktree', 'add', '-q', '--detach', sibling, 'main');
+    const r = await destroyWorktree(repo, { worktreePath: sibling, reason: 'test', inUse: idle });
+    expect(r.worktreeRemoved).toBe(false);
+    expect(r.error).toContain("is not under this project's worktree root");
+    expect(existsSync(sibling)).toBe(true);
+  });
+
+  it('destroy --path refuses a task worktree and names the task-id command', async () => {
+    const byDir = worktree('T40');
+    const r = await destroyWorktree(repo, { worktreePath: byDir, reason: 'test', inUse: idle });
+    expect(r.error).toContain('cleo worktree destroy T40');
+    const byBranch = join(wtRoot, 'scratch');
+    git(repo, 'worktree', 'add', '-q', '-b', 'fix/T41-x', byBranch);
+    const b = await destroyWorktree(repo, { worktreePath: byBranch, reason: 'test', inUse: idle });
+    expect(b.error).toContain('cleo worktree destroy T41');
+    for (const p of [byDir, byBranch]) expect(existsSync(p)).toBe(true);
+  });
+
+  it('refuses build-output globs that can reach a dotfile, with a clear reason', () => {
+    for (const glob of [
+      '.*',
+      '**/.env',
+      '.env',
+      'packages/.cache',
+      '{.env,x}',
+      'a/[.]env',
+      '!(x)',
+      '@(x)',
+      '/abs/dist',
+      '../up',
+      'a//b',
+      '',
+    ]) {
+      expect(refuseOutputPath(glob), glob).not.toBeNull();
+    }
+    expect(refuseOutputPath('{.env,x}')).toContain('no braces, brackets or extglobs');
+    expect(refuseOutputPath('**/.env')).toContain("a segment starting with '.' refused");
+    for (const glob of [
+      'packages/cant/napi',
+      'packages/*/extensions/**/*.js',
+      '**/__pycache__',
+      'out?',
+    ]) {
+      expect(refuseOutputPath(glob), glob).toBeNull();
+    }
+  });
+
+  it('a refused declaration exempts nothing and is named in the keep reason', () => {
+    declare(['napi', '.*', '{.env,x}']);
+    expect(declaredOutputPaths(repo)).toMatchObject({
+      globs: ['napi'],
+      refused: [{ glob: '.*' }, { glob: '{.env,x}' }],
+    });
+    const wt = detached('release-25');
+    writeFileSync(join(wt, '.env'), 'SECRET=only-here\n');
+    const r = disposeWorktree({
+      worktreePath: wt,
+      taskId: null,
+      reason: 'test',
+      exemptRegenerable: true,
+      dryRun: true,
+    });
+    expect(r.keptReason).toContain('ignored content not in the main checkout: .env');
+    expect(r.keptReason).toContain('refused build.outputPaths: .* (');
+    expect(existsSync(wt)).toBe(true);
   });
 });
