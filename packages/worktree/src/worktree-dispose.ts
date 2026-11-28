@@ -172,9 +172,12 @@ const OUTPUT_PATH_CHARS = /^[A-Za-z0-9_\-.*?/]+$/;
 /**
  * Why a declared build-output glob is refused, or `null` when it is accepted
  * (T14627). Only explicit build-output paths or plain globs qualify: a
- * relative path of named segments with `*`, `**` and `?` (which never match a
- * leading dot). Refused: an absolute path, `..`, an empty segment, a segment
- * that starts with `.` (`.*`, `**` then `.env`), and any brace, bracket or
+ * relative path that starts with a literal segment (`dist`,
+ * `packages/cant/napi`, `packages/*` + `/dist`), then named segments with `*`,
+ * `**` and `?` (which never match a leading dot). Refused: an absolute path,
+ * `..`, an empty segment, a wildcard in the first segment (`**`, `*`, `*` +
+ * `/dist`: each reaches ignored content anywhere, such as `local/key.pem`),
+ * a segment that starts with `.` (`.*`, `.env`), and any brace, bracket or
  * extglob syntax (`{.env,x}`, `[.]env`, `!(x)`, `@(…)`), each of which can
  * reach a dotfile such as `.env`.
  *
@@ -187,6 +190,10 @@ export function refuseOutputPath(glob: string): string | null {
   if (isAbsolute(glob) || glob.startsWith('/')) return `absolute path refused: ${glob}`;
   if (!OUTPUT_PATH_CHARS.test(glob)) {
     return `only names, '/', '*', '**' and '?' are allowed (no braces, brackets or extglobs): ${glob}`;
+  }
+  const first = glob.split('/')[0] ?? '';
+  if (/[*?]/.test(first)) {
+    return `the first segment must be a literal path, not a wildcard (e.g. dist or packages/*/dist): ${glob}`;
   }
   for (const segment of glob.split('/')) {
     if (segment === '') return `empty path segment refused: ${glob}`;

@@ -23,8 +23,9 @@ holds, which is the guarantee the source that rebuilds it survives.
   canonical worktree root, and keep one a process is using.
 - `build.outputPaths` in `.cleo/project-context.json` declares build output
   beyond `dist/`, `.turbo/`, `coverage/` and `*.tsbuildinfo` (globs, read from
-  the main checkout). Only plain globs are accepted: a segment starting with
-  `.`, braces, brackets and extglobs are refused, since each can reach a
-  dotfile such as `.env`. Ignored content outside those still keeps a worktree.
+  the main checkout). Only plain globs that start with a literal path segment
+  are accepted: a wildcard first segment (`**`, `*/dist`), a segment starting
+  with `.`, braces, brackets and extglobs are refused, since each can reach
+  ignored files such as `.env` or a local key. Ignored content outside those still keeps a worktree.
   This repository declares `packages/cant/napi`, compiled `extensions/` output
-  and `__pycache__`.
+  and `packages/**/__pycache__`.

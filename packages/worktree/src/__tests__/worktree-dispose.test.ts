@@ -842,12 +842,17 @@ describe('detached worktrees and declared build output (T14627)', () => {
       expect(refuseOutputPath(glob), glob).not.toBeNull();
     }
     expect(refuseOutputPath('{.env,x}')).toContain('no braces, brackets or extglobs');
-    expect(refuseOutputPath('**/.env')).toContain("a segment starting with '.' refused");
+    expect(refuseOutputPath('packages/.env')).toContain("a segment starting with '.' refused");
+    // A wildcard first segment reaches ignored content anywhere (local/key.pem).
+    for (const glob of ['**', '*', '*/dist', '**/__pycache__', 'out?']) {
+      expect(refuseOutputPath(glob), glob).toContain('the first segment must be a literal path');
+    }
     for (const glob of [
       'packages/cant/napi',
       'packages/*/extensions/**/*.js',
-      '**/__pycache__',
-      'out?',
+      'packages/**/__pycache__',
+      'packages/*/dist',
+      'dist',
     ]) {
       expect(refuseOutputPath(glob), glob).toBeNull();
     }
@@ -871,5 +876,23 @@ describe('detached worktrees and declared build output (T14627)', () => {
     expect(r.keptReason).toContain('ignored content not in the main checkout: .env');
     expect(r.keptReason).toContain('refused build.outputPaths: .* (');
     expect(existsSync(wt)).toBe(true);
+  });
+
+  it('a wildcard first-segment declaration never exempts an ignored local key', () => {
+    declare(['**', '*', '*/dist']);
+    expect(declaredOutputPaths(repo).globs).toEqual([]);
+    const wt = detached('release-27');
+    mkdirSync(join(wt, 'secret'));
+    writeFileSync(join(wt, 'secret', 'key.pem'), 'only here\n');
+    const r = disposeWorktree({
+      worktreePath: wt,
+      taskId: null,
+      reason: 'test',
+      exemptRegenerable: true,
+    });
+    expect(r.removed).toBe(false);
+    expect(r.keptReason).toContain('ignored content not in the main checkout');
+    expect(r.keptReason).toContain('the first segment must be a literal path');
+    expect(existsSync(join(wt, 'secret', 'key.pem'))).toBe(true);
   });
 });

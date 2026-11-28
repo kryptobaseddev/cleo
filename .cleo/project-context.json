@@ -26,7 +26,7 @@
       "packages/*/extensions/**/*.js.map",
       "packages/*/extensions/**/*.d.ts",
       "packages/*/extensions/**/*.d.ts.map",
-      "**/__pycache__"
+      "packages/**/__pycache__"
     ]
   },
   "directories": {

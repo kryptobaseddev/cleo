@@ -218,8 +218,9 @@ export interface ProjectContext {
      * output beyond the built-in `dist/`, `.turbo/`, `coverage/` and
      * `*.tsbuildinfo`: ignored content at or under a match never blocks a
      * worktree's disposal by itself, while any other ignored content still
-     * does (T14627). Read from the main checkout. Only plain globs count: a
-     * segment starting with `.`, braces, brackets and extglobs are refused.
+     * does (T14627). Read from the main checkout. Only plain globs that start
+     * with a literal segment count: a wildcard first segment, a segment
+     * starting with `.`, braces, brackets and extglobs are refused.
      */
     outputPaths?: string[];
   };
