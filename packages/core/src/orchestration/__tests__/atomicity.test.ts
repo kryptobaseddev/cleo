@@ -276,6 +276,27 @@ describe('checkAtomicity — worker role', () => {
     expect(countScopedFiles(['other/src/sub/bar.js', 'pkg/tests/sub/bar.test.js'])).toBe(2);
   });
 
+  it('T14662 — tests/unit/ and tests/integration/ layers are skipped in mirror trees', () => {
+    // AC1: a unit/ or integration/ layer under tests/ or test/ pairs with src/<rel>/ or <rel>/.
+    expect(
+      countScopedFiles([
+        'pkg/src/commands/pi/common.ts',
+        'pkg/tests/unit/commands/pi/common.test.ts',
+      ]),
+    ).toBe(1);
+    expect(countScopedFiles(['pkg/src/cli.ts', 'pkg/tests/integration/cli.test.ts'])).toBe(1);
+    expect(countScopedFiles(['pkg/sub/foo.ts', 'pkg/test/unit/sub/foo.spec.ts'])).toBe(1);
+    expect(countScopedFiles(['pkg/foo.ts', 'pkg/test/integration/foo.test.ts'])).toBe(1);
+
+    // AC2: a flattened layout whose source lives in another directory still counts separately.
+    expect(
+      countScopedFiles(['pkg/src/core/skills/catalog.ts', 'pkg/tests/unit/catalog.test.ts']),
+    ).toBe(2);
+    expect(countScopedFiles(['pkg/src/other/cli.ts', 'pkg/tests/integration/cli.test.ts'])).toBe(2);
+    // Only a layer directly under tests/ is skipped, not one deeper in the tree.
+    expect(countScopedFiles(['pkg/src/sub/foo.ts', 'pkg/tests/sub/unit/foo.test.ts'])).toBe(2);
+  });
+
   it('treats acFiles alias the same as declaredFiles', () => {
     const aliasResult = checkAtomicity({
       taskId: 'T306',
