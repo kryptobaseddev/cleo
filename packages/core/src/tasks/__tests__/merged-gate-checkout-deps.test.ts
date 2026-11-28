@@ -8,11 +8,24 @@
  * `b` resolves from `packages/a` and whether the tree is clean and equal to
  * the merge tree). A project without a pnpm lockfile keeps the root link.
  *
+ * T14628: the command then removes the checkout with `git worktree remove`
+ * (no `--force`) whether the gate passed or failed, keeps it and names its
+ * path only when git refuses, and exits with the gate run's status.
+ *
  * @task T14625
+ * @task T14628
  */
 
-import { execFileSync } from 'node:child_process';
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { execFileSync, spawnSync } from 'node:child_process';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -37,17 +50,29 @@ function commitAll(root: string): string {
   return git(root, ['rev-parse', 'HEAD']);
 }
 
+/** What the stub `cleo verify` saw inside the checkout, and how the command ended. */
+interface PrintedRun {
+  resolves: string;
+  dirty: string;
+  tree: string;
+  checkout: string;
+  status: number | null;
+  stderr: string;
+}
+
 /**
  * Run the printed command with a stub `cleo` on PATH: `run` executes its
- * command; `verify` reports whether `dep` resolves from `pkgDir` and whether
- * the checkout is clean, with its tree hash.
+ * command; `verify` reports whether `dep` resolves from `pkgDir`, whether the
+ * checkout is clean, its tree hash and its path, then runs `verifyTail` (its
+ * exit status is the gate run's).
  */
 function runPrinted(
   root: string,
   merge: string,
   pkgDir: string,
   dep: string,
-): { resolves: string; dirty: string; tree: string } {
+  verifyTail = 'exit 0',
+): PrintedRun {
   const bin = join(base, 'bin');
   const report = join(base, 'report.json');
   write(
@@ -60,20 +85,33 @@ function runPrinted(
       `resolves=$(cd ${pkgDir} && node -e "try{require.resolve('${dep}');process.stdout.write('yes')}catch{process.stdout.write('no')}")`,
       'dirty=$(git status --porcelain --untracked-files=no)',
       'tree=$(git rev-parse HEAD^{tree})',
-      `printf '{"resolves":"%s","dirty":"%s","tree":"%s"}' "$resolves" "$dirty" "$tree" > ${JSON.stringify(report)}`,
+      `printf '{"resolves":"%s","dirty":"%s","tree":"%s","checkout":"%s"}' "$resolves" "$dirty" "$tree" "$PWD" > ${JSON.stringify(report)}`,
+      verifyTail,
       '',
     ].join('\n'),
   );
   chmodSync(join(bin, 'cleo'), 0o755);
-  execFileSync('/bin/sh', ['-c', mergedGateVerifyCommand('T1', root, merge)], {
+  const run = spawnSync('/bin/sh', ['-c', mergedGateVerifyCommand('T1', root, merge)], {
     env: { ...process.env, PATH: `${bin}:${process.env.PATH ?? ''}`, TMPDIR: base },
-    stdio: 'ignore',
+    encoding: 'utf-8',
   });
-  return JSON.parse(readFileSync(report, 'utf-8')) as {
-    resolves: string;
-    dirty: string;
-    tree: string;
-  };
+  const seen = JSON.parse(readFileSync(report, 'utf-8')) as Omit<PrintedRun, 'status' | 'stderr'>;
+  return { ...seen, status: run.status, stderr: run.stderr };
+}
+
+/** Paths of every worktree git still registers for `root`. */
+function worktrees(root: string): string[] {
+  return git(root, ['worktree', 'list', '--porcelain'])
+    .split('\n')
+    .filter((line) => line.startsWith('worktree '))
+    .map((line) => line.slice('worktree '.length));
+}
+
+/** A one-commit repository with nothing to install. */
+function plainRepo(): { root: string; merge: string } {
+  const root = join(base, 'repo');
+  write(join(root, 'package.json'), '{"name":"app","private":true}\n');
+  return { root, merge: commitAll(root) };
 }
 
 beforeEach(() => {
@@ -104,7 +142,7 @@ describe('mergedGateVerifyCommand dependency layout (T14625)', () => {
     execFileSync('pnpm', ['install', '--offline'], { cwd: root, stdio: 'ignore' });
     const merge = commitAll(root);
 
-    expect(runPrinted(root, merge, 'packages/a', 'b')).toEqual({
+    expect(runPrinted(root, merge, 'packages/a', 'b')).toMatchObject({
       resolves: 'yes',
       dirty: '',
       tree: git(root, ['rev-parse', `${merge}^{tree}`]),
@@ -124,10 +162,47 @@ describe('mergedGateVerifyCommand dependency layout (T14625)', () => {
     write(join(root, 'node_modules/dep/package.json'), '{"name":"dep","version":"1.0.0"}\n');
     write(join(root, 'node_modules/dep/index.js'), 'module.exports = 1;\n');
 
-    expect(runPrinted(root, merge, '.', 'dep')).toEqual({
+    expect(runPrinted(root, merge, '.', 'dep')).toMatchObject({
       resolves: 'yes',
       dirty: '',
       tree: git(root, ['rev-parse', `${merge}^{tree}`]),
     });
+  });
+});
+
+describe('mergedGateVerifyCommand checkout removal (T14628)', () => {
+  it.each([
+    ['passed', 'exit 0', 0],
+    ['failed', 'exit 3', 1],
+  ])('removes the checkout after a %s gate run and exits with its status', (_, tail, status) => {
+    const { root, merge } = plainRepo();
+    const run = runPrinted(root, merge, '.', 'none', tail);
+    expect(run.status).toBe(status);
+    expect(run.tree).toBe(git(root, ['rev-parse', `${merge}^{tree}`]));
+    expect(existsSync(run.checkout)).toBe(false);
+    expect(worktrees(root)).toHaveLength(1);
+    expect(run.stderr).not.toContain('kept the gate checkout');
+  });
+
+  it('unlinks the root node_modules link it made, so removal is not refused', () => {
+    const { root, merge } = plainRepo();
+    write(join(root, 'node_modules/dep/package.json'), '{"name":"dep","version":"1.0.0"}\n');
+    write(join(root, 'node_modules/dep/index.js'), 'module.exports = 1;\n');
+    const run = runPrinted(root, merge, '.', 'dep');
+    expect(run).toMatchObject({ resolves: 'yes', status: 0 });
+    expect(existsSync(run.checkout)).toBe(false);
+    expect(existsSync(join(root, 'node_modules/dep/package.json'))).toBe(true);
+  });
+
+  it.each([
+    ['passed', 'exit 0', 0],
+    ['failed', 'exit 3', 1],
+  ])('keeps a checkout git refuses to remove after a %s run and prints its path', (_, tail, status) => {
+    const { root, merge } = plainRepo();
+    const run = runPrinted(root, merge, '.', 'none', `echo kept > untracked.txt; ${tail}`);
+    expect(run.status).toBe(status);
+    expect(existsSync(join(run.checkout, 'untracked.txt'))).toBe(true);
+    expect(run.stderr).toContain(`cleo: kept the gate checkout ${run.checkout}`);
+    expect(worktrees(root)).toHaveLength(2);
   });
 });

@@ -948,6 +948,15 @@ export class TypedRevalidationError extends Error {
  * `node_modules` is linked, as before. The install writes only
  * untracked paths, so the checkout stays clean and equal to the merge tree.
  *
+ * After the gate run, pass or fail, the checkout is removed with
+ * `git worktree remove` WITHOUT `--force` (T14628): git refuses when the
+ * checkout holds a tracked change or a non-ignored untracked file, and then
+ * the checkout is kept and its path printed to stderr. The root
+ * `node_modules` link this command made is unlinked first (a `node_modules/`
+ * ignore rule misses a symlink). The command exits with the gate run's status.
+ * A recorded pass stays valid after removal: it binds to the merge's tree hash
+ * and tree-relative inputs, never to the checkout's path.
+ *
  * @param taskId - Task whose gate must run.
  * @param root - Existing repository from which to create the checkout.
  * @param mergeSha - Immutable merge commit to verify.
@@ -962,13 +971,20 @@ export function mergedGateVerifyCommand(
 ): string {
   const nodeModules = join(root, 'node_modules');
   return (
-    `cleo_gate_checkout=$(mktemp -d) && git -C ${shellArg(root)} worktree add --detach "$cleo_gate_checkout" ${shellArg(mergeSha)} && ` +
-    `cd "$cleo_gate_checkout" && ` +
+    `cleo_gate_checkout=$(mktemp -d) && git -C ${shellArg(root)} worktree add --detach "$cleo_gate_checkout" ${shellArg(mergeSha)} && { ` +
+    // A subshell: the caller's shell never stays inside the checkout it removes.
+    `( cd "$cleo_gate_checkout" && ` +
     // The store path is relative: the shell, not this string, knows the checkout.
     `if [ -f pnpm-lock.yaml ]; then ${workerInstallCommand('.')}; ` +
     // Other managers (npm, Yarn, Bun) keep one root node_modules: link the source checkout's.
     `elif [ -d ${shellArg(nodeModules)} ] && [ ! -e node_modules ]; then ln -s ${shellArg(nodeModules)} node_modules; fi && ` +
-    `cleo verify ${taskId} --run${req ? ` --req ${shellArg(req)}` : ''}`
+    `cleo verify ${taskId} --run${req ? ` --req ${shellArg(req)}` : ''} ); ` +
+    `cleo_gate_status=$?; ` +
+    // Unlink only an untracked symlink (the one made above), never a tracked path.
+    `if [ -L "$cleo_gate_checkout/node_modules" ] && ! git -C "$cleo_gate_checkout" ls-files --error-unmatch node_modules >/dev/null 2>&1; then rm "$cleo_gate_checkout/node_modules"; fi; ` +
+    `git -C ${shellArg(root)} worktree remove "$cleo_gate_checkout" || ` +
+    `echo "cleo: kept the gate checkout $cleo_gate_checkout (git worktree remove refused)" >&2; ` +
+    `[ "$cleo_gate_status" -eq 0 ]; }`
   );
 }
 

@@ -488,6 +488,9 @@ describe('merge-tree typed-gate cache (T14596)', () => {
         vi.unstubAllEnvs();
       }
     }
+    // T14628: the checkout is gone before the sweep; a pass binds to the tree, not its path.
+    git(root, 'worktree', 'remove', '--force', checkout);
+    expect(existsSync(checkout)).toBe(false);
     const sweep = await sweepMergedClosures(
       root,
       { force: true },
@@ -582,10 +585,14 @@ describe('merge-tree typed-gate cache (T14596)', () => {
       expect(sweep.closed).toEqual([]);
       const command =
         `cleo_gate_checkout=$(mktemp -d) && git -C '${root}' worktree add --detach "$cleo_gate_checkout" '${merge}' && ` +
-        `cd "$cleo_gate_checkout" && ` +
+        `{ ( cd "$cleo_gate_checkout" && ` +
         `if [ -f pnpm-lock.yaml ]; then cleo run --wait --class build -- pnpm install --frozen-lockfile --prefer-offline --store-dir '.pnpm-store'; ` +
         `elif [ -d '${join(root, 'node_modules')}' ] && [ ! -e node_modules ]; then ln -s '${join(root, 'node_modules')}' node_modules; fi && ` +
-        `cleo verify ${id} --run --req 'MERGE-1'`;
+        `cleo verify ${id} --run --req 'MERGE-1' ); cleo_gate_status=$?; ` +
+        `if [ -L "$cleo_gate_checkout/node_modules" ] && ! git -C "$cleo_gate_checkout" ls-files --error-unmatch node_modules >/dev/null 2>&1; then rm "$cleo_gate_checkout/node_modules"; fi; ` +
+        `git -C '${root}' worktree remove "$cleo_gate_checkout" || ` +
+        `echo "cleo: kept the gate checkout $cleo_gate_checkout (git worktree remove refused)" >&2; ` +
+        `[ "$cleo_gate_status" -eq 0 ]; }`;
       expect(waitingOn(sweep).split(' Run `').at(-1)).toBe(`${command}\`.`);
       if (source === 'legacy-schema')
         expect(waitingOn(sweep)).toContain('re-run verification to migrate');
