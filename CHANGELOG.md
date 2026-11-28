@@ -1,5 +1,24 @@
 # Changelog
 
+## [2026.11.19] (2026-11-28)
+
+### Fixed
+
+- The 3-file worker limit pairs a test with a source only in a directory it tests (sibling, __tests__ tree, or tests or test tree mirroring src), and never with a non-code file _(provenance: [T14636](https://github.com/kryptobaseddev/cleo/search?q=T14636&type=commits), [T14661](https://github.com/kryptobaseddev/cleo/search?q=T14661&type=commits))_
+- Atomic scope pairing skips a unit/ or integration/ layer directory under tests/ or test/ _(provenance: [T14662](https://github.com/kryptobaseddev/cleo/search?q=T14662&type=commits))_
+- @cleocode/brain drops and counts edges whose endpoint is of a node kind whose query failed, instead of emitting dangling edges or fake observation stubs, and exports StoreErrorSink _(provenance: [T14658](https://github.com/kryptobaseddev/cleo/search?q=T14658&type=commits), [T14659](https://github.com/kryptobaseddev/cleo/search?q=T14659&type=commits))_
+- a lost docs audit or versioning line after a committed write is now a warning, and both supersession verbs file the audit under the superseded slug _(provenance: [T14664](https://github.com/kryptobaseddev/cleo/search?q=T14664&type=commits))_
+- cleo docs update refusal fixes shell-quote paths and slugs; the strict schema-mismatch fix re-runs the same --strict update with every flag _(provenance: [T14668](https://github.com/kryptobaseddev/cleo/search?q=T14668&type=commits))_
+- every cleo docs update refusal carries a runnable fix, and gate 42 covers the docs update path _(provenance: [T14663](https://github.com/kryptobaseddev/cleo/search?q=T14663&type=commits))_
+- cleo docs update --superseded-by refusals carry a structured fix, and a supersession audits its successor _(provenance: [T14660](https://github.com/kryptobaseddev/cleo/search?q=T14660&type=commits))_
+- cleo docs update --status superseded --superseded-by records the successor link the deprecated cleo docs supersede wrote _(provenance: [T14657](https://github.com/kryptobaseddev/cleo/search?q=T14657&type=commits))_
+- a CLI command no longer hangs at exit behind a worker thread stuck in native code, and SIGTERM ends it _(provenance: [T14670](https://github.com/kryptobaseddev/cleo/search?q=T14670&type=commits))_
+- The command-existence gates resolve a command by its path, so cleo tree flags are checked against cleo tree _(provenance: [T14673](https://github.com/kryptobaseddev/cleo/search?q=T14673&type=commits))_
+- The command-existence gates check flags on commands with inline registry args, such as cleo check schema _(provenance: [T14671](https://github.com/kryptobaseddev/cleo/search?q=T14671&type=commits))_
+- The command-existence gates now check flags on cleo docs update, docs migrate and the cleo doctor root _(provenance: [T14667](https://github.com/kryptobaseddev/cleo/search?q=T14667&type=commits))_
+- The merge-commit gate checkout command removes its temporary worktree after the gate run _(provenance: [T14628](https://github.com/kryptobaseddev/cleo/search?q=T14628&type=commits))_
+- cleo code and the nexus AST passes work again on linux/arm64 under Node 24: tree-sitter upgraded to 0.25.1 _(provenance: [T14637](https://github.com/kryptobaseddev/cleo/search?q=T14637&type=commits))_
+
 ## [2026.11.18] (2026-11-26)
 
 ### Fixed
