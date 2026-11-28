@@ -14,7 +14,7 @@
 
 import { execFile, execFileSync } from 'node:child_process';
 import { promisify } from 'node:util';
-import { boundedExecOptions } from '@cleocode/paths';
+import { boundedExecOptions, gracefulKillExec } from '@cleocode/paths';
 
 const execFileAsync = promisify(execFile);
 
@@ -73,6 +73,57 @@ export function gitSilent(args: string[], cwd: string, timeoutMs?: number): bool
       'git',
       args,
       boundedExecOptions({
+        cwd,
+        stdio: 'pipe',
+        timeout: timeoutMs ?? DEFAULT_GIT_TIMEOUT_MS,
+      }),
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * {@link gitSync} for a git WRITE (`worktree add`, `branch -D`/`-m`,
+ * `sparse-checkout set`): on timeout git gets SIGTERM, a grace period, then
+ * SIGKILL, so its own signal handler removes `.git/index.lock` and ref locks
+ * instead of leaving them to fail the next git call (T14676). Costs one
+ * `node` start, so reads stay on {@link gitSync}.
+ *
+ * @param args - Git argument array.
+ * @param cwd - Working directory.
+ * @param timeoutMs - Optional timeout override in milliseconds. Defaults to
+ *   {@link DEFAULT_GIT_TIMEOUT_MS}.
+ * @returns Trimmed stdout string.
+ * @throws Error if the command exits non-zero or exceeds the timeout.
+ * @task T14676
+ */
+export function gitWriteSync(args: string[], cwd: string, timeoutMs?: number): string {
+  return execFileSync(
+    ...gracefulKillExec('git', args, {
+      cwd,
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+      timeout: timeoutMs ?? DEFAULT_GIT_TIMEOUT_MS,
+    }),
+  ).trim();
+}
+
+/**
+ * {@link gitSilent} for a git WRITE; see {@link gitWriteSync} (T14676).
+ *
+ * @param args - Git argument array.
+ * @param cwd - Working directory.
+ * @param timeoutMs - Optional timeout override in milliseconds. Defaults to
+ *   {@link DEFAULT_GIT_TIMEOUT_MS}.
+ * @returns true on exit 0, false otherwise (including timeout).
+ * @task T14676
+ */
+export function gitWriteSilent(args: string[], cwd: string, timeoutMs?: number): boolean {
+  try {
+    execFileSync(
+      ...gracefulKillExec('git', args, {
         cwd,
         stdio: 'pipe',
         timeout: timeoutMs ?? DEFAULT_GIT_TIMEOUT_MS,

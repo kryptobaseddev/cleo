@@ -74,8 +74,10 @@ export function ghQueryTimeoutMs(): number {
  */
 export function isGhTimeout(err: unknown): boolean {
   if (typeof err !== 'object' || err === null) return false;
-  const e = err as { code?: unknown; signal?: unknown };
-  return e.code === 'ETIMEDOUT' || e.signal === 'SIGTERM';
+  const e = err as { code?: unknown };
+  // A sync exec's deadline sets code ETIMEDOUT whatever the kill signal (boundedExecOptions
+  // sends SIGKILL, T14670); a bare SIGKILL or SIGTERM is another killer (OOM, the user), not ours.
+  return e.code === 'ETIMEDOUT';
 }
 
 /**

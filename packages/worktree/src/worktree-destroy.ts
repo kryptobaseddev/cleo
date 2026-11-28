@@ -12,7 +12,7 @@
 
 import { existsSync } from 'node:fs';
 import type { DestroyWorktreeOptions, DestroyWorktreeResult } from '@cleocode/contracts';
-import { countUnmergedCommits, getGitRoot, gitSilent, gitSync } from './git.js';
+import { countUnmergedCommits, getGitRoot, gitSilent, gitSync, gitWriteSync } from './git.js';
 import { computeProjectHash, resolveTaskWorktreePath } from './paths.js';
 import { appendWorktreeAuditLog, removeWorktreeFromSentinelIndex } from './worktree-audit.js';
 import { disposeWorktree } from './worktree-dispose.js';
@@ -161,7 +161,7 @@ export async function destroyWorktree(
           error = `Branch '${branch}' kept: ${unmerged} commit(s) are on neither origin/main nor HEAD. Merge it, or pass forceDeleteUnmergedBranch to delete it anyway.`;
         }
       } else if (branchExists) {
-        gitSync(['branch', '-D', branch], gitRoot);
+        gitWriteSync(['branch', '-D', branch], gitRoot);
         branchDeleted = true;
       } else {
         // T12086: previously returned `branchDeleted: true` here. Reporting a

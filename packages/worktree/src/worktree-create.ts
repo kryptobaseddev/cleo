@@ -44,7 +44,15 @@ interface CreateWorktreeResultWithBootstrap extends CreateWorktreeResult {
 
 import { BRANCH_LOCK_ERROR_CODES } from '@cleocode/contracts/branch-lock.js';
 import { getCleoWorktreesRoot, pathEnvKey, prependPathEntry } from '@cleocode/paths';
-import { countUnmergedCommits, getGitRoot, gitSilent, gitSync, resolveHeadRef } from './git.js';
+import {
+  countUnmergedCommits,
+  getGitRoot,
+  gitSilent,
+  gitSync,
+  gitWriteSilent,
+  gitWriteSync,
+  resolveHeadRef,
+} from './git.js';
 import {
   computeProjectHash,
   resolveTaskWorktreePath,
@@ -128,8 +136,8 @@ function applySpawnCloneExcludeFilter(
   if (excludePatterns.length === 0) return [];
   try {
     const rules = ['/*', '/**', ...excludePatterns.map((p) => `!${p}`)];
-    gitSilent(['sparse-checkout', 'init', '--no-cone'], worktreePath);
-    gitSilent(['sparse-checkout', 'set', '--no-cone', ...rules], worktreePath);
+    gitWriteSilent(['sparse-checkout', 'init', '--no-cone'], worktreePath);
+    gitWriteSilent(['sparse-checkout', 'set', '--no-cone', ...rules], worktreePath);
     return [...excludePatterns];
   } catch {
     return [];
@@ -156,8 +164,8 @@ function applySpawnCloneExcludeFilter(
 function applySpawnScope(worktreePath: string, scope: string): string | null {
   if (!scope.trim()) return null;
   try {
-    gitSilent(['sparse-checkout', 'init', '--cone'], worktreePath);
-    gitSilent(['sparse-checkout', 'set', scope.trim()], worktreePath);
+    gitWriteSilent(['sparse-checkout', 'init', '--cone'], worktreePath);
+    gitWriteSilent(['sparse-checkout', 'set', scope.trim()], worktreePath);
     return scope.trim();
   } catch {
     return null;
@@ -240,12 +248,12 @@ function isGitLockedWorktree(gitRoot: string, worktreePath: string): boolean {
  */
 function discardBranchName(gitRoot: string, branch: string, fallbackRef: string): void {
   if (countUnmergedCommits(gitRoot, branch, [fallbackRef]) === 0) {
-    gitSync(['branch', '-D', branch], gitRoot);
+    gitWriteSync(['branch', '-D', branch], gitRoot);
     return;
   }
   const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\..*$/, 'Z');
   const preserved = `cleo/preserved/${branch}/${stamp}-${randomBytes(4).toString('hex')}`;
-  gitSync(['branch', '-m', branch, preserved], gitRoot);
+  gitWriteSync(['branch', '-m', branch, preserved], gitRoot);
   process.stderr.write(
     `[worktree] preserved unmerged history of ${branch} as ${preserved} (never deleted)\n`,
   );
@@ -574,7 +582,7 @@ function removeFailedProvision(
       if (unmerged > 0) {
         result.error = `Branch '${branch}' kept: ${unmerged} commit(s) are on neither origin/main nor HEAD.`;
       } else if (exists) {
-        gitSync(['branch', '-D', branch], gitRoot);
+        gitWriteSync(['branch', '-D', branch], gitRoot);
         result.branchDeleted = true;
       }
     } catch (err) {
@@ -681,7 +689,7 @@ async function provisionUnderLock(
           // T12506: never `branch -D` history that is not on the mainline —
           // move it aside to a preserved ref, then recreate from baseRef.
           discardBranchName(gitRoot, branch, baseRef);
-          gitSync(['worktree', 'add', '-b', branch, worktreePath, baseRef], gitRoot);
+          gitWriteSync(['worktree', 'add', '-b', branch, worktreePath, baseRef], gitRoot);
           ctx.freshWorktreeCreated = true;
           reused = false;
         } else {
@@ -698,13 +706,13 @@ async function provisionUnderLock(
         }
       } else {
         // Branch exists but is clean (points to baseRef or an ancestor) — safe to reuse.
-        gitSync(['worktree', 'add', worktreePath, branch], gitRoot);
+        gitWriteSync(['worktree', 'add', worktreePath, branch], gitRoot);
         ctx.freshWorktreeCreated = true;
         reused = true;
       }
     } else {
       // Create the worktree with a new branch.
-      gitSync(['worktree', 'add', '-b', branch, worktreePath, baseRef], gitRoot);
+      gitWriteSync(['worktree', 'add', '-b', branch, worktreePath, baseRef], gitRoot);
       ctx.freshWorktreeCreated = true;
       reused = false;
     }
@@ -807,7 +815,7 @@ async function provisionUnderLock(
         // Unwind the worktree before returning an error to the caller.
         try {
           gitSilent(['worktree', 'unlock', worktreePath], gitRoot);
-          gitSilent(['worktree', 'remove', '--force', worktreePath], gitRoot);
+          gitWriteSilent(['worktree', 'remove', '--force', worktreePath], gitRoot);
         } catch {
           /* best-effort unwind */
         }

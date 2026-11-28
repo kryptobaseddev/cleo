@@ -19,7 +19,7 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import { readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
-import { boundedExecOptions } from '@cleocode/paths';
+import { boundedExecOptions, gracefulKillExec } from '@cleocode/paths';
 import { type EngineResult, engineError, engineSuccess } from '../engine-result.js';
 import { discoveryEnv } from '../git/work-tree.js';
 import { getLogger } from '../logger.js';
@@ -129,7 +129,8 @@ export function runGitWithLockRetry(
             ? err.message
             : String(err);
 
-      // Detect a subprocess timeout (Node.js sets code ETIMEDOUT or kills with SIGTERM).
+      // Detect a subprocess timeout (Node.js sets code ETIMEDOUT; boundedExecOptions kills with
+      // SIGKILL, which skips git's own lock cleanup — hence removeStaleLock below).
       // When git itself hangs (not a lock conflict), we must NOT retry — surface
       // a clear error immediately and clean up any stale lock file.
       const isTimeout =
@@ -490,7 +491,8 @@ export async function releaseRollbackFull(
 
     // Step 2: Delete local git tag
     try {
-      execFileSync('git', ['tag', '-d', gitTag], boundedExecOptions(gitCwd));
+      // T14676: a write — SIGTERM first, so git removes its ref lock on timeout.
+      execFileSync(...gracefulKillExec('git', ['tag', '-d', gitTag], gitCwd));
       steps.push(`Deleted local tag ${gitTag}`);
     } catch (err: unknown) {
       const msg =
@@ -513,7 +515,7 @@ export async function releaseRollbackFull(
 
       if (logOut) {
         revertSha = logOut.split(' ')[0];
-        execFileSync('git', ['revert', '--no-edit', revertSha!], boundedExecOptions(gitCwd));
+        execFileSync(...gracefulKillExec('git', ['revert', '--no-edit', revertSha!], gitCwd));
         steps.push(`Reverted release commit ${revertSha}`);
       } else {
         steps.push(`No release commit found for ${version} — skipping revert`);

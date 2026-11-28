@@ -402,3 +402,72 @@ export function boundedExecOptions<T extends BoundableExecOptions>(
   };
   return options === undefined ? bounded : ({ ...options, ...bounded } as T);
 }
+
+/** How long a timed-out command gets between SIGTERM and SIGKILL in {@link gracefulKillExec} (T14676). */
+export const GRACEFUL_KILL_GRACE_MS = 5_000;
+
+/** Exit status {@link gracefulKillExec}'s supervisor returns when the command timed out (as coreutils `timeout`). */
+export const GRACEFUL_KILL_TIMEOUT_STATUS = 124;
+
+/** Extra time the outer exec gives the supervisor past timeout + grace before it SIGKILLs the supervisor. */
+const SUPERVISOR_MARGIN_MS = 5_000;
+
+/**
+ * The supervisor `node -e` runs: spawn the command on the inherited stdio,
+ * SIGTERM it at the timeout, SIGKILL it `grace` ms later, and exit with its
+ * status (or {@link GRACEFUL_KILL_TIMEOUT_STATUS} when it timed out).
+ */
+const SUPERVISOR_SCRIPT = [
+  'const [cmd, t, g, ...a] = process.argv.slice(1);',
+  "const c = require('node:child_process').spawn(cmd, a, { stdio: 'inherit' });",
+  'let late = false;',
+  "const timer = setTimeout(() => { late = true; c.kill('SIGTERM'); setTimeout(() => c.kill('SIGKILL'), Number(g)); }, Number(t));",
+  "c.on('error', (e) => { process.stderr.write(e.message + '\\n'); process.exit(127); });",
+  "c.on('exit', (code) => {",
+  '  clearTimeout(timer);',
+  `  if (late) { process.stderr.write(cmd + ' timed out after ' + t + 'ms\\n'); process.exit(${GRACEFUL_KILL_TIMEOUT_STATUS}); }`,
+  '  process.exit(code ?? 1);',
+  '});',
+].join('\n');
+
+/**
+ * A bounded sync exec of a command that writes a lockfile (a git write:
+ * `worktree add`, `branch -D`/`-m`, `tag -d`, `revert`), which on timeout
+ * gets SIGTERM, a grace period, then SIGKILL (T14676).
+ *
+ * {@link boundedExecOptions} SIGKILLs at the timeout, which skips git's own
+ * signal handler that removes `.git/index.lock` and ref locks, so the next
+ * git call in that repository fails with "File exists". A sync exec can send
+ * only one signal, so this runs the command under a small `node` supervisor
+ * that sends SIGTERM at the timeout and SIGKILL `graceMs` later; the outer
+ * exec stays bounded by {@link boundedExecOptions} (timeout + grace + margin)
+ * in case the supervisor itself wedges. A supervisor timeout exits
+ * {@link GRACEFUL_KILL_TIMEOUT_STATUS}, so the exec throws with that `status`.
+ * The supervisor costs one `node` start (~90 ms), so use it for writes only.
+ * A timeout of `0` (no timeout) runs the command directly.
+ *
+ * @param command - The command (e.g. `git`).
+ * @param args - Its arguments.
+ * @param options - The caller's exec options; `timeout` defaults to {@link BOUNDED_EXEC_DEFAULT_TIMEOUT_MS}.
+ * @param graceMs - Time between SIGTERM and SIGKILL. @defaultValue {@link GRACEFUL_KILL_GRACE_MS}
+ * @returns The file, arguments and options to pass to `execFileSync`/`spawnSync`.
+ * @example
+ * ```ts
+ * execFileSync(...gracefulKillExec('git', ['tag', '-d', tag], { cwd, encoding: 'utf-8', timeout: 60_000 }));
+ * ```
+ * @task T14676
+ */
+export function gracefulKillExec<T extends BoundableExecOptions>(
+  command: string,
+  args: readonly string[],
+  options: T,
+  graceMs: number = GRACEFUL_KILL_GRACE_MS,
+): [string, string[], T] {
+  const timeout = options.timeout ?? BOUNDED_EXEC_DEFAULT_TIMEOUT_MS;
+  if (timeout <= 0) return [command, [...args], boundedExecOptions(options)];
+  return [
+    process.execPath,
+    ['-e', SUPERVISOR_SCRIPT, command, String(timeout), String(graceMs), ...args],
+    boundedExecOptions({ ...options, timeout: timeout + graceMs + SUPERVISOR_MARGIN_MS }),
+  ];
+}
