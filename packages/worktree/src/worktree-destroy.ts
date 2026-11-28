@@ -10,15 +10,77 @@
  * @adr ADR-062
  */
 
-import { existsSync } from 'node:fs';
+import { existsSync, realpathSync } from 'node:fs';
+import { resolve } from 'node:path';
 import type { DestroyWorktreeOptions, DestroyWorktreeResult } from '@cleocode/contracts';
 import { countUnmergedCommits, getGitRoot, gitSilent, gitSync } from './git.js';
 import { computeProjectHash, resolveTaskWorktreePath } from './paths.js';
 import { appendWorktreeAuditLog, removeWorktreeFromSentinelIndex } from './worktree-audit.js';
 import { disposeWorktree } from './worktree-dispose.js';
 import { runWorktreeHooks } from './worktree-hooks.js';
-import { locateTaskWorktree } from './worktree-locate.js';
+import {
+  type LocatedWorktree,
+  listRegisteredWorktrees,
+  locateTaskWorktree,
+} from './worktree-locate.js';
 import { releaseWorktreeTaskLock } from './worktree-lock.js';
+
+/** `path` with symlinks resolved when it exists, else made absolute. */
+function canonicalPath(path: string): string {
+  try {
+    return realpathSync(path);
+  } catch {
+    return resolve(path);
+  }
+}
+
+/** What one destroy call acts on, or why it refuses. */
+type DestroyTarget =
+  | {
+      taskId: string | null;
+      worktreePath: string;
+      branch: string | null;
+      located: LocatedWorktree | null;
+    }
+  | { error: string };
+
+/**
+ * Resolve the worktree a destroy names (T14627): by exact path, only a linked
+ * worktree git has registered for this repository (never the main checkout,
+ * a bare entry or an unregistered directory), keeping its own branch or
+ * `null` when detached; else by task id, as git locates it (T12086).
+ */
+function resolveDestroyTarget(projectRoot: string, options: DestroyWorktreeOptions): DestroyTarget {
+  const taskId = options.taskId ?? null;
+  if (options.worktreePath !== undefined) {
+    const wanted = canonicalPath(options.worktreePath);
+    const registered = listRegisteredWorktrees(projectRoot);
+    const index = registered.findIndex((e) => canonicalPath(e.path) === wanted);
+    const entry = registered[index];
+    if (entry === undefined) {
+      return {
+        error: `${options.worktreePath} is not a worktree registered with this repository.`,
+      };
+    }
+    // git lists the main working tree first.
+    if (index === 0 || entry.bare === true) {
+      return {
+        error: `${entry.path} is the main checkout, not a linked worktree; it is never destroyed.`,
+      };
+    }
+    return { taskId, worktreePath: entry.path, branch: entry.branch, located: entry };
+  }
+  if (taskId === null || taskId.length === 0) {
+    return { error: 'Name the worktree to destroy: a task id or an exact worktree path.' };
+  }
+  const located = locateTaskWorktree(projectRoot, taskId);
+  return {
+    taskId,
+    worktreePath: located?.path ?? resolveTaskWorktreePath(computeProjectHash(projectRoot), taskId),
+    branch: located?.branch ?? `task/${taskId}`,
+    located,
+  };
+}
 
 /**
  * Destroy the git worktree for a task.
@@ -47,7 +109,7 @@ export async function destroyWorktree(
   projectRoot: string,
   options: DestroyWorktreeOptions,
 ): Promise<DestroyWorktreeResult> {
-  const { taskId, deleteBranch = true, force = false, hooks = [] } = options;
+  const { deleteBranch = true, force = false, hooks = [] } = options;
 
   const gitRoot = getGitRoot(projectRoot);
 
@@ -56,10 +118,24 @@ export async function destroyWorktree(
   // project-hash scheme is not at the recomputed path, and real branches carry
   // a slug (`task/T11248-cleo-exodus`, not `task/T11248`) — so both derivations
   // missed, and the function reported success for work it never did.
-  const located = locateTaskWorktree(projectRoot, taskId);
+  // T14627: an exact path names a worktree no task id can (a detached checkout).
+  const target = resolveDestroyTarget(projectRoot, options);
+  if ('error' in target) {
+    return {
+      taskId: options.taskId ?? null,
+      worktreeRemoved: false,
+      branchDeleted: false,
+      error: target.error,
+      force,
+      hookResults: [],
+    };
+  }
+  const { taskId, worktreePath, branch, located } = target;
   const projectHash = computeProjectHash(projectRoot);
-  const worktreePath = located?.path ?? resolveTaskWorktreePath(projectHash, taskId);
-  const branch = located?.branch ?? `task/${taskId}`;
+  const auditIds = {
+    ...(taskId !== null ? { taskId } : {}),
+    ...(branch !== null ? { branch } : {}),
+  };
 
   let worktreeRemoved = false;
   let branchDeleted = false;
@@ -79,6 +155,8 @@ export async function destroyWorktree(
       taskId,
       reason,
       evidence: options.evidence,
+      // T14627: ignored build output never blocks by itself; the commit proof still holds.
+      exemptRegenerable: true,
       force,
       probe,
     });
@@ -89,8 +167,7 @@ export async function destroyWorktree(
     appendWorktreeAuditLog(projectRoot, {
       action: 'destroy',
       xdgPath: worktreePath,
-      taskId,
-      branch,
+      ...auditIds,
       reason,
       success: false,
       error: message,
@@ -143,14 +220,14 @@ export async function destroyWorktree(
     // it IS the removal; without this the entry lingers forever.
     gitSilent(['worktree', 'prune'], gitRoot);
     worktreeRemoved = true;
-    releaseWorktreeTaskLock(projectHash, taskId);
+    if (taskId !== null) releaseWorktreeTaskLock(projectHash, taskId);
   } else {
     worktreeRemoved = true; // genuinely absent: not on disk, not registered
-    releaseWorktreeTaskLock(projectHash, taskId);
+    if (taskId !== null) releaseWorktreeTaskLock(projectHash, taskId);
   }
 
-  // Step 4: Optionally delete the branch.
-  if (deleteBranch) {
+  // Step 4: Optionally delete the branch. A detached checkout holds none.
+  if (deleteBranch && branch !== null) {
     try {
       const branchExists = gitSync(['branch', '--list', branch], gitRoot);
       const unmerged = branchExists ? countUnmergedCommits(gitRoot, branch, ['HEAD']) : 0;
@@ -200,15 +277,14 @@ export async function destroyWorktree(
   appendWorktreeAuditLog(projectRoot, {
     action: 'destroy',
     xdgPath: worktreePath,
-    taskId,
-    branch,
+    ...auditIds,
     reason: options.reason ?? 'manual',
     success: destroySucceeded,
     ...(error !== undefined ? { error } : {}),
   });
 
   // T9805 D009: Remove the entry from the sentinel index when destruction succeeded.
-  if (destroySucceeded) {
+  if (destroySucceeded && taskId !== null) {
     removeWorktreeFromSentinelIndex(gitRoot, taskId);
   }
 

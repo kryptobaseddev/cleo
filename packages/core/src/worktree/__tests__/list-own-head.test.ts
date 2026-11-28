@@ -123,6 +123,47 @@ describe('worktree classification uses each worktree own HEAD (T14236)', () => {
     expect(existsSync(done)).toBe(false);
   });
 
+  it('T14627: a taskless detached checkout of main with only build output is redundant and pruned', async () => {
+    writeFileSync(join(repo, '.gitignore'), 'dist/\nlocal/\n');
+    git(repo, ['add', '.gitignore']);
+    git(repo, ['-c', 'user.name=T', '-c', 'user.email=t@e.x', 'commit', '-q', '-m', 'ignore']);
+    const wts = join(base, 'wts');
+    const add = (name: string) => {
+      const p = join(wts, name);
+      git(repo, ['worktree', 'add', '-q', '--detach', p, 'main']);
+      mkdirSync(join(p, 'dist'));
+      writeFileSync(join(p, 'dist', 'index.js'), 'built\n');
+      return p;
+    };
+    const buildOnly = add('release-23');
+    const withLocal = add('review-hotfix-2');
+    mkdirSync(join(withLocal, 'local'));
+    writeFileSync(join(withLocal, 'local', 'notes.md'), 'only here\n');
+
+    const listed = await listWorktrees({ projectRoot: repo, staleDays: 0 });
+    if (!listed.success) throw new Error(JSON.stringify(listed.error));
+    const at = (p: string) => listed.data.worktrees.find((w) => realpathSync(w.path) === p);
+    expect(at(buildOnly)).toMatchObject({
+      taskId: null,
+      isMerged: false,
+      statusCategory: 'redundant',
+    });
+    expect(at(withLocal)).toMatchObject({ taskId: null, statusCategory: 'keep' });
+    expect(at(withLocal)?.keepReason).toContain('ignored content not in the main checkout: local');
+
+    const pruned = await pruneOrphanedWorktreesByStatus({
+      projectRoot: repo,
+      staleDays: 0,
+      auditLogPath: join(base, 'audit.jsonl'),
+    });
+    if (!pruned.success) throw new Error(JSON.stringify(pruned.error));
+    expect(pruned.data.outcomes).toMatchObject([
+      { taskId: null, pruned: true, branchDeleted: false },
+    ]);
+    expect(existsSync(buildOnly)).toBe(false);
+    expect(existsSync(withLocal)).toBe(true);
+  });
+
   it('T14274: each category from real git; keep names its clause; prune acts only on redundant', async () => {
     const wts = join(base, 'wts');
     const add = (id: string) => {

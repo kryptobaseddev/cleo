@@ -46,7 +46,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, join, matchesGlob, relative, resolve } from 'node:path';
 import type {
   DisposeWorktreeOptions,
   DisposeWorktreeResult,
@@ -145,16 +145,52 @@ const REGENERABLE_DIRS = new Set(['dist', '.turbo', 'coverage']);
  * (and anything inside them), and `*.tsbuildinfo` files, only where the build
  * writes them: the checkout root or a `packages/<name>/` root. The same name
  * deeper down (`secrets/dist/key.pem`) is not build output and stays strict.
+ * A project adds its own output with `build.outputPaths` (T14627,
+ * {@link declaredOutputPaths}): a path at or under a declared glob counts too.
  *
  * @param rel - Path relative to the checkout root, `/`-separated.
+ * @param declared - The project's declared build-output globs.
  * @returns Whether the path is rebuildable output.
  */
-export function isRegenerable(rel: string): boolean {
+export function isRegenerable(rel: string, declared: readonly string[] = []): boolean {
   const parts = rel.split('/');
   // The output's own root: `dist`, or `packages/<name>/dist`.
   const base = parts[0] === 'packages' ? 2 : 0;
   if (parts.length > base && REGENERABLE_DIRS.has(parts[base] ?? '')) return true;
-  return parts.length === base + 1 && rel.endsWith('.tsbuildinfo');
+  if (parts.length === base + 1 && rel.endsWith('.tsbuildinfo')) return true;
+  // The path, or a directory above it, matches a declared glob.
+  for (let i = parts.length; i > 0; i--) {
+    const prefix = parts.slice(0, i).join('/');
+    if (declared.some((glob) => matchesGlob(prefix, glob))) return true;
+  }
+  return false;
+}
+
+/**
+ * The build-output globs a project declares in the `build.outputPaths` of its
+ * main checkout's `.cleo/project-context.json` (T14627), relative to the
+ * checkout root (`path.matchesGlob`), e.g. `packages/cant/napi`. Read from the
+ * main checkout, never from the worktree being judged. Fail-closed: a missing
+ * or unreadable file, or a malformed field, declares nothing; an absolute or
+ * `..` glob is ignored.
+ *
+ * @param projectRoot - The main checkout.
+ * @returns The declared globs.
+ * @task T14627
+ */
+export function declaredOutputPaths(projectRoot: string): string[] {
+  let parsed: { build?: { outputPaths?: unknown } };
+  try {
+    parsed = JSON.parse(readFileSync(join(projectRoot, '.cleo', 'project-context.json'), 'utf8'));
+  } catch {
+    return [];
+  }
+  const globs = parsed?.build?.outputPaths;
+  if (!Array.isArray(globs)) return [];
+  return globs.filter(
+    (g): g is string =>
+      typeof g === 'string' && g.length > 0 && !isAbsolute(g) && !g.split('/').includes('..'),
+  );
 }
 
 /**
@@ -201,9 +237,11 @@ export interface UnprovenContentOptions {
   exemptNodeModules?: boolean;
   /**
    * Ignored build output ({@link isRegenerable}) counts as redundant. Only for
-   * a checkout whose commits are merged: its source rebuilds the output.
+   * a checkout whose commits are preserved: its source rebuilds the output.
    */
   exemptRegenerable?: boolean;
+  /** The project's declared build-output globs ({@link declaredOutputPaths}). */
+  outputPaths?: readonly string[];
 }
 
 /** One `git status --porcelain -z --ignored=matching -uall` entry. */
@@ -269,7 +307,7 @@ export function unprovenContent(
       return 'uncommitted or untracked changes';
     }
     if (code !== '!!') return 'uncommitted or untracked changes';
-    if (opts.exemptRegenerable === true && isRegenerable(rel)) continue;
+    if (opts.exemptRegenerable === true && isRegenerable(rel, opts.outputPaths)) continue;
     if (!sameTree(join(path, rel), join(projectRoot, rel), budget)) {
       return `ignored content not in the main checkout: ${rel}`;
     }
@@ -349,13 +387,16 @@ export function unpreservedCommits(path: string, defaultBranch?: string): string
 function archivableIgnored(
   entries: readonly StatusEntry[],
   provisioning: (rel: string) => boolean,
+  outputPaths: readonly string[],
 ): string[] {
   return entries
     .filter((e) => e.code === '!!')
     .map((e) => e.rel)
     .filter(
       (rel) =>
-        !rel.split('/').includes('node_modules') && !isRegenerable(rel) && !provisioning(rel),
+        !rel.split('/').includes('node_modules') &&
+        !isRegenerable(rel, outputPaths) &&
+        !provisioning(rel),
     );
 }
 
@@ -432,7 +473,7 @@ export function archiveWorktree(
         return { error: 'git rm --cached of pnpm provisioning failed' };
       }
     }
-    const ignored = archivableIgnored(entries, provisioning);
+    const ignored = archivableIgnored(entries, provisioning, declaredOutputPaths(projectRoot));
     for (let i = 0; i < ignored.length; i += 200) {
       if (git(worktreePath, ['add', '-f', '--', ...ignored.slice(i, i + 200)], env) === null) {
         return { error: 'git add -f of ignored content failed' };
@@ -593,8 +634,10 @@ function disposeChecked(opts: DisposeWorktreeOptions, releaseLock: boolean): Dis
   }
 
   const unpreserved =
-    unprovenContent(worktreePath, projectRoot, { exemptRegenerable: opts.exemptRegenerable }) ??
-    unpreservedCommits(worktreePath, opts.defaultBranch);
+    unprovenContent(worktreePath, projectRoot, {
+      exemptRegenerable: opts.exemptRegenerable,
+      outputPaths: opts.exemptRegenerable === true ? declaredOutputPaths(projectRoot) : [],
+    }) ?? unpreservedCommits(worktreePath, opts.defaultBranch);
   if (unpreserved !== null && opts.force !== true) {
     return keep(`not proven preserved: ${unpreserved}`, {
       unpreserved,

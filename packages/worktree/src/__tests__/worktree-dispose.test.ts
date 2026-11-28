@@ -695,3 +695,80 @@ describe('pruneWorktrees goes through the engine (T13924)', () => {
     expect(existsSync(join(unpushed, 'w.ts'))).toBe(true);
   });
 });
+
+describe('detached worktrees and declared build output (T14627)', () => {
+  /** Commit and push an ignore file, then add a detached worktree at main's pushed commit. */
+  function detached(name: string): string {
+    writeFileSync(join(repo, '.gitignore'), 'node_modules\n.env\ndist\nnapi/\nsecret/\n');
+    git(repo, 'commit', '-qam', 'ignore build output');
+    git(repo, 'push', '-q', 'origin', 'main');
+    const path = join(wtRoot, name);
+    git(repo, 'worktree', 'add', '-q', '--detach', path, 'main');
+    mkdirSync(join(path, 'dist'));
+    writeFileSync(join(path, 'dist', 'a.js'), 'built\n');
+    mkdirSync(join(path, 'napi'));
+    writeFileSync(join(path, 'napi', 'cant.node'), 'binary\n');
+    return path;
+  }
+
+  /** Declare build output in the main checkout's project context. */
+  function declare(outputPaths: string[]): void {
+    mkdirSync(join(repo, '.cleo'), { recursive: true });
+    writeFileSync(
+      join(repo, '.cleo', 'project-context.json'),
+      JSON.stringify({ build: { outputPaths } }),
+    );
+  }
+
+  it('declared build output does not block disposal; undeclared ignored content does', () => {
+    const wt = detached('release-23');
+    const opts = { worktreePath: wt, taskId: null, reason: 'test', exemptRegenerable: true };
+    expect(disposeWorktree({ ...opts, dryRun: true }).keptReason).toBe(
+      'not proven preserved: ignored content not in the main checkout: napi',
+    );
+    declare(['napi']);
+    mkdirSync(join(wt, 'secret'));
+    writeFileSync(join(wt, 'secret', 'key.pem'), 'only here\n');
+    expect(disposeWorktree({ ...opts, dryRun: true }).keptReason).toBe(
+      'not proven preserved: ignored content not in the main checkout: secret',
+    );
+    // Without the exemption a declaration counts for nothing.
+    expect(
+      disposeWorktree({ ...opts, exemptRegenerable: false, dryRun: true }).keptReason,
+    ).toContain('ignored content not in the main checkout');
+    rmSync(join(wt, 'secret'), { recursive: true });
+    expect(disposeWorktree(opts)).toMatchObject({ removed: true });
+    expect(existsSync(wt)).toBe(false);
+  });
+
+  it('destroy --path disposes a detached worktree by its exact path', async () => {
+    declare(['napi']);
+    const wt = detached('review-hotfix-2');
+    const r = await destroyWorktree(repo, { worktreePath: wt, reason: 'test' });
+    expect(r).toMatchObject({ taskId: null, worktreeRemoved: true, branchDeleted: false });
+    expect(r.error).toBeUndefined();
+    expect(existsSync(wt)).toBe(false);
+  });
+
+  it('destroy --path keeps a detached worktree with unpushed commits', async () => {
+    declare(['napi']);
+    const wt = detached('p0caps-main');
+    commitIn(wt, 'b.ts', 'export const b = 2;\n');
+    const r = await destroyWorktree(repo, { worktreePath: wt, reason: 'test' });
+    expect(r.worktreeRemoved).toBe(false);
+    expect(r.error).toContain('commit(s) on no remote');
+    expect(existsSync(wt)).toBe(true);
+  });
+
+  it('destroy --path refuses the main checkout and an unregistered directory', async () => {
+    const main = await destroyWorktree(repo, { worktreePath: repo, reason: 'test' });
+    expect(main).toMatchObject({ worktreeRemoved: false });
+    expect(main.error).toContain('is the main checkout');
+    expect(existsSync(join(repo, 'a.ts'))).toBe(true);
+    const stray = join(wtRoot, 'stray');
+    mkdirSync(stray);
+    const r = await destroyWorktree(repo, { worktreePath: stray, reason: 'test' });
+    expect(r.error).toContain('is not a worktree registered with this repository');
+    expect(existsSync(stray)).toBe(true);
+  });
+});

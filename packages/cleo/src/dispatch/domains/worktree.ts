@@ -260,18 +260,21 @@ export class WorktreeHandler implements DomainHandler {
         }
         case 'destroy': {
           const taskId = params?.['taskId'];
-          if (typeof taskId !== 'string' || taskId.length === 0) {
+          const worktreePath = params?.['worktreePath'];
+          const hasTask = typeof taskId === 'string' && taskId.length > 0;
+          const hasPath = typeof worktreePath === 'string' && worktreePath.length > 0;
+          if (hasTask === hasPath) {
             return errorResult(
               'mutate',
               'worktree',
               operation,
               'E_VALIDATION',
-              'Missing required param: taskId (e.g. T9805).',
+              'Name exactly one worktree: taskId (e.g. T9805) or worktreePath (T14627).',
               startTime,
             );
           }
           const opts: DestroyWorktreeOptions = {
-            taskId,
+            ...(hasTask ? { taskId: taskId as string } : { worktreePath: worktreePath as string }),
             force: params?.['force'] === true,
             deleteBranch: params?.['deleteBranch'] !== false,
             ...(typeof params?.['reason'] === 'string' && params['reason'].length > 0

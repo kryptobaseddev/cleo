@@ -213,6 +213,14 @@ export interface ProjectContext {
      * `cleo run` charges them as heavy whatever their content shows (T14162).
      */
     heavyScripts?: string[];
+    /**
+     * Globs (`path.matchesGlob`), relative to the project root, of build
+     * output beyond the built-in `dist/`, `.turbo/`, `coverage/` and
+     * `*.tsbuildinfo`: ignored content at or under a match never blocks a
+     * worktree's disposal by itself, while any other ignored content still
+     * does (T14627). Read from the main checkout.
+     */
+    outputPaths?: string[];
   };
   directories?: {
     source?: string;

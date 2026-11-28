@@ -131,13 +131,16 @@ export async function listWorktrees(
    * run: nothing is written, archived or removed (prune re-proves with the
    * task's evidence, and a fresh scan, before it acts).
    */
-  const proveRedundant = (path: string, taskId: string | null, isMerged: boolean) =>
+  const proveRedundant = (path: string, taskId: string | null) =>
     disposeWorktree({
       worktreePath: path,
       projectRoot,
       taskId,
       reason: 'list',
-      exemptRegenerable: opts.exemptRegenerable !== false && isMerged,
+      // T14627: ignored build output never blocks by itself. The commit proof
+      // still holds (HEAD on a remote or the default branch), so the source
+      // that rebuilds it survives: a detached checkout of a main commit too.
+      exemptRegenerable: opts.exemptRegenerable !== false,
       inUse: worktreeInUseProbe(readWorktreeTaskLock, projectRoot, taskId),
       dryRun: true,
       dependentsScan,
@@ -258,9 +261,7 @@ export async function listWorktrees(
     const classified =
       taskId !== null && !taskStatusResult.success
         ? { statusCategory: 'unknown' as const, keepReason: 'owning task state unavailable' }
-        : classifyStatus(
-            candidate && loadTaskStatuses ? proveRedundant(entry.path, taskId, isMerged) : null,
-          );
+        : classifyStatus(candidate && loadTaskStatuses ? proveRedundant(entry.path, taskId) : null);
 
     // T9804: look up source from sentinel index. A git-native entry whose path
     // is present in the sentinel index was adopted (or registered externally);
@@ -320,7 +321,7 @@ export async function listWorktrees(
       taskId !== null && !taskStatusResult.success
         ? { statusCategory: 'unknown' as const, keepReason: 'owning task state unavailable' }
         : classifyStatus(
-            candidate && loadTaskStatuses ? proveRedundant(sentinel.path, taskId, false) : null,
+            candidate && loadTaskStatuses ? proveRedundant(sentinel.path, taskId) : null,
           );
 
     worktrees.push({
