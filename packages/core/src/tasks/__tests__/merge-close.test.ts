@@ -45,6 +45,7 @@ import { previewTaskGates } from '../gate-preview.js';
 import { type GateCacheEntry, gateInputsHash } from '../gate-result-cache.js';
 import {
   captureGateInputs,
+  mergedGateVerifyCommand,
   revalidateTaskGateResults,
   runGates,
   runTaskGates,
@@ -583,16 +584,8 @@ describe('merge-tree typed-gate cache (T14596)', () => {
       source === 'missing-input-changed'
     ) {
       expect(sweep.closed).toEqual([]);
-      const command =
-        `cleo_gate_checkout=$(mktemp -d) && git -C '${root}' worktree add --detach "$cleo_gate_checkout" '${merge}' && ` +
-        `{ ( cd "$cleo_gate_checkout" && ` +
-        `if [ -f pnpm-lock.yaml ]; then cleo run --wait --class build -- pnpm install --frozen-lockfile --prefer-offline --store-dir '.pnpm-store'; ` +
-        `elif [ -d '${join(root, 'node_modules')}' ] && [ ! -e node_modules ]; then ln -s '${join(root, 'node_modules')}' node_modules; fi && ` +
-        `cleo verify ${id} --run --req 'MERGE-1' ); cleo_gate_status=$?; ` +
-        `if [ -L "$cleo_gate_checkout/node_modules" ] && ! git -C "$cleo_gate_checkout" ls-files --error-unmatch node_modules >/dev/null 2>&1; then rm "$cleo_gate_checkout/node_modules"; fi; ` +
-        `git -C '${root}' worktree remove "$cleo_gate_checkout" || ` +
-        `echo "cleo: kept the gate checkout $cleo_gate_checkout (git worktree remove refused)" >&2; ` +
-        `[ "$cleo_gate_status" -eq 0 ]; }`;
+      // The command's shell behaviour is proven in merged-gate-checkout-deps.test.ts.
+      const command = mergedGateVerifyCommand(id, root, merge, 'MERGE-1');
       expect(waitingOn(sweep).split(' Run `').at(-1)).toBe(`${command}\`.`);
       if (source === 'legacy-schema')
         expect(waitingOn(sweep)).toContain('re-run verification to migrate');
