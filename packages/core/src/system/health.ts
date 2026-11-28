@@ -1144,15 +1144,16 @@ export async function coreDoctorReport(projectRoot: string): Promise<DoctorRepor
   for (const dep of depReport.results) {
     const isRequired = dep.category === 'required';
     const status: 'ok' | 'warning' | 'error' = dep.healthy
-      ? dep.installed
+      ? dep.installed && !dep.error
         ? 'ok'
-        : 'warning' // optional/feature not installed — warn, not error
+        : 'warning' // optional/feature not installed or partly working — warn, not error
       : isRequired
         ? 'error'
         : 'warning';
 
+    // An installed dependency can still report a gap, e.g. missing grammars (T14665).
     const message = dep.installed
-      ? `${dep.name}${dep.version ? ` ${dep.version}` : ''}${dep.location ? ` (${dep.location})` : ''}`
+      ? `${dep.name}${dep.version ? ` ${dep.version}` : ''}${dep.location ? ` (${dep.location})` : ''}${dep.error ? `: ${dep.error}` : ''}`
       : (dep.error ?? `${dep.name} not found`);
 
     checks.push({

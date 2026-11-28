@@ -394,6 +394,8 @@ jobs:
               - 'pnpm-workspace.yaml'
               - '.npmrc'
               - 'scripts/packed-install-smoke.mjs'
+              - 'scripts/lib/packed-grammars.mjs'
+              - 'packages/nexus/src/code/**'
       # T14369: per-file test durations from the newest main run, fetched ONCE
       # here so every unit shard splits by the same data (a per-shard fetch
       # could disagree and drop or repeat files). None found: file-count split.
@@ -2575,7 +2577,8 @@ jobs:
     # runs `cleo --version`, on dependency changes and nightly, so that drift
     # fails here instead of in a user's install. T14637: tree-sitter@0.25.1
     # ships a linux-arm64 prebuild, so the smoke now requires every optional
-    # native dependency and parses a file with `cleo code outline`.
+    # native dependency and parses a file with `cleo code outline`. T14665: a
+    # second install runs in a toolchain-free image.
     name: Packed CLI Install (linux/arm64)
     needs: [ biome, changes ]
     if: needs.changes.outputs.install_deps == 'true' && needs.changes.outputs.version_only != 'true' && needs.changes.outputs.draft != 'true'
@@ -2599,6 +2602,19 @@ jobs:
         run: pnpm run build
       - name: Install the packed CLI, run cleo --version and a code parse
         run: node scripts/packed-install-smoke.mjs --install-only
+      # T14665: cpp, java, ruby and typescript ship no linux-arm64 prebuild, so an
+      # install with no C++ toolchain (slim Docker images, minimal Pi installs)
+      # drops them. The same packed CLI installs in a toolchain-free image (the
+      # smoke fails if g++, make or python3 is on its PATH): tree-sitter must load,
+      # each grammar must parse or be named by `cleo code` with its fix, and at least
+      # one of those four must have been dropped and reported. It then reinstalls in
+      # the full node image, which has the toolchain, and every dropped grammar must
+      # come back and parse: the fix the message gives.
+      - name: Install the packed CLI with no compiler toolchain and check every grammar
+        run: |
+          docker pull node:24.16.0-trixie-slim
+          docker pull node:24.16.0-trixie
+          node scripts/packed-install-smoke.mjs --toolchain-free-image=node:24.16.0-trixie-slim --toolchain-image=node:24.16.0-trixie
       - name: Retain manifest and diagnostics
         if: failure()
         uses: actions/upload-artifact@v4

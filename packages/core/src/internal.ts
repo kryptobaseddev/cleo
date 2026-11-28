@@ -86,6 +86,7 @@ export {
   type SmartSearchOptions,
   smartOutline,
   smartSearch,
+  smartSearchReport,
   smartUnfold,
 } from '@cleocode/nexus';
 export { exportTasks } from './admin/export.js';

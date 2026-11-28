@@ -11,7 +11,7 @@
 import { readdirSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import type { CodeSymbol } from '@cleocode/contracts';
-import { batchParse } from './parser.js';
+import { batchParse, type MissingGrammarReport, reportMissingGrammars } from './parser.js';
 import { detectLanguage, type TreeSitterLanguage } from './tree-sitter-languages.js';
 
 /** A search result with relevance score. */
@@ -138,17 +138,32 @@ function scoreSymbol(
   return { score: 0, matchType: 'fuzzy' };
 }
 
+/** Search results plus the grammars that kept files out of them (T14665). */
+export interface SmartSearchReport {
+  /** Ranked matches, as {@link smartSearch} returns them. */
+  results: SmartSearchResult[];
+  /** Grammars needed by the searched files that did not load; their files were not searched. */
+  missingGrammars: MissingGrammarReport[];
+}
+
 /**
- * Search for symbols across a codebase.
+ * Search for symbols across a codebase and report the grammars that did not load.
  *
- * Walks the directory tree, batch-parses source files, and returns
- * symbols matching the query ranked by relevance score.
+ * A file whose grammar is missing yields no symbols, so without the report a
+ * search over it returns nothing and looks like "no match" (T14665).
  *
  * @param query - Search string to match against symbol names and paths
  * @param options - Search options (maxResults, filePattern, language, rootDir)
- * @returns Ranked array of search results
+ * @returns Ranked results and one report per missing grammar
+ * @example
+ * ```ts
+ * const { results, missingGrammars } = smartSearchReport('parseFile');
+ * ```
  */
-export function smartSearch(query: string, options: SmartSearchOptions = {}): SmartSearchResult[] {
+export function smartSearchReport(
+  query: string,
+  options: SmartSearchOptions = {},
+): SmartSearchReport {
   const rootDir = options.rootDir ?? process.cwd();
   const maxResults = options.maxResults ?? 20;
 
@@ -170,5 +185,28 @@ export function smartSearch(query: string, options: SmartSearchOptions = {}): Sm
   // Sort by score descending, then by name
   results.sort((a, b) => b.score - a.score || a.symbol.name.localeCompare(b.symbol.name));
 
-  return results.slice(0, maxResults);
+  const languages = new Set<TreeSitterLanguage>();
+  for (const fileResult of parsed.results) {
+    const language = detectLanguage(fileResult.filePath);
+    if (language) languages.add(language);
+  }
+  return {
+    results: results.slice(0, maxResults),
+    missingGrammars: reportMissingGrammars(languages),
+  };
+}
+
+/**
+ * Search for symbols across a codebase.
+ *
+ * Walks the directory tree, batch-parses source files, and returns
+ * symbols matching the query ranked by relevance score. Use
+ * {@link smartSearchReport} to also learn which grammars did not load.
+ *
+ * @param query - Search string to match against symbol names and paths
+ * @param options - Search options (maxResults, filePattern, language, rootDir)
+ * @returns Ranked array of search results
+ */
+export function smartSearch(query: string, options: SmartSearchOptions = {}): SmartSearchResult[] {
+  return smartSearchReport(query, options).results;
 }
