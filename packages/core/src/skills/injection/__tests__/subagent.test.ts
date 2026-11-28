@@ -2,8 +2,17 @@
  * Tests for subagent protocol injection with tier filtering.
  * @task T5155
  */
-import { describe, expect, it } from 'vitest';
-import { filterProtocolByTier } from '../subagent.js';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { describe, expect, it, vi } from 'vitest';
+import { filterProtocolByTier, injectProtocol } from '../subagent.js';
+
+// injectProtocol reads the task for its context block; the token refusal
+// below is independent of the store, so the accessor finds no task.
+vi.mock('../../../store/data-accessor.js', () => ({
+  getTaskAccessor: async () => ({ loadSingleTask: async () => null }),
+}));
 
 const SAMPLE_PROTOCOL = `# Protocol Header
 
@@ -130,5 +139,28 @@ describe('injectProtocol backward compatibility', () => {
   it('exports filterProtocolByTier', async () => {
     const mod = await import('../subagent.js');
     expect(typeof mod.filterProtocolByTier).toBe('function');
+  });
+});
+
+describe('injectProtocol refuses a tree command with no root id (T14673)', () => {
+  it('throws for a bare {{TASK_TREE_CMD}} and renders one with a root id', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'subagent-tree-token-'));
+    try {
+      await expect(
+        injectProtocol('Run `{{TASK_TREE_CMD}}` first.', 'T1', { EPIC_ID: 'T10' }, cwd),
+      ).rejects.toMatchObject({ message: expect.stringContaining('needs a root id') });
+      await expect(
+        injectProtocol('Run {{TASK_TREE_CMD}} {{EPIC_ID}}.', 'T1', { EPIC_ID: '' }, cwd),
+      ).rejects.toMatchObject({ message: expect.stringContaining('{{EPIC_ID}} has no value') });
+      const ok = await injectProtocol(
+        'Run {{TASK_TREE_CMD}} {{EPIC_ID}}.',
+        'T1',
+        { EPIC_ID: 'T10' },
+        cwd,
+      );
+      expect(ok).toContain('Run cleo tree T10.');
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
   });
 });

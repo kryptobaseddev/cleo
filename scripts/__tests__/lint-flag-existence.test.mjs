@@ -169,14 +169,12 @@ describe('commands resolve by their path, not the first meta.name match (T14673)
   const bad = (text) => checker().check(extractInvocationsWithFlags(text)[0]);
 
   it('`cleo tree` reads treeCommand', () => {
+    expect(bad('cleo tree T1 --with-deps --blockers')).toBeNull();
+    // `--withDeps` is kept as an alias of `with-deps`.
     expect(bad('cleo tree T1 --withDeps --blockers')).toBeNull();
-    // treeCommand declares `withDeps` (camelCase) only, and the runtime's
-    // assertKnownFlags rejects `--with-deps` with E_UNKNOWN_FLAG; --blockers
-    // is accepted, so only --with-deps is reported.
-    const v = bad('cleo tree T1 --with-deps --blockers');
+    const v = bad('cleo tree T1 --mermaid');
     expect(v?.label).toBe('tree');
-    expect(v?.bad).toEqual(['--with-deps']);
-    expect(bad('cleo tree T1 --mermaid')?.bad).toEqual(['--mermaid']);
+    expect(v?.bad).toEqual(['--mermaid']);
   });
 
   it('`cleo deps tree` reads depsTreeCommand', () => {

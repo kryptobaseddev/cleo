@@ -36,14 +36,14 @@ describe('injectTokens', () => {
   });
 
   it('emits {{TASK_TREE_CMD}} only with a root id after it (T14673)', () => {
-    // `cleo tree` requires its rootId positional; a bare token stays
-    // unresolved so hasUnresolvedTokens reports it.
+    // `cleo tree` requires its rootId positional, so a bare token is refused.
     expect(injectTokens('{{TASK_TREE_CMD}} {{EPIC_ID}}', { EPIC_ID: 'T10' })).toBe('cleo tree T10');
     expect(injectTokens('`{{TASK_TREE_CMD}} <rootId>`', {})).toBe('`cleo tree <rootId>`');
     expect(injectTokens('{{TASK_TREE_CMD}} T42 --blockers', {})).toBe('cleo tree T42 --blockers');
-    const bare = injectTokens('Run `{{TASK_TREE_CMD}}` to see it', {});
-    expect(bare).toBe('Run `{{TASK_TREE_CMD}}` to see it');
-    expect(hasUnresolvedTokens(bare)).toEqual(['TASK_TREE_CMD']);
+    expect(() => injectTokens('Run `{{TASK_TREE_CMD}}` to see it', {})).toThrow(/needs a root id/);
+    expect(() => injectTokens('{{TASK_TREE_CMD}} {{EPIC_ID}}', { EPIC_ID: '' })).toThrow(
+      /\{\{EPIC_ID\}\} has no value/,
+    );
   });
 
   it('should allow explicit values to override defaults', () => {

@@ -277,7 +277,7 @@ export const depsCommand = defineCommand({
  *
  * Args:
  * - `<id>`         — required positional task ID. The root the tree walks from.
- * - `--withDeps`   — append the direct `depends` list below each annotated node.
+ * - `--with-deps`  — append the direct `depends` list below each annotated node.
  * - `--blockers`   — append the transitive blocker chain + leaf-blocker summary.
  *
  * The obsolete `--root`/`--depth`/`--kinds` flags were removed per ADR-077:
@@ -295,10 +295,13 @@ export const treeCommand = defineCommand({
       description: 'Root task ID — walks parent + groups edges from here',
       required: true,
     },
-    withDeps: {
+    // T14673: kebab-case like every other flag; `--withDeps` stays an alias.
+    // citty sets `args.withDeps` for both spellings, `args['with-deps']` for one.
+    'with-deps': {
       type: 'boolean',
       description: 'Append direct depends chain below each task that has deps',
       default: false,
+      alias: 'withDeps',
     },
     blockers: {
       type: 'boolean',
