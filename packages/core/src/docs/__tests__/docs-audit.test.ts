@@ -16,6 +16,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { drainWarnings } from '../../output.js';
 import {
   countAuditEntriesForSlug,
   DOCS_AUDIT_FILE,
@@ -90,6 +91,24 @@ describe('docs-audit', () => {
       expect(entry.checkpoint).toBeDefined();
       expect(entry.checkpoint).toHaveLength(64); // SHA-256 hex
       expect(entry.ts).toBeDefined();
+    });
+
+    it('reports a failed append as a W_DOC_AUDIT_APPEND_FAILED warning, never silently (T14664 AC1, AC3)', () => {
+      drainWarnings();
+      // A directory where the log file belongs makes the append throw.
+      mkdirSync(join(projectRoot, DOCS_AUDIT_FILE), { recursive: true });
+      expect(() =>
+        writeAuditEntry(projectRoot, {
+          op: 'docs.supersede',
+          slug: 'old-doc',
+          summary: "Superseded 'old-doc' → 'new-doc'",
+        }),
+      ).not.toThrow();
+      const warnings = drainWarnings() ?? [];
+      expect(warnings.map((w) => w.code)).toContain('W_DOC_AUDIT_APPEND_FAILED');
+      expect(warnings.find((w) => w.code === 'W_DOC_AUDIT_APPEND_FAILED')?.message).toContain(
+        "docs.supersede committed but its docs audit entry for 'old-doc'",
+      );
     });
 
     it('chains checkpoints across multiple entries', () => {

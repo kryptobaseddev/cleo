@@ -67,6 +67,22 @@ describe('docs.update --superseded-by through dispatch (T14660)', () => {
     await rm(tempDir, { recursive: true, force: true });
   });
 
+  it('docs supersede files its audit entry under the superseded slug, as docs update does (T14664 AC2)', async () => {
+    await add('old-spec');
+    await add('new-spec');
+    const response = await new DocsHandler().mutate('supersede', {
+      oldSlug: 'old-spec',
+      newSlug: 'new-spec',
+    });
+    expect(response.success, JSON.stringify(response.error)).toBe(true);
+    expect(await auditSummaries('old-spec')).toContain(
+      "docs.supersede: Superseded 'old-spec' → 'new-spec'",
+    );
+    expect((await auditSummaries('new-spec')).some((s) => s.startsWith('docs.supersede'))).toBe(
+      false,
+    );
+  });
+
   it('refusals carry a structured fix; a supersession audits its successor', async () => {
     await add('retired-note');
     await add('successor-note');

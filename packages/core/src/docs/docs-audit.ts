@@ -28,6 +28,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { join } from 'node:path';
+import { pushWarning } from '../output.js';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -86,6 +87,12 @@ export interface DocsAuditEntry {
 export interface WriteAuditEntryParams {
   op: DocsAuditOp;
   actor?: string;
+  /**
+   * Slug the entry is filed under. A supersession (`docs supersede` and
+   * `docs update --superseded-by`) is filed under the SUPERSEDED (old) slug
+   * with the old doc's attachment id — the doc whose lifecycle changed — and
+   * names the successor in `summary` (T14664).
+   */
   slug?: string;
   type?: string;
   attachmentId?: string;
@@ -219,8 +226,9 @@ function serializeForCheckpoint(entry: Omit<DocsAuditEntry, 'checkpoint'>): stri
  * The entry is written as a single JSON line appended to the audit log.
  * A checkpoint is computed that chains this entry to all prior entries.
  *
- * Best-effort: failures to write the audit log are swallowed — the
- * mutation itself already succeeded and audit drift is non-fatal.
+ * Best-effort: a failed write never fails the mutation, which already
+ * succeeded, but it is never silent either — it pushes a
+ * `W_DOC_AUDIT_APPEND_FAILED` warning onto the envelope (T14664).
  *
  * @param projectRoot - Absolute project root path.
  * @param params - Entry parameters.
@@ -258,8 +266,15 @@ export function writeAuditEntry(projectRoot: string, params: WriteAuditEntryPara
     };
 
     appendFileSync(auditPath, `${JSON.stringify(entry)}\n`, { encoding: 'utf-8' });
-  } catch {
-    /* Audit drift is non-fatal — the mutation already succeeded. */
+  } catch (cause) {
+    // T14664: the mutation already committed; report the lost entry.
+    pushWarning({
+      // @sync-invariant none:local-only the warning reports a lost local audit line after the write committed; nothing is rejected
+      code: 'W_DOC_AUDIT_APPEND_FAILED',
+      message:
+        `${params.op} committed but its docs audit entry${params.slug !== undefined ? ` for '${params.slug}'` : ''} was not written to ${DOCS_AUDIT_FILE}: ` +
+        (cause instanceof Error ? cause.message : String(cause)),
+    });
   }
 }
 
