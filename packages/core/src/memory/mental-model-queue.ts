@@ -13,7 +13,7 @@
  *   2. Periodically — every {@link FLUSH_INTERVAL_MS} milliseconds via a timer
  *      (backstop; unref'd).
  *   3. On high watermark — when the queue exceeds {@link FLUSH_WATERMARK} entries.
- *   4. On process exit — SIGINT, SIGTERM, and 'exit' hooks perform a best-effort
+ *   4. On process exit — the `exit` hook performs a best-effort (no signal listener, T14670)
  *      flush.
  *
  * T12817: before the prompt drain existed, the ONLY drain a one-shot process
@@ -210,7 +210,7 @@ function exitFlush(): void {
 }
 
 /**
- * Register process-exit hooks once.
+ * Register the process `exit` hook once; no signal listener (T14670).
  * Ensures that no observations are silently dropped on graceful shutdown.
  */
 function registerExitHooks(): void {
@@ -219,33 +219,13 @@ function registerExitHooks(): void {
 
   process.on('exit', exitFlush);
 
-  process.once('SIGINT', () => {
-    // Enforce a 2s hard deadline so tests/CI are never blocked by a stuck drain.
-    const deadline = setTimeout(() => process.exit(130), 2_000);
-    deadline.unref();
-    drainQueue()
-      .catch(() => {
-        /* best-effort */
-      })
-      .finally(() => {
-        clearTimeout(deadline);
-        process.exit(130); // 128 + SIGINT
-      });
-  });
-
-  process.once('SIGTERM', () => {
-    // Enforce a 2s hard deadline so tests/CI are never blocked by a stuck drain.
-    const deadline = setTimeout(() => process.exit(143), 2_000);
-    deadline.unref();
-    drainQueue()
-      .catch(() => {
-        /* best-effort */
-      })
-      .finally(() => {
-        clearTimeout(deadline);
-        process.exit(143); // 128 + SIGTERM
-      });
-  });
+  // No SIGTERM/SIGINT listener (T14670): a listener replaces the signal's
+  // default action, so it took over process-wide signal handling from the
+  // host. Its process.exit cut the sentient daemon's shutdown short and, in
+  // the CLI, could hang joining a wedged worker. The host owns its signals:
+  // the CLI exits through `exitProcess`, the daemon runs `shutdownDaemon`. The
+  // queue still drains on enqueue (prompt drain), on its interval, and here on
+  // `exit`.
 }
 
 /**

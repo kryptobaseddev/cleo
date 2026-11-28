@@ -7,18 +7,22 @@
  * resident for 7 days with two zombie children and ignored SIGTERM. This runs
  * the built CLI's verdict path in a throwaway sandbox (its own HOME, XDG dirs
  * and CLEO_HOME, a fresh `cleo init`), with a stub `gh` first on PATH that
- * answers `gh pr view` and `gh pr diff`. The verdict names a real task with one
- * criterion and a wrong packet hash, so it is refused at the packet check: the
- * path runs session binding, the task lookup, both `gh` calls, the refusal and
- * the CLI's error exit. It runs twice: inline brain writes (the CLI
+ * answers `gh pr view` and `gh pr diff` and logs each call. An author agent
+ * creates a saga with two criteria and claims it; a second agent (the reviewer)
+ * builds the packet with `cleo review packet` and records a `met` verdict with
+ * that packet's hash, so the verdict succeeds: session binding, the task and
+ * claim reads, both `gh` calls, the verdict row write and the CLI's success
+ * exit. It runs twice, one criterion each: inline brain writes (the CLI
  * default), and `CLEO_BRAIN_WRITER_THREAD=1`, the only way this path starts a
  * worker thread.
  *
  * Each run is one process (`NODE_OPTIONS` carries the heap cap, so the bin
  * shim does not re-exec). While it runs, `ps` is polled; a child of it in state
  * `Z` for {@link DEFUNCT_POLLS} consecutive polls is a defunct child that is
- * not being reaped. It fails when a run outlives {@link EXIT_BOUND_MS}, leaves
- * a defunct child, or prints anything but one JSON envelope on stdout.
+ * not being reaped. A run fails when it outlives {@link EXIT_BOUND_MS}, leaves
+ * a defunct child, exits other than 0, prints anything but one successful
+ * JSON envelope, made no `gh pr view` + `gh pr diff` call, or when `cleo review
+ * check` does not then list its criterion as met (the verdict row).
  *
  * Needs a current build (`packages/cleo/dist`). POSIX only (`ps`, a shell stub).
  *
@@ -28,7 +32,15 @@
  */
 
 import { spawn, spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -56,6 +68,7 @@ writeFileSync(
   join(stubBin, 'gh'),
   [
     '#!/bin/sh',
+    `echo "$*" >> ${JSON.stringify(join(sandbox, 'gh-calls.log'))}`,
     'case "$*" in',
     '  *"pr view"*) echo 0123456789abcdef0123456789abcdef01234567 ;;',
     '  *"pr diff"*) printf "diff --git a/a.txt b/a.txt\\n--- a/a.txt\\n+++ b/a.txt\\n@@ -1 +1 @@\\n-a\\n+b\\n" ;;',
@@ -77,69 +90,66 @@ const baseEnv = {
   CLEO_HOME: join(sandbox, 'cleo-home'),
   NODE_OPTIONS: '--max-old-space-size=1536',
   CLEO_SESSION_ID: '',
-  CLEO_AGENT_ID: 'verdict-smoke',
+  CLEO_AGENT_ID: 'smoke-author',
+  CLEO_NO_UPDATE_NOTICE: '1',
 };
+/** The reviewer: a different agent, so it is not an author of the task. */
+const reviewerEnv = { ...baseEnv, CLEO_AGENT_ID: 'smoke-reviewer' };
+
+/** Run the built CLI to completion; exit the smoke on failure. */
+function cleo(args, env = baseEnv) {
+  const run = spawnSync(process.execPath, [bin, ...args], {
+    cwd: project,
+    env,
+    encoding: 'utf-8',
+    timeout: 120_000,
+  });
+  if (run.status !== 0) {
+    process.stderr.write(
+      `smoke-review-verdict-exit: cleo ${args.slice(0, 2).join(' ')} failed (${run.status})\n${run.stdout}\n${run.stderr}\n`,
+    );
+    rmSync(sandbox, { recursive: true, force: true });
+    process.exit(1);
+  }
+  return run.stdout.trim();
+}
+
+/** Lines in the stub's call log. */
+function ghCalls() {
+  const file = join(sandbox, 'gh-calls.log');
+  return existsSync(file) ? readFileSync(file, 'utf-8').split('\n').filter(Boolean) : [];
+}
 for (const dir of ['home', 'xdg-data', 'xdg-config', 'xdg-cache', 'xdg-state', 'cleo-home']) {
   mkdirSync(join(sandbox, dir), { recursive: true });
 }
 
 spawnSync('git', ['init', '-q'], { cwd: project });
-const init = spawnSync(process.execPath, [bin, 'init', 'verdict-smoke'], {
-  cwd: project,
-  env: baseEnv,
-  encoding: 'utf-8',
-  timeout: 120_000,
-});
-if (init.status !== 0) {
-  process.stderr.write(
-    `smoke-review-verdict-exit: cleo init failed (${init.status})\n${init.stderr}\n`,
-  );
-  rmSync(sandbox, { recursive: true, force: true });
+cleo(['init', 'verdict-smoke']);
+// The author: a session, then a saga (a fresh project's first task must be one)
+// with one criterion per run, claimed so the verdict has an author to differ from.
+cleo(['session', 'start', '--scope', 'global', '--name', 'verdict smoke author']);
+const taskId = cleo([
+  'saga',
+  'create',
+  '--title',
+  'verdict exit smoke',
+  '--description',
+  'T14670 smoke target',
+  '--acceptance',
+  'inline run exits|writer-thread run exits',
+  '--field',
+  '/data/created/0',
+]);
+if (!/^T\d+$/.test(taskId)) {
+  process.stderr.write(`smoke-review-verdict-exit: unexpected task id ${taskId}\n`);
   process.exit(1);
 }
-
-// Creating a task needs a session; it binds to this agent id for every later call.
-const session = spawnSync(
-  process.execPath,
-  [bin, 'session', 'start', '--scope', 'global', '--name', 'verdict exit smoke'],
-  { cwd: project, env: baseEnv, encoding: 'utf-8', timeout: 120_000 },
+cleo(['start', taskId]);
+// The reviewer reads the packet; its hash is what the verdict binds to.
+const packetSha256 = cleo(
+  ['review', 'packet', '1', '--task', taskId, '--field', '/data/packetSha256'],
+  reviewerEnv,
 );
-if (session.status !== 0) {
-  process.stderr.write(
-    `smoke-review-verdict-exit: cleo session start failed (${session.status})\n${session.stdout}\n${session.stderr}\n`,
-  );
-  rmSync(sandbox, { recursive: true, force: true });
-  process.exit(1);
-}
-
-// A real task with one criterion, so the verdict gets past the task lookup to
-// the packet check, after both `gh` calls.
-const add = spawnSync(
-  process.execPath,
-  // A fresh project's first task must be a saga (strict-spine containment).
-  [
-    bin,
-    'saga',
-    'create',
-    '--title',
-    'verdict exit smoke',
-    '--description',
-    'T14670 smoke target',
-    '--acceptance',
-    'exits',
-    '--field',
-    '/data/created/0',
-  ],
-  { cwd: project, env: baseEnv, encoding: 'utf-8', timeout: 120_000 },
-);
-const taskId = add.stdout.trim();
-if (add.status !== 0 || !/^T\d+$/.test(taskId)) {
-  process.stderr.write(
-    `smoke-review-verdict-exit: cleo saga create failed (${add.status})\n${add.stdout}\n${add.stderr}\n`,
-  );
-  rmSync(sandbox, { recursive: true, force: true });
-  process.exit(1);
-}
 
 /** Zombie children of `pid`, from one `ps` snapshot. */
 function zombieChildren(pid) {
@@ -152,8 +162,9 @@ function zombieChildren(pid) {
 }
 
 /** Run the verdict once; resolves with what went wrong, or [] when clean. */
-function runVerdict(label, extraEnv) {
+function runVerdict(label, ac, extraEnv) {
   return new Promise((done) => {
+    const callsBefore = ghCalls().length;
     const started = Date.now();
     const child = spawn(
       process.execPath,
@@ -165,14 +176,14 @@ function runVerdict(label, extraEnv) {
         '--task',
         taskId,
         '--ac',
-        'AC1',
+        ac,
         '--met',
         '--reason',
         'exit smoke',
         '--packet',
-        '0'.repeat(64),
+        packetSha256,
       ],
-      { cwd: project, env: { ...baseEnv, ...extraEnv }, stdio: ['ignore', 'pipe', 'pipe'] },
+      { cwd: project, env: { ...reviewerEnv, ...extraEnv }, stdio: ['ignore', 'pipe', 'pipe'] },
     );
     let stdout = '';
     let stderr = '';
@@ -201,14 +212,41 @@ function runVerdict(label, extraEnv) {
       const problems = [];
       if (elapsed >= EXIT_BOUND_MS) problems.push(`did not exit within ${EXIT_BOUND_MS} ms`);
       if (defunct.size > 0) problems.push(`left defunct children: ${[...defunct].join(', ')}`);
+      if (code !== 0) problems.push(`exit ${code ?? signal}, expected 0`);
       const lines = stdout.trim().split('\n').filter(Boolean);
-      let envelopeOk = lines.length === 1;
+      let envelope = null;
       try {
-        if (envelopeOk) JSON.parse(lines[0]);
+        if (lines.length === 1) envelope = JSON.parse(lines[0]);
       } catch {
-        envelopeOk = false;
+        envelope = null;
       }
-      if (!envelopeOk) problems.push(`stdout is not one JSON envelope: ${stdout.slice(0, 300)}`);
+      if (envelope?.success !== true || envelope.data?.verdict !== 'met') {
+        problems.push(`stdout is not one successful verdict envelope: ${stdout.slice(0, 300)}`);
+      }
+      const calls = ghCalls().slice(callsBefore);
+      if (
+        !calls.some((c) => c.startsWith('pr view')) ||
+        !calls.some((c) => c.startsWith('pr diff'))
+      ) {
+        problems.push(`the verdict made no gh pr view + pr diff call (saw: ${calls.join(' | ')})`);
+      }
+      // The verdict row: `review check` must now list this criterion as met.
+      const check = spawnSync(
+        process.execPath,
+        [bin, 'review', 'check', '1', '--task', taskId, '--field', '/data/checks/0/met'],
+        { cwd: project, env: reviewerEnv, encoding: 'utf-8', timeout: 120_000 },
+      );
+      let met = [];
+      try {
+        met = JSON.parse(check.stdout.trim() || '[]');
+      } catch {
+        met = [];
+      }
+      if (!Array.isArray(met) || !met.includes(ac)) {
+        problems.push(
+          `no verdict row: review check lists met=${check.stdout.trim()} ${check.stderr.slice(0, 200)}`,
+        );
+      }
       process.stdout.write(
         `${label}: exit ${code ?? signal} in ${elapsed} ms; ${problems.length ? 'FAIL' : 'ok'}\n`,
       );
@@ -219,8 +257,8 @@ function runVerdict(label, extraEnv) {
 }
 
 const failures = [
-  ...(await runVerdict('inline brain writes', {})),
-  ...(await runVerdict('brain writer thread', { CLEO_BRAIN_WRITER_THREAD: '1' })),
+  ...(await runVerdict('inline brain writes', 'AC1', {})),
+  ...(await runVerdict('brain writer thread', 'AC2', { CLEO_BRAIN_WRITER_THREAD: '1' })),
 ];
 rmSync(sandbox, { recursive: true, force: true });
 process.exit(failures.length === 0 ? 0 : 1);

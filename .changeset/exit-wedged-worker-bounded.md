@@ -22,11 +22,14 @@ signal's default action, so SIGTERM did nothing.
   census prune worker, the background skill-review worker and the nexus parser
   pool. Nexus registers its workers through a `globalThis` set keyed by
   `EXIT_WORKER_REGISTRY_KEY` in contracts `exit-codes`.
-- Core installs no SIGTERM/SIGINT listener. Telemetry's listener only started
+- Core installs no process-lifetime SIGTERM/SIGINT listener (`bounded-git` and
+  `run-governed` keep scoped ones only while a child call is live). Telemetry's listener only started
   a flush, so a command that recorded telemetry ignored SIGTERM. The BRAIN
   writer's and the embedding queue's listeners exited any host that loaded
   them, cutting short the daemon's own shutdown (the Studio stop and the lock
   release). The host now owns its signals.
 - Post-build Checks runs `scripts/smoke-review-verdict-exit.mjs`. It runs the
-  built `cleo review verdict` in a sandbox store with a stub `gh`, and fails
-  if the process does not exit in bounded time or leaves a defunct child.
+  built `cleo review verdict` in a sandbox store with a stub `gh` and a valid
+  packet, and fails unless each verdict exits 0 within its bound, calls
+  `gh pr view` and `gh pr diff`, writes its verdict row and leaves no defunct
+  child.

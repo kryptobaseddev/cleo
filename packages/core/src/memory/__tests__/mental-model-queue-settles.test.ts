@@ -86,3 +86,22 @@ describe('mentalModelQueue settles without a manual flush (T12817)', () => {
     expect(written).toEqual(['first', 'second']);
   });
 });
+
+describe('mentalModelQueue owns no signal (T14670)', () => {
+  afterEach(() => {
+    _resetMentalModelQueueForTests();
+  });
+
+  it('installs no SIGTERM/SIGINT listener when loaded or armed by an enqueue', async () => {
+    const before = {
+      sigterm: process.listenerCount('SIGTERM'),
+      sigint: process.listenerCount('SIGINT'),
+    };
+    // Loaded above at module scope; an enqueue arms its exit hooks.
+    await mentalModelQueue.enqueue('/tmp/p', { text: 'armed', agent: 'tester', type: 'discovery' });
+    // The host owns its signals: a core listener exited the process and cut
+    // the daemon's shutdown (Studio stop, lock release) short.
+    expect(process.listenerCount('SIGTERM')).toBe(before.sigterm);
+    expect(process.listenerCount('SIGINT')).toBe(before.sigint);
+  });
+});
