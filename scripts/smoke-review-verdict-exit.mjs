@@ -145,6 +145,17 @@ if (!/^T\d+$/.test(taskId)) {
   process.exit(1);
 }
 cleo(['start', taskId]);
+// The reviewer records under its own session (E_SESSION_UNBOUND otherwise).
+cleo(['session', 'start', '--scope', 'global', '--name', 'review #1'], reviewerEnv);
+const reviewerSession = cleo(
+  ['session', 'status', '--field', '/data/session/session/id'],
+  reviewerEnv,
+);
+if (!/^ses_/.test(reviewerSession)) {
+  process.stderr.write(`smoke-review-verdict-exit: no reviewer session (${reviewerSession})\n`);
+  process.exit(1);
+}
+reviewerEnv.CLEO_SESSION_ID = reviewerSession;
 // The reviewer reads the packet; its hash is what the verdict binds to.
 const packetSha256 = cleo(
   ['review', 'packet', '1', '--task', taskId, '--field', '/data/packetSha256'],
